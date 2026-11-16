@@ -1,3 +1,3 @@
 module github.com/bindle-ai/bindle/services
 
-go 1.24
+go 1.23
