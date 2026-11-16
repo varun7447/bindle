@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+node_modules/
+cdk.out/
+infra/cdk/**/*.js
+infra/cdk/**/*.d.ts
+!infra/cdk/jest.config.js
+/services/bindle-ingest
+.DS_Store
+.env

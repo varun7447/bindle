@@ -1,0 +1,37 @@
+# Local Bindle stack: ClickHouse + ingest.
+#   docker compose -f deploy/docker-compose.yml up --build
+# Then point any agent at http://localhost:4318 with key bd_test_local.
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    ports:
+      - "8123:8123"
+    environment:
+      CLICKHOUSE_USER: bindle
+      CLICKHOUSE_PASSWORD: bindle
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - ../schema/clickhouse/001_steps.sql:/docker-entrypoint-initdb.d/001_steps.sql:ro
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8123/ping"]
+      interval: 5s
+      retries: 20
+
+  ingest:
+    build: ../services
+    ports:
+      - "4318:4318"
+    environment:
+      BINDLE_API_KEYS: "bd_test_local=dev-tenant"
+      BINDLE_SINK: clickhouse
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: bindle
+      CLICKHOUSE_PASSWORD: bindle
+      BINDLE_PRICING_FILE: /etc/bindle/pricing.json
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+volumes:
+  clickhouse-data:

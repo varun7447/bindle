@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bindle-sdk"
+version = "0.1.0"
+description = "Bindle: observability for AI agents. One line to trace every step your agent takes."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "opentelemetry-api>=1.27",
+  "opentelemetry-sdk>=1.27",
+  "opentelemetry-exporter-otlp-proto-http>=1.27",
+]
+
+[project.optional-dependencies]
+# Auto-instrumentation for frameworks that don't emit OpenTelemetry natively.
+# Package names are from the OpenInference project; pin versions after testing.
+langchain = ["openinference-instrumentation-langchain"]
+openai-agents = ["openinference-instrumentation-openai-agents"]
+crewai = ["openinference-instrumentation-crewai"]
+llama-index = ["openinference-instrumentation-llama-index"]
+openai = ["openinference-instrumentation-openai"]
+anthropic = ["openinference-instrumentation-anthropic"]
+bedrock = ["openinference-instrumentation-bedrock"]
+all = [
+  "openinference-instrumentation-langchain",
+  "openinference-instrumentation-openai-agents",
+  "openinference-instrumentation-crewai",
+  "openinference-instrumentation-llama-index",
+  "openinference-instrumentation-openai",
+  "openinference-instrumentation-anthropic",
+  "openinference-instrumentation-bedrock",
+]
+dev = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://bindle.ai"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bindle"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
