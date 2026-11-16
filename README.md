@@ -16,7 +16,7 @@ agent + bindle-sdk ──OTLP/HTTP──► bindle-ingest (Go) ──► ClickHo
 | `services` | `bindle-api`: read API for the console (runs, trace waterfall, step detail, overview, alerts) over ClickHouse. `bindle-ingest`: OTLP/HTTP receiver (protobuf + JSON, gzip), API-key → tenant, framework normalizer, server-side redaction, cost, per-tenant rate limit, backpressure, ClickHouse writer. Go standard library only, no third-party dependencies. |
 | `schema/clickhouse` | `steps` table, per-trace rollup, reference queries (runs list, waterfall, KPIs, loop detector) |
 | `deploy` | `docker-compose.yml` for a local stack |
-| `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an ALB, secrets, S3 payload bucket, Kinesis stream |
+| `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, secrets, S3 payload bucket |
 | `examples/python` | Quickstart agent that sends steps to the local stack |
 
 ## Run it locally
@@ -51,6 +51,8 @@ export OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer $BINDLE_API_KEY"
 
 ## Tests
 
+Services need Go 1.23 or newer (`go.mod` sets the minimum). The container image builds with Go 1.27.
+
 ```bash
 cd services && go vet ./... && go test ./...
 # optional: query integration test against the local stack
@@ -64,6 +66,8 @@ cd sdk/python && pip install -e '.[dev]' && pytest
 cd infra/cdk && npm install
 npx cdk deploy -c certificateArn=arn:aws:acm:...   # cert for ingest.bindle.ai
 ```
+
+Synth fails without a certificate: ingest carries API keys and agent payloads, so the public listener is HTTPS on 443 only. For a throwaway dev stack without a certificate, pass `-c insecureDevCidr=<your-ip>/32` instead; it serves plain HTTP reachable only from that range (/24 or narrower).
 
 After deploy: put the ClickHouse Cloud URL and user in the `bindle/clickhouse` secret, run `schema/clickhouse/001_steps.sql` then `002_traces_v2.sql` against ClickHouse, set `bindle/ingest-api-keys` to `key=tenant` pairs, and point `ingest.bindle.ai` at the `IngestEndpoint` output.
 
@@ -82,7 +86,7 @@ Next:
 - [x] Query API (`bindle-api`)
 - [ ] Console (Next.js)
 - [ ] Payload offload to S3 for large prompts and outputs
-- [ ] Split ingest → Kinesis → processor service (CDK already provisions the stream)
+- [ ] Split ingest → Kinesis → processor service (the stream is added to CDK with the processor)
 - [ ] Control-plane key service (replaces the env-var bootstrap)
 - [ ] Contract tests per framework release for the normalizer mappings
 - [ ] TypeScript SDK, `bindle init` CLI, hosted LLM gateway

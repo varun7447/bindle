@@ -10,6 +10,7 @@ new BindleStack(app, 'BindleDataPlane', {
     region: process.env.CDK_DEFAULT_REGION ?? 'us-west-2',
   },
   certificateArn: app.node.tryGetContext('certificateArn'),
+  insecureDevCidr: app.node.tryGetContext('insecureDevCidr'),
   minTasks: Number(app.node.tryGetContext('minTasks') ?? 2),
   maxTasks: Number(app.node.tryGetContext('maxTasks') ?? 20),
 });
