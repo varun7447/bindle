@@ -17,6 +17,7 @@ services:
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     volumes:
       - ../schema/clickhouse/001_steps.sql:/docker-entrypoint-initdb.d/001_steps.sql:ro
+      - ../schema/clickhouse/002_traces_v2.sql:/docker-entrypoint-initdb.d/002_traces_v2.sql:ro
       - clickhouse-data:/var/lib/clickhouse
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8123/ping"]

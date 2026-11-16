@@ -1,14 +1,19 @@
--- Reference queries for the console's query API. Always bind tenant_id
--- server-side from the session; never accept it from the client.
+-- Reference queries for the console's query API (services/internal/query).
+-- Always bind tenant_id server-side from the session, never from the client.
+-- Values are ClickHouse query parameters ({name:Type}), never string-spliced.
 
--- Runs list (last 24h)
+-- Runs list. Keyset pagination on (first_start, trace_id), newest first.
+-- start_hour bounds let ClickHouse skip parts outside the window.
 SELECT trace_id, min(first_start) AS started, sum(steps) AS steps, sum(failed_steps) AS failed,
-       sum(cost_usd) AS cost_usd, any(agent_name) AS agent, any(framework) AS framework,
-       max(root_duration) AS duration_ms
+       sum(cost_usd) AS cost_usd, sum(cost_unknown_steps) AS cost_unknown_steps,
+       max(agent_name) AS agent, max(framework) AS framework, max(environment) AS environment,
+       max(root_status) AS root_status, max(root_duration) AS duration_ms
 FROM bindle.traces
-WHERE tenant_id = {tenant:String} AND first_start > now64() - INTERVAL 1 DAY
+WHERE tenant_id = {tenant:String}
+  AND start_hour >= toStartOfHour({from:DateTime64(9)}) AND start_hour <= {to:DateTime64(9)}
 GROUP BY trace_id
-ORDER BY started DESC
+HAVING started >= {from:DateTime64(9)} AND started < {to:DateTime64(9)}
+ORDER BY started DESC, trace_id DESC
 LIMIT 100;
 
 -- Trace waterfall

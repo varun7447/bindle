@@ -52,7 +52,7 @@ cd infra/cdk && npm install
 npx cdk deploy -c certificateArn=arn:aws:acm:...   # cert for ingest.bindle.ai
 ```
 
-After deploy: put the ClickHouse Cloud URL and user in the `bindle/clickhouse` secret, run `schema/clickhouse/001_steps.sql` against ClickHouse, set `bindle/ingest-api-keys` to `key=tenant` pairs, and point `ingest.bindle.ai` at the `IngestEndpoint` output.
+After deploy: put the ClickHouse Cloud URL and user in the `bindle/clickhouse` secret, run `schema/clickhouse/001_steps.sql` then `002_traces_v2.sql` against ClickHouse, set `bindle/ingest-api-keys` to `key=tenant` pairs, and point `ingest.bindle.ai` at the `IngestEndpoint` output.
 
 ## Design rules
 
