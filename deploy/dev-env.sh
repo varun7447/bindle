@@ -18,5 +18,8 @@ CLICKHOUSE_PASSWORD=$(rand)
 BINDLE_API_KEY=$key
 BINDLE_API_KEYS=$key=dev-tenant
 BINDLE_ENDPOINT=http://localhost:4318
+# Local-only: the query API on 127.0.0.1:8080 serves every request as this
+# tenant until real console auth exists. Remove to make the API reject all.
+BINDLE_API_DEV_AUTH_BYPASS_TENANT=dev-tenant
 EOF
 echo "wrote $out"

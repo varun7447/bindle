@@ -13,7 +13,7 @@ agent + bindle-sdk ──OTLP/HTTP──► bindle-ingest (Go) ──► ClickHo
 | Path | What it is |
 |---|---|
 | `sdk/python` | `bindle-sdk`: one-line `bindle.init()`, auto-instrumentation, client-side redaction, `trace_step` / `trace_tool` / `decision` / `handoff` helpers |
-| `services` | `bindle-ingest`: OTLP/HTTP receiver (protobuf + JSON, gzip), API-key → tenant, framework normalizer, server-side redaction, cost, per-tenant rate limit, backpressure, ClickHouse writer. Go standard library only, no third-party dependencies. |
+| `services` | `bindle-api`: read API for the console (runs, trace waterfall, step detail, overview, alerts) over ClickHouse. `bindle-ingest`: OTLP/HTTP receiver (protobuf + JSON, gzip), API-key → tenant, framework normalizer, server-side redaction, cost, per-tenant rate limit, backpressure, ClickHouse writer. Go standard library only, no third-party dependencies. |
 | `schema/clickhouse` | `steps` table, per-trace rollup, reference queries (runs list, waterfall, KPIs, loop detector) |
 | `deploy` | `docker-compose.yml` for a local stack |
 | `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an ALB, secrets, S3 payload bucket, Kinesis stream |
@@ -31,6 +31,17 @@ curl -u "bindle:$CLICKHOUSE_PASSWORD" http://localhost:8123/ \
   --data "SELECT name, type, status, input FROM bindle.steps ORDER BY start_time FORMAT PrettyCompact"
 ```
 
+The query API runs on `http://127.0.0.1:8080`:
+
+```bash
+curl 'http://127.0.0.1:8080/api/runs?limit=5'
+curl "http://127.0.0.1:8080/api/traces/<trace_id>"
+curl 'http://127.0.0.1:8080/api/overview?window=24h'
+curl 'http://127.0.0.1:8080/api/alerts?window=1h'
+```
+
+Console auth arrives with the control plane. Until then `bindle-api` rejects every request with 401, unless `BINDLE_API_DEV_AUTH_BYPASS_TENANT` is set (deploy/.env does this locally), and it refuses that bypass on a non-loopback listener.
+
 The stack publishes its ports on `127.0.0.1` only. Any OpenTelemetry-instrumented agent also works without the SDK:
 
 ```bash
@@ -42,6 +53,8 @@ export OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer $BINDLE_API_KEY"
 
 ```bash
 cd services && go vet ./... && go test ./...
+# optional: query integration test against the local stack
+BINDLE_CLICKHOUSE_TEST_URL=http://localhost:8123 CLICKHOUSE_USER=bindle go test ./internal/query/
 cd sdk/python && pip install -e '.[dev]' && pytest
 ```
 
@@ -66,7 +79,8 @@ After deploy: put the ClickHouse Cloud URL and user in the `bindle/clickhouse` s
 Verified here: Go vet and tests (decoder, normalizer, redaction, cost, auth, rate limit, backpressure, ClickHouse writer), a local end-to-end run of the ingest binary, and Python SDK unit tests. **Not yet verified:** the SDK's export path against a real `opentelemetry-sdk` install, the ClickHouse schema against a live server, and `cdk synth`. Run all three first.
 
 Next:
-- [ ] Query API and console (port the design mockup to Next.js)
+- [x] Query API (`bindle-api`)
+- [ ] Console (Next.js)
 - [ ] Payload offload to S3 for large prompts and outputs
 - [ ] Split ingest → Kinesis → processor service (CDK already provisions the stream)
 - [ ] Control-plane key service (replaces the env-var bootstrap)
