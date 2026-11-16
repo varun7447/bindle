@@ -2,7 +2,7 @@
 //
 // Environment:
 //
-//	BINDLE_LISTEN                  listen address (default :4318, the OTLP/HTTP port)
+//	BINDLE_LISTEN                  listen address (default 127.0.0.1:4318; the container image sets :4318)
 //	BINDLE_API_KEYS                "key=tenant,key2=tenant2" (dev; prod reads Secrets Manager)
 //	BINDLE_SINK                    stdout | clickhouse (default stdout)
 //	CLICKHOUSE_URL                 e.g. http://localhost:8123
@@ -85,7 +85,7 @@ func run(log *slog.Logger) error {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 
 	srv := &http.Server{
-		Addr:              env("BINDLE_LISTEN", ":4318"),
+		Addr:              env("BINDLE_LISTEN", "127.0.0.1:4318"),
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,

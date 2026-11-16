@@ -22,18 +22,20 @@ agent + bindle-sdk ──OTLP/HTTP──► bindle-ingest (Go) ──► ClickHo
 ## Run it locally
 
 ```bash
+./deploy/dev-env.sh                      # once: random local credentials in deploy/.env (git-ignored)
+set -a; . deploy/.env; set +a            # BINDLE_API_KEY, BINDLE_ENDPOINT, CLICKHOUSE_PASSWORD
 docker compose -f deploy/docker-compose.yml up --build
 pip install -e sdk/python
 python examples/python/quickstart.py
-curl 'http://localhost:8123/?user=bindle&password=bindle' \
+curl -u "bindle:$CLICKHOUSE_PASSWORD" http://localhost:8123/ \
   --data "SELECT name, type, status, input FROM bindle.steps ORDER BY start_time FORMAT PrettyCompact"
 ```
 
-Any OpenTelemetry-instrumented agent also works without the SDK:
+The stack publishes its ports on `127.0.0.1` only. Any OpenTelemetry-instrumented agent also works without the SDK:
 
 ```bash
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-export OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer bd_test_local"
+export OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer $BINDLE_API_KEY"
 ```
 
 ## Tests

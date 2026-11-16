@@ -1,14 +1,19 @@
 # Local Bindle stack: ClickHouse + ingest.
+#   ./deploy/dev-env.sh                      # once: writes deploy/.env with random local credentials
 #   docker compose -f deploy/docker-compose.yml up --build
-# Then point any agent at http://localhost:4318 with key bd_test_local.
+# Then point any agent at http://localhost:4318 with BINDLE_API_KEY from deploy/.env.
+#
+# Ports are published on 127.0.0.1 only. To reach the stack from another
+# machine, use an SSH tunnel (ssh -L 4318:localhost:4318 host) rather than
+# widening the publish.
 services:
   clickhouse:
     image: clickhouse/clickhouse-server:24.8
     ports:
-      - "8123:8123"
+      - "127.0.0.1:8123:8123"
     environment:
       CLICKHOUSE_USER: bindle
-      CLICKHOUSE_PASSWORD: bindle
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?run deploy/dev-env.sh to create deploy/.env}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     volumes:
       - ../schema/clickhouse/001_steps.sql:/docker-entrypoint-initdb.d/001_steps.sql:ro
@@ -21,13 +26,13 @@ services:
   ingest:
     build: ../services
     ports:
-      - "4318:4318"
+      - "127.0.0.1:4318:4318"
     environment:
-      BINDLE_API_KEYS: "bd_test_local=dev-tenant"
+      BINDLE_API_KEYS: ${BINDLE_API_KEYS:?run deploy/dev-env.sh to create deploy/.env}
       BINDLE_SINK: clickhouse
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_USER: bindle
-      CLICKHOUSE_PASSWORD: bindle
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?run deploy/dev-env.sh to create deploy/.env}
       BINDLE_PRICING_FILE: /etc/bindle/pricing.json
     depends_on:
       clickhouse:

@@ -1,11 +1,12 @@
 """Send a few agent steps to a local Bindle stack.
 
+    ./deploy/dev-env.sh && set -a && . deploy/.env && set +a
     docker compose -f deploy/docker-compose.yml up --build
     pip install -e sdk/python
     python examples/python/quickstart.py
 
 Then query ClickHouse:
-    curl 'http://localhost:8123/?user=bindle&password=bindle' \
+    curl -u "bindle:$CLICKHOUSE_PASSWORD" http://localhost:8123/ \
       --data "SELECT name, type, status, input FROM bindle.steps ORDER BY start_time"
 """
 
@@ -13,9 +14,8 @@ import random
 
 import bindle
 
+# api_key and endpoint come from BINDLE_API_KEY / BINDLE_ENDPOINT (deploy/.env).
 bindle.init(
-    api_key="bd_test_local",
-    endpoint="http://localhost:4318",
     agent="support-triage",
     version="v12",
     environment="dev",
