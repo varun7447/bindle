@@ -33,6 +33,18 @@ The design mockups for these screens are in [`design/console/`](design/console/)
 
 Large payloads: an input, output or reasoning field over 32 KB goes to S3 (a local directory in docker-compose) under `tenants/<tenant>/…`, after redaction. The index keeps a 4 KB preview and a reference; the console loads the full text, up to 1 MB per field. Fields are capped at 1 MB on ingest, and a byte budget on ingest's buffer turns floods of large payloads into 503 backpressure rather than memory exhaustion.
 
+### Pipeline on AWS
+
+On AWS, ingest doesn't write to OpenSearch. It authenticates, decodes, normalizes, redacts and applies the tenant's settings, then puts each request's steps on a **Kinesis** stream as one gzipped record, keyed by tenant.
+- **Large batches:** anything over a record's 1 MB limit goes to S3 under `spool/`, and the record carries a pointer.
+- **Backpressure:** if Kinesis throttles, ingest answers 503 so exporters retry.
+
+**`bindle-processor`** reads the stream and writes OpenSearch, including payload offload and run summaries.
+- **Shard sharing:** instances share shards through leases in the control-plane database. After resharding, parent shards are read before their children.
+- **Delivery:** each batch is written before its checkpoint is saved, so delivery is at-least-once. That's safe because writes are idempotent.
+
+Locally, docker-compose keeps the simpler in-process mode (`BINDLE_SINK=opensearch`).
+
 ### Accounts and ingest keys
 
 The control plane lives in PostgreSQL:
@@ -63,7 +75,7 @@ The SDK polls `GET /v1/config` on the ingest endpoint with its ingest key. These
 | `design/console` | Console design mockups (visual spec for `web/`) |
 | `docs/images` | README screenshots |
 | `deploy` | `docker-compose.yml` for a local stack (OpenSearch, PostgreSQL, setup, ingest, API) |
-| `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, OpenSearch Service domain, RDS PostgreSQL (control plane), Cognito user pool, setup task, secrets, S3 payload bucket |
+| `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, Kinesis stream, Fargate processor, OpenSearch Service domain, RDS PostgreSQL (control plane), Cognito user pool, setup task, secrets, S3 payload bucket |
 | `examples/python` | `quickstart.py` (minimal) and `demo_agent.py` (richer run with LLM steps, retries and an optional runaway loop) |
 
 ## Run it locally
@@ -150,7 +162,7 @@ Next:
 - [x] Query API (`bindle-api`)
 - [x] Console (`web/`)
 - [ ] Payload offload to S3 for large prompts and outputs
-- [ ] Split ingest → Kinesis → processor service (the stream is added to CDK with the processor)
+- [x] Split ingest → Kinesis → processor service
 - [ ] Control-plane key service (replaces the env-var bootstrap)
 - [ ] Contract tests per framework release for the normalizer mappings
 - [ ] TypeScript SDK, `bindle init` CLI, hosted LLM gateway

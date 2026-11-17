@@ -6,7 +6,8 @@
 //	BINDLE_CONTROL_DB_URL          control-plane PostgreSQL URL for the ingest role (or PGHOST, PGUSER, ... env vars);
 //	                               ingest keys are resolved there
 //	BINDLE_API_KEYS                "key=tenant,..." static keys: tests and development only
-//	BINDLE_SINK                    stdout | opensearch (default stdout)
+//	BINDLE_SINK                    stdout | opensearch | stream (default stdout); stream puts steps on
+//	                               Kinesis (BINDLE_STREAM_NAME, AWS_REGION) for bindle-processor
 //	BINDLE_SEARCH_URL              OpenSearch endpoint (https; http only with BINDLE_SEARCH_ALLOW_HTTP=1)
 //	BINDLE_SEARCH_USER / BINDLE_SEARCH_PASSWORD   the writer user (default user bindle_writer)
 //	BINDLE_SEARCH_PREFIX           index name prefix (default bindle)
@@ -32,6 +33,7 @@ import (
 	"time"
 
 	"github.com/bindle-ai/bindle/services/internal/auth"
+	"github.com/bindle-ai/bindle/services/internal/awsv4"
 	"github.com/bindle-ai/bindle/services/internal/control"
 	"github.com/bindle-ai/bindle/services/internal/cost"
 	"github.com/bindle-ai/bindle/services/internal/ingest"
@@ -42,6 +44,7 @@ import (
 	"github.com/bindle-ai/bindle/services/internal/redact"
 	"github.com/bindle-ai/bindle/services/internal/search"
 	"github.com/bindle-ai/bindle/services/internal/sink"
+	"github.com/bindle-ai/bindle/services/internal/stream"
 )
 
 func main() {
@@ -111,13 +114,34 @@ func run(log *slog.Logger) error {
 		out = w
 	case "stdout":
 		out = &sink.Stdout{}
+	case "stream":
+		// Handled below: requests go straight to Kinesis, no local buffer.
 	default:
-		return errors.New("BINDLE_SINK must be stdout or opensearch")
+		return errors.New("BINDLE_SINK must be stdout, opensearch or stream")
 	}
 
-	batcher := pipeline.NewBatcher(out, 50_000, 1_000, time.Second, log)
-	batcher.MaxBytes = int64(envFloat("BINDLE_BUFFER_MAX_BYTES", 256<<20))
-	go batcher.Run(ctx)
+	var submit ingest.Submitter
+	drain := func() {} // waits for buffered steps to be written
+	if env("BINDLE_SINK", "stdout") == "stream" {
+		name, region := os.Getenv("BINDLE_STREAM_NAME"), os.Getenv("AWS_REGION")
+		if name == "" || region == "" {
+			return errors.New("BINDLE_SINK=stream needs BINDLE_STREAM_NAME and AWS_REGION")
+		}
+		spool, err := payload.FromURL(os.Getenv("BINDLE_PAYLOAD_STORE"), os.Getenv)
+		if err != nil {
+			return err
+		}
+		if spool != nil {
+			maxPayload = int(envFloat("BINDLE_PAYLOAD_MAX_BYTES", 1<<20)) // the processor offloads
+		}
+		submit = &stream.Producer{Kinesis: &stream.Kinesis{Region: region, Creds: &awsv4.CredentialChain{Getenv: os.Getenv}}, Stream: name, Spool: spool}
+	} else {
+		batcher := pipeline.NewBatcher(out, 50_000, 1_000, time.Second, log)
+		batcher.MaxBytes = int64(envFloat("BINDLE_BUFFER_MAX_BYTES", 256<<20))
+		go batcher.Run(ctx)
+		drain = batcher.Wait
+		submit = batcher
+	}
 
 	rate := envFloat("BINDLE_RATE_LIMIT_SPANS_PER_SEC", 2000)
 	limiter := ratelimit.New(rate, rate*5)
@@ -126,7 +150,7 @@ func run(log *slog.Logger) error {
 		Policies:     policies,
 		Normalizer:   &normalize.Normalizer{Prices: prices, Redactor: redact.Default(), MaxPayloadBytes: maxPayload},
 		Limiter:      limiter,
-		Out:          batcher,
+		Out:          submit,
 		MaxBodyBytes: int64(envFloat("BINDLE_MAX_BODY_BYTES", 8<<20)),
 		Log:          log,
 	}
@@ -160,7 +184,8 @@ func run(log *slog.Logger) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
-	batcher.Wait() // drain buffered steps before exit
+	stop()  // ends the batcher's run loop
+	drain() // write buffered steps before exit
 	log.Info("bindle-ingest stopped")
 	return nil
 }

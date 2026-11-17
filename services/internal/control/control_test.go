@@ -37,10 +37,10 @@ func TestKeyFormat(t *testing.T) {
 }
 
 func TestRenderAndRoleValidation(t *testing.T) {
-	if got := renderMigration("GRANT x TO {{api}}, {{ingest}};", Roles{API: "a_r", Ingest: "i_r"}); got != `GRANT x TO "a_r", "i_r";` {
+	if got := renderMigration("GRANT x TO {{api}}, {{ingest}}, {{processor}};", Roles{API: "a_r", Ingest: "i_r", Processor: "p_r"}); got != `GRANT x TO "a_r", "i_r", "p_r";` {
 		t.Errorf("rendered %q", got)
 	}
-	for _, r := range []Roles{{API: "x", Ingest: "x"}, {API: "Bad Name", Ingest: "i"}, {API: "a;drop", Ingest: "i"}} {
+	for _, r := range []Roles{{API: "x", Ingest: "x", Processor: "p"}, {API: "Bad Name", Ingest: "i", Processor: "p"}, {API: "a;drop", Ingest: "i", Processor: "p"}, {API: "a", Ingest: "i"}} {
 		if _, err := Migrate(context.Background(), nil, r); err == nil {
 			t.Errorf("accepted roles %+v", r)
 		}
@@ -265,14 +265,15 @@ func newTestDB(t *testing.T) (owner, apiDB, ingestDB *sql.DB) {
 	ctx := context.Background()
 	sfx := randHex(4)
 	dbName := "control_itest_" + sfx
-	roles := Roles{API: "itest_api_" + sfx, Ingest: "itest_ingest_" + sfx, APIPassword: randHex(12), IngestPassword: randHex(12)}
+	roles := Roles{API: "itest_api_" + sfx, Ingest: "itest_ingest_" + sfx, Processor: "itest_proc_" + sfx,
+		APIPassword: randHex(12), IngestPassword: randHex(12), ProcessorPassword: randHex(12)}
 	root := open(t, admin)
 	if _, err := root.ExecContext(ctx, "CREATE DATABASE "+pq.QuoteIdentifier(dbName)); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		_, _ = root.ExecContext(ctx, "DROP DATABASE IF EXISTS "+pq.QuoteIdentifier(dbName)+" WITH (FORCE)")
-		for _, r := range []string{roles.API, roles.Ingest} {
+		for _, r := range []string{roles.API, roles.Ingest, roles.Processor} {
 			_, _ = root.ExecContext(ctx, "DROP ROLE IF EXISTS "+pq.QuoteIdentifier(r))
 		}
 		root.Close()
@@ -284,7 +285,57 @@ func newTestDB(t *testing.T) (owner, apiDB, ingestDB *sql.DB) {
 	if again, err := Migrate(ctx, owner, roles); err != nil || len(again) != 0 {
 		t.Fatalf("migrate again: %v %v", again, err)
 	}
+	lastProcessorDSN = withDB(t, admin, dbName, roles.Processor, roles.ProcessorPassword)
 	return owner, open(t, withDB(t, admin, dbName, roles.API, roles.APIPassword)), open(t, withDB(t, admin, dbName, roles.Ingest, roles.IngestPassword))
+}
+
+// lastProcessorDSN is the processor-role URL of the most recent newTestDB.
+var lastProcessorDSN string
+
+func TestIntegrationLeases(t *testing.T) {
+	ctx := context.Background()
+	_, apiDB, ingestDB := newTestDB(t)
+	l := &Leases{DB: open(t, lastProcessorDSN)}
+	if _, ok, err := l.Acquire(ctx, "s", "shard-0", "a", time.Minute); !ok || err != nil {
+		t.Fatalf("acquire: %v %v", ok, err)
+	}
+	if _, ok, _ := l.Acquire(ctx, "s", "shard-0", "b", time.Minute); ok {
+		t.Fatal("b took a live lease")
+	}
+	if err := l.Checkpoint(ctx, "s", "shard-0", "a", "seq-1", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Checkpoint(ctx, "s", "shard-0", "b", "seq-9", false); err == nil {
+		t.Fatal("non-owner checkpointed")
+	}
+	if ok, _ := l.Renew(ctx, "s", "shard-0", "b", time.Minute); ok {
+		t.Fatal("non-owner renewed")
+	}
+	if _, ok, _ := l.Acquire(ctx, "s", "shard-1", "b", time.Millisecond); !ok {
+		t.Fatal("acquire shard-1")
+	}
+	time.Sleep(20 * time.Millisecond)
+	lease, ok, err := l.Acquire(ctx, "s", "shard-0", "a", time.Minute)
+	if !ok || err != nil || lease.Checkpoint != "seq-1" {
+		t.Fatalf("re-acquire own lease: %+v %v %v", lease, ok, err)
+	}
+	if _, ok, _ := l.Acquire(ctx, "s", "shard-1", "a", time.Minute); !ok {
+		t.Fatal("expired lease not taken over")
+	}
+	if err := l.Checkpoint(ctx, "s", "shard-1", "a", "end", true); err != nil {
+		t.Fatal(err)
+	}
+	if done, _ := l.Finished(ctx, "s", "shard-1"); !done {
+		t.Fatal("finished")
+	}
+	for _, db := range []*sql.DB{apiDB, ingestDB} {
+		if _, err := db.ExecContext(ctx, "SELECT * FROM control.stream_leases"); err == nil {
+			t.Error("non-processor role can read leases")
+		}
+	}
+	if _, err := l.DB.ExecContext(ctx, "SELECT * FROM control.api_keys"); err == nil {
+		t.Error("processor role can read keys")
+	}
 }
 
 func TestIntegrationSDKConfig(t *testing.T) {

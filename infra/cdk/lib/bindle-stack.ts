@@ -9,6 +9,7 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as kinesis from 'aws-cdk-lib/aws-kinesis';
 import * as opensearch from 'aws-cdk-lib/aws-opensearchservice';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -55,8 +56,8 @@ export interface BindleStackProps extends cdk.StackProps {
  *
  * Large prompts/outputs (over 32 KiB) are stored in an S3 bucket (SSE,
  * public access blocked, TLS only, 30-day expiry); ingest may only put.
- * The Kinesis stream for the ingest -> processor split is added in step 6,
- * together with the processor, so it does not cost money while unused.
+ * Pipeline: ingest puts each request on a Kinesis stream; bindle-processor
+ * (a private Fargate service) consumes it into OpenSearch.
  */
 export class BindleStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: BindleStackProps = {}) {
@@ -173,6 +174,7 @@ export class BindleStack extends cdk.Stack {
     });
     const rolePassword = () => ({ excludePunctuation: true, passwordLength: 40 });
     const dbIngest = new secretsmanager.Secret(this, 'ControlDbIngest', { secretName: 'bindle/control-db-ingest', generateSecretString: rolePassword() });
+    const dbProcessor = new secretsmanager.Secret(this, 'ControlDbProcessor', { secretName: 'bindle/control-db-processor', generateSecretString: rolePassword() });
     const dbApi = new secretsmanager.Secret(this, 'ControlDbApi', { secretName: 'bindle/control-db-api', generateSecretString: rolePassword() });
     // libpq settings; TLS verified against the RDS CA bundle in the image.
     const dbEnv = {
@@ -223,11 +225,22 @@ export class BindleStack extends cdk.Stack {
 
     const image = ecs.ContainerImage.fromAsset(path.join(__dirname, '../../../services'));
 
+    // Ingest -> processor. On-demand capacity: no shards to size up front.
+    const steps = new kinesis.Stream(this, 'Steps', {
+      streamMode: kinesis.StreamMode.ON_DEMAND,
+      encryption: kinesis.StreamEncryption.MANAGED,
+      retentionPeriod: cdk.Duration.hours(48),
+    });
+
     const payloads = new s3.Bucket(this, 'Payloads', {
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
-      lifecycleRules: [{ expiration: cdk.Duration.days(30) }],
+      lifecycleRules: [
+        { expiration: cdk.Duration.days(30) },
+        // Batches spooled for the processor are only needed until processed.
+        { prefix: 'spool/', expiration: cdk.Duration.days(2) },
+      ],
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
@@ -261,16 +274,15 @@ export class BindleStack extends cdk.Stack {
         environment: {
           ...dbEnv,
           PGUSER: 'bindle_ingest',
-          BINDLE_SINK: 'opensearch',
-          BINDLE_SEARCH_URL: searchUrl,
-          BINDLE_SEARCH_USER: 'bindle_writer',
+          // Ingest puts each request on the stream; bindle-processor writes OpenSearch.
+          BINDLE_SINK: 'stream',
+          BINDLE_STREAM_NAME: steps.streamName,
           BINDLE_PRICING_FILE: '/etc/bindle/pricing.json',
           BINDLE_RATE_LIMIT_SPANS_PER_SEC: '2000',
-          // Fields over 32 KiB go here; the index keeps a preview and a reference.
-          BINDLE_PAYLOAD_STORE: `s3://${payloads.bucketName}/payloads`,
+          // Batches over a Kinesis record's size are spooled here (spool/...).
+          BINDLE_PAYLOAD_STORE: `s3://${payloads.bucketName}`,
         },
         secrets: {
-          BINDLE_SEARCH_PASSWORD: ecs.Secret.fromSecretsManager(searchWriter, 'password'),
           PGPASSWORD: ecs.Secret.fromSecretsManager(dbIngest),
         },
         logDriver: ecs.LogDrivers.awsLogs({ streamPrefix: 'ingest', logRetention: logs.RetentionDays.ONE_MONTH }),
@@ -298,12 +310,11 @@ export class BindleStack extends cdk.Stack {
       targetGroup: ingest.targetGroup,
     });
 
-    // Put only: ingest can't read, list or delete payloads.
+    steps.grant(ingest.taskDefinition.taskRole, 'kinesis:PutRecord');
     ingest.taskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
       actions: ['s3:PutObject'],
-      resources: [payloads.arnForObjects('payloads/*')],
+      resources: [payloads.arnForObjects('spool/*')],
     }));
-    searchSg.addIngressRule(ec2.Peer.securityGroupId(ingest.service.connections.securityGroups[0].securityGroupId), ec2.Port.tcp(443), 'bindle-ingest');
     db.connections.allowDefaultPortFrom(ingest.service, 'bindle-ingest');
 
     // One-off setup task: run it after each deploy (command in the
@@ -318,6 +329,7 @@ export class BindleStack extends cdk.Stack {
         PGPASSWORD: ecs.Secret.fromSecretsManager(db.secret!, 'password'),
         BINDLE_CONTROL_API_PASSWORD: ecs.Secret.fromSecretsManager(dbApi),
         BINDLE_CONTROL_INGEST_PASSWORD: ecs.Secret.fromSecretsManager(dbIngest),
+        BINDLE_CONTROL_PROCESSOR_PASSWORD: ecs.Secret.fromSecretsManager(dbProcessor),
         BINDLE_SEARCH_ADMIN_USER: ecs.Secret.fromSecretsManager(searchAdmin, 'username'),
         BINDLE_SEARCH_ADMIN_PASSWORD: ecs.Secret.fromSecretsManager(searchAdmin, 'password'),
         BINDLE_SEARCH_WRITER_PASSWORD: ecs.Secret.fromSecretsManager(searchWriter, 'password'),
@@ -334,7 +346,48 @@ export class BindleStack extends cdk.Stack {
       value: `${certificate ? 'https' : 'http'}://${ingest.loadBalancer.loadBalancerDnsName}`,
       description: 'Point a CNAME for ingest.bindle.ai here',
     });
+    // ---- processor: stream -> OpenSearch ---------------------------------------
+    const processorTask = new ecs.FargateTaskDefinition(this, 'ProcessorTask', { cpu: 512, memoryLimitMiB: 1024 });
+    processorTask.addContainer('processor', {
+      image,
+      entryPoint: ['/bindle-processor'],
+      environment: {
+        ...dbEnv,
+        PGUSER: 'bindle_processor',
+        BINDLE_STREAM_NAME: steps.streamName,
+        BINDLE_SEARCH_URL: searchUrl,
+        BINDLE_SEARCH_USER: 'bindle_writer',
+        // Payloads are stored under payloads/... and spooled batches read from spool/...
+        BINDLE_PAYLOAD_STORE: `s3://${payloads.bucketName}`,
+      },
+      secrets: {
+        BINDLE_SEARCH_PASSWORD: ecs.Secret.fromSecretsManager(searchWriter, 'password'),
+        PGPASSWORD: ecs.Secret.fromSecretsManager(dbProcessor),
+      },
+      logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'processor', logRetention: logs.RetentionDays.ONE_MONTH }),
+    });
+    const processor = new ecs.FargateService(this, 'Processor', {
+      cluster,
+      taskDefinition: processorTask,
+      desiredCount: 1,
+      minHealthyPercent: 100,
+      maxHealthyPercent: 200,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      circuitBreaker: { rollback: true },
+    });
+    processor.autoScaleTaskCount({ minCapacity: 1, maxCapacity: 4 }).scaleOnCpuUtilization('Cpu', { targetUtilizationPercent: 60 });
+    steps.grantRead(processorTask.taskRole);
+    processorTask.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ['s3:GetObject'], resources: [payloads.arnForObjects('spool/*')],
+    }));
+    processorTask.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ['s3:PutObject'], resources: [payloads.arnForObjects('tenants/*')],
+    }));
+    searchSg.addIngressRule(ec2.Peer.securityGroupId(processor.connections.securityGroups[0].securityGroupId), ec2.Port.tcp(443), 'bindle-processor');
+    db.connections.allowDefaultPortFrom(processor, 'bindle-processor');
+
     new cdk.CfnOutput(this, 'PayloadBucket', { value: payloads.bucketName });
+    new cdk.CfnOutput(this, 'StepsStream', { value: steps.streamName });
     new cdk.CfnOutput(this, 'SearchEndpoint', { value: searchUrl });
     new cdk.CfnOutput(this, 'ControlDbEndpoint', { value: db.dbInstanceEndpointAddress });
     new cdk.CfnOutput(this, 'CognitoIssuer', {

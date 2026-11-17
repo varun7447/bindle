@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/bindle-ai/bindle/services/internal/awsv4"
 )
 
 // Store is a blob store.
@@ -78,7 +80,7 @@ func FromURL(raw string, getenv func(string) string) (Store, error) {
 		if u.Host == "" || region == "" {
 			return nil, errors.New("payload: s3://bucket needs AWS_REGION")
 		}
-		return &S3Store{Bucket: u.Host, Prefix: strings.Trim(u.Path, "/"), Region: region, Creds: &CredentialChain{Getenv: getenv}}, nil
+		return &S3Store{Bucket: u.Host, Prefix: strings.Trim(u.Path, "/"), Region: region, Creds: &awsv4.CredentialChain{Getenv: getenv}}, nil
 	}
 	return nil, fmt.Errorf("payload: unsupported store %q", u.Scheme)
 }
