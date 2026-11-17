@@ -13,3 +13,8 @@ infra/cdk/**/*.d.ts
 /services/bindle-ingest
 .DS_Store
 .env
+
+# web console (Next.js)
+web/.next/
+web/next-env.d.ts
+web/*.tsbuildinfo

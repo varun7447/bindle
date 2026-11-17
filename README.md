@@ -14,10 +14,11 @@ agent + bindle-sdk ──OTLP/HTTP──► bindle-ingest (Go) ──► ClickHo
 |---|---|
 | `sdk/python` | `bindle-sdk`: one-line `bindle.init()`, auto-instrumentation, client-side redaction, `trace_step` / `trace_tool` / `decision` / `handoff` helpers |
 | `services` | `bindle-api`: read API for the console (runs, trace waterfall, step detail, overview, alerts) over ClickHouse. `bindle-ingest`: OTLP/HTTP receiver (protobuf + JSON, gzip), API-key → tenant, framework normalizer, server-side redaction, cost, per-tenant rate limit, backpressure, ClickHouse writer. Go standard library only, no third-party dependencies. |
+| `web` | Console (Next.js): overview, runs, trace explorer, connect-an-agent. See `web/README.md` |
 | `schema/clickhouse` | `steps` table, per-trace rollup, reference queries (runs list, waterfall, KPIs, loop detector) |
 | `deploy` | `docker-compose.yml` for a local stack |
 | `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, secrets, S3 payload bucket |
-| `examples/python` | Quickstart agent that sends steps to the local stack |
+| `examples/python` | `quickstart.py` (minimal) and `demo_agent.py` (richer run with LLM steps, retries and an optional runaway loop) |
 
 ## Run it locally
 
@@ -58,6 +59,7 @@ cd services && go vet ./... && go test ./...
 # optional: query integration test against the local stack
 BINDLE_CLICKHOUSE_TEST_URL=http://localhost:8123 CLICKHOUSE_USER=bindle go test ./internal/query/
 cd sdk/python && pip install -e '.[dev]' && pytest
+cd web && npm install && npm run typecheck && npm test && npm run build
 ```
 
 ## Deploy to AWS
@@ -84,7 +86,7 @@ Verified here: Go vet and tests (decoder, normalizer, redaction, cost, auth, rat
 
 Next:
 - [x] Query API (`bindle-api`)
-- [ ] Console (Next.js)
+- [x] Console (`web/`)
 - [ ] Payload offload to S3 for large prompts and outputs
 - [ ] Split ingest → Kinesis → processor service (the stream is added to CDK with the processor)
 - [ ] Control-plane key service (replaces the env-var bootstrap)
