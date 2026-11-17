@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { fillSeries } from '@/lib/chart';
 import { formatCost, formatCount, formatDuration, formatPercent, formatRelative } from '@/lib/format';
 import { WINDOWS, asWindow, one } from '@/lib/ids';
+import { requireSession } from '@/lib/auth';
 
 const WINDOW_LABEL = { '24h': 'Last 24 hours', '7d': 'Last 7 days', '30d': 'Last 30 days' } as const;
 
@@ -13,6 +14,7 @@ export default async function OverviewPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  await requireSession('/');
   const window = asWindow(one((await searchParams).window));
   const [ov, alerts, recent] = await Promise.all([
     settle(api.overview(window)),

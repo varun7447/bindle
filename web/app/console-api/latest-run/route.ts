@@ -7,6 +7,7 @@ import { validSince } from '@/lib/ids';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+  // The API enforces the session; this only avoids a pointless call.
   const since = validSince(req.nextUrl.searchParams.get('since'));
   if (!since) return NextResponse.json({ error: { code: 'bad_request', message: 'since must be a recent past timestamp' } }, { status: 400 });
   try {

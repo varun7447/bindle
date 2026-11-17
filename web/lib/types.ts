@@ -120,3 +120,29 @@ export interface AlertsResponse {
   window: string;
   alerts: Alert[];
 }
+
+export interface Me {
+  user_id: string;
+  tenant_id: string;
+  tenant_name: string;
+  role: 'owner' | 'admin' | 'member';
+  can_manage_keys: boolean;
+}
+
+export interface APIKey {
+  id: string;
+  name: string;
+  display_prefix: string;
+  created_by?: string;
+  created_at: string;
+  expires_at?: string;
+  revoked_at?: string;
+  replaced_by?: string;
+  last_used_at?: string;
+}
+
+export interface CreatedKey {
+  key: APIKey;
+  secret: string;
+  old_key_expires_in_hours?: number;
+}

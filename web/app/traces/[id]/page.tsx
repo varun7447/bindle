@@ -3,7 +3,8 @@ import { notFound } from 'next/navigation';
 import { ApiErrorPanel, KindChip, StatusBadge, settle } from '@/components/ui';
 import { ApiError, api } from '@/lib/api';
 import { formatBytes, formatCost, formatCount, formatDuration, formatTime, prettyPayload } from '@/lib/format';
-import { isStepId, one } from '@/lib/ids';
+import { isStepId, isTraceId, one } from '@/lib/ids';
+import { requireSession } from '@/lib/auth';
 import { KIND_ORDER, stepKind } from '@/lib/steps';
 import type { StepDetail, StepSummary } from '@/lib/types';
 import { buildWaterfall, defaultStepId } from '@/lib/waterfall';
@@ -16,6 +17,7 @@ export default async function TracePage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const id = (await params).id.toLowerCase();
+  await requireSession(isTraceId(id) ? `/traces/${id}` : '/runs');
   const res = await settle(api.trace(id));
   if (!res.ok) {
     if (res.error instanceof ApiError && (res.error.status === 404 || res.error.status === 400)) notFound();

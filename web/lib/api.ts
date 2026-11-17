@@ -3,12 +3,16 @@
 // needs no CORS and credentials never reach the browser.
 //
 // The console holds no credentials of its own and never chooses a tenant.
-// bindle-api resolves the tenant from the caller's session; until console
-// auth exists (step 3) it rejects every request unless its local dev bypass
-// is on. Step 3 forwards the signed-in user's session here.
+// It forwards the signed-in user's Cognito access token; bindle-api verifies
+// it and resolves the tenant. Without Cognito configured (local dev), no
+// token is sent and the API's dev bypass, if enabled, applies.
 
+import { sessionToken } from './auth';
 import type {
+  APIKey,
   AlertsResponse,
+  CreatedKey,
+  Me,
   OverviewResponse,
   RunsResponse,
   StepResponse,
@@ -42,11 +46,21 @@ export function buildUrl(base: string, path: string, params: Params = {}): strin
   return url.toString();
 }
 
-export async function apiGet<T>(path: string, params: Params = {}, fetchImpl: typeof fetch = fetch): Promise<T> {
-  const url = buildUrl(apiBase(), path, params);
+export async function apiGet<T>(path: string, params: Params = {}, fetchImpl: typeof fetch = fetch, token?: string | null): Promise<T> {
+  return apiRequest<T>('GET', buildUrl(apiBase(), path, params), undefined, fetchImpl, token);
+}
+
+export async function apiSend<T>(method: 'POST', path: string, body: object, fetchImpl: typeof fetch = fetch, token?: string | null): Promise<T> {
+  return apiRequest<T>(method, buildUrl(apiBase(), path), body, fetchImpl, token);
+}
+
+async function apiRequest<T>(method: string, url: string, body: object | undefined, fetchImpl: typeof fetch, token?: string | null): Promise<T> {
+  const headers: Record<string, string> = { accept: 'application/json' };
+  if (token) headers.authorization = `Bearer ${token}`;
+  if (body) headers['content-type'] = 'application/json';
   let res: Response;
   try {
-    res = await fetchImpl(url, { cache: 'no-store', headers: { accept: 'application/json' } });
+    res = await fetchImpl(url, { method, cache: 'no-store', headers, body: body ? JSON.stringify(body) : undefined });
   } catch {
     throw new ApiError(0, 'unreachable', `Can't reach the Bindle API at ${apiBase()}`);
   }
@@ -62,20 +76,37 @@ export async function apiGet<T>(path: string, params: Params = {}, fetchImpl: ty
     }
     throw new ApiError(res.status, code, message);
   }
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+const KEY_ID = /^key_[0-9a-f]{20}$/;
+
+// Every call carries the current user's session token (if any).
+const get = async <T>(path: string, params: Params = {}) => apiGet<T>(path, params, fetch, await sessionToken());
+const post = async <T>(path: string, body: object) => apiSend<T>('POST', path, body, fetch, await sessionToken());
+
+function keyPath(id: string, action: 'rotate' | 'revoke'): string {
+  if (!KEY_ID.test(id)) throw new ApiError(400, 'bad_request', 'Invalid key ID');
+  return `/api/keys/${id}/${action}`;
 }
 
 export const api = {
   runs: (p: { from?: string; to?: string; status?: string; agent?: string; environment?: string; limit?: string; cursor?: string }) =>
-    apiGet<RunsResponse>('/api/runs', p),
+    get<RunsResponse>('/api/runs', p),
   trace: async (id: string) => {
     if (!isTraceId(id)) throw new ApiError(400, 'bad_request', 'Invalid trace ID');
-    return apiGet<TraceResponse>(`/api/traces/${id}`);
+    return get<TraceResponse>(`/api/traces/${id}`);
   },
   step: async (traceId: string, stepId: string) => {
     if (!isTraceId(traceId) || !isStepId(stepId)) throw new ApiError(400, 'bad_request', 'Invalid step ID');
-    return apiGet<StepResponse>(`/api/traces/${traceId}/steps/${stepId}`);
+    return get<StepResponse>(`/api/traces/${traceId}/steps/${stepId}`);
   },
-  overview: (window: string) => apiGet<OverviewResponse>('/api/overview', { window }),
-  alerts: (window: string) => apiGet<AlertsResponse>('/api/alerts', { window }),
+  overview: (window: string) => get<OverviewResponse>('/api/overview', { window }),
+  alerts: (window: string) => get<AlertsResponse>('/api/alerts', { window }),
+  me: () => get<Me>('/api/me'),
+  keys: () => get<{ keys: APIKey[] }>('/api/keys'),
+  createKey: (name: string) => post<CreatedKey>('/api/keys', { name }),
+  rotateKey: async (id: string, graceHours: number) => post<CreatedKey>(keyPath(id, 'rotate'), { grace_hours: graceHours }),
+  revokeKey: async (id: string) => post<void>(keyPath(id, 'revoke'), {}),
 };

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { FRAMEWORKS, envBlock, frameworkById } from '@/lib/snippets';
 import { one } from '@/lib/ids';
+import { requireSession } from '@/lib/auth';
 import { WaitForTrace } from './WaitForTrace';
 
 export default async function ConnectPage({
@@ -8,6 +9,7 @@ export default async function ConnectPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  await requireSession('/connect');
   const fw = frameworkById(one((await searchParams).fw));
   const endpoint = process.env.BINDLE_PUBLIC_INGEST_URL ?? 'https://ingest.bindle.ai';
 
@@ -38,8 +40,8 @@ export default async function ConnectPage({
               <h2>Set your key and endpoint</h2>
               <pre className="code">{envBlock(endpoint)}</pre>
               <div className="sub">
-                Self-serve keys arrive with sign-up. Locally, use <code>BINDLE_API_KEY</code> from <code>deploy/.env</code>.
-                Keep keys out of source code.
+                <Link href="/keys">Create an ingest key</Link> and set it as <code>BINDLE_API_KEY</code>. Keep keys out of
+                source code. Locally, <code>deploy/.env</code> already has one.
               </div>
             </li>
             <li>

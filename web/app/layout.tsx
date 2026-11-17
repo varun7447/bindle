@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import { Nav } from '@/components/Nav';
+import { authConfig } from '@/lib/auth';
 import './globals.css';
 
 // Self-hosted by next/font at build time: no requests to Google at runtime.
@@ -18,7 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${sans.variable} ${mono.variable}`}>
       <body>
         <div className="shell">
-          <Nav />
+          <Nav signOut={authConfig() !== null} />
           <main className="main">{children}</main>
         </div>
       </body>

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { ApiErrorPanel, RunsTable, settle } from '@/components/ui';
 import { api } from '@/lib/api';
 import { WINDOWS, WINDOW_MS, asWindow, one } from '@/lib/ids';
+import { requireSession } from '@/lib/auth';
 
 type SP = Record<string, string | string[] | undefined>;
 
@@ -19,6 +20,7 @@ function hrefWith(base: Record<string, string | undefined>, extra: Record<string
 }
 
 export default async function RunsPage({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireSession('/runs');
   const sp = await searchParams;
   const range = asWindow(one(sp.range));
   const status = ['failed', 'ok'].includes(one(sp.status) ?? '') ? one(sp.status) : undefined;

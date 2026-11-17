@@ -45,6 +45,8 @@ code, pre { font-family: var(--mono); font-size: 12.5px; }
 .nav a:hover { background: var(--panel-2); text-decoration: none; color: var(--text); }
 .nav .brand:hover { background: none; }
 .nav a[aria-current='page'] { background: var(--panel-2); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+button.nav-signout { width: 100%; text-align: left; background: none; border: 0; color: var(--muted); padding: 7px 10px; }
+button.nav-signout:hover { color: var(--text); background: var(--panel-2); }
 .main { padding: 24px 32px 48px; min-width: 0; max-width: 1440px; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
 .sub { color: var(--muted); font-size: 13px; }

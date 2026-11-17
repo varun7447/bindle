@@ -10,6 +10,7 @@ directly and no credentials reach it.
 | Runs list with filters and pagination | `/runs` |
 | Trace explorer: waterfall + step detail (input, output, reasoning, attributes, redaction notice) | `/traces/<trace_id>` |
 | Connect an agent: per-framework snippets and a live "waiting for first trace" state | `/connect` |
+| Ingest keys: create (shown once), rotate with a grace period, revoke | `/keys` |
 
 ## Run locally
 
@@ -23,14 +24,30 @@ BINDLE_API_URL=http://127.0.0.1:8080 BINDLE_PUBLIC_INGEST_URL=http://localhost:4
 python ../examples/python/demo_agent.py --loop   # sample data, including a runaway-loop alert
 ```
 
-`npm run dev` and `npm run start` listen on `127.0.0.1:3000` only. The console
-has no sign-in yet (step 3) and shows whatever tenant `bindle-api` resolves, so
+`npm run dev` and `npm run start` listen on `127.0.0.1:3000` only.
+
+## Sign-in
+
+With the Cognito variables set, every page requires sign-in through Amazon
+Cognito's hosted pages (OAuth 2.0 authorization code flow with PKCE). The
+session is an AES-256-GCM-sealed, httpOnly, SameSite=Lax cookie holding only
+the Cognito access token; the console forwards it to `bindle-api`, which
+verifies it. Key changes are Server Actions, which Next.js and the console
+both restrict to this console's own origin. A user's first sign-in creates
+their workspace.
+
+Without the Cognito variables (local development), there is no sign-in and
+the console shows whatever tenant `bindle-api`'s dev bypass resolves, so
 don't widen the bind.
 
 | Env var | Default | Meaning |
 |---|---|---|
 | `BINDLE_API_URL` | `http://127.0.0.1:8080` | bindle-api base URL (server-side only) |
 | `BINDLE_PUBLIC_INGEST_URL` | `https://ingest.bindle.ai` | Ingest endpoint shown in the Connect snippets |
+| `BINDLE_COGNITO_DOMAIN` | (none) | Cognito hosted UI, e.g. `https://<prefix>.auth.<region>.amazoncognito.com` |
+| `BINDLE_COGNITO_CLIENT_ID` / `BINDLE_COGNITO_CLIENT_SECRET` | (none) | The console's app client (the secret is optional) |
+| `BINDLE_CONSOLE_URL` | (none) | This console's public URL (https), used for the OAuth redirect |
+| `BINDLE_SESSION_SECRET` | (none) | 32 random bytes, base64 (`openssl rand -base64 32`) |
 
 ## Checks
 
