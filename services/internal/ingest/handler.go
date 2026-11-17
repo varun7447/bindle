@@ -26,7 +26,7 @@ type Submitter interface {
 
 // Handler serves POST /v1/traces.
 type Handler struct {
-	Keys         *auth.Keys
+	Keys         auth.Resolver
 	Normalizer   *normalize.Normalizer
 	Limiter      *ratelimit.Limiter
 	Out          Submitter
