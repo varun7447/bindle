@@ -21,29 +21,39 @@ export const CONTENT_KEYS = [
   'gen_ai.tool.call.result',
 ] as const;
 
+// When content is dropped, spans say who turned capture off, so the console
+// can explain an empty input/output: "sdk" (this app's code or environment)
+// or "workspace" (the console's SDK settings).
+export const DROPPED_ATTR = 'bindle.content_dropped';
+export type DroppedBy = 'sdk' | 'workspace';
+
 export class RedactingSpanExporter implements SpanExporter {
   // One object, replaced atomically by update(), read once per export.
-  private policy: { capture: boolean; redactor: Redactor };
+  private policy: { capture: boolean; redactor: Redactor; droppedBy: DroppedBy };
 
   constructor(
     private readonly delegate: SpanExporter,
     redactor: Redactor,
     capture: boolean,
+    droppedBy: DroppedBy = 'sdk',
   ) {
-    this.policy = { capture, redactor };
+    this.policy = { capture, redactor, droppedBy };
   }
 
-  update(capture: boolean, redactor: Redactor): void {
-    this.policy = { capture, redactor };
+  update(capture: boolean, redactor: Redactor, droppedBy: DroppedBy = 'sdk'): void {
+    this.policy = { capture, redactor, droppedBy };
   }
 
   get captureContent(): boolean {
     return this.policy.capture;
   }
 
-  clean(span: ReadableSpan, capture: boolean, redactor: Redactor): ReadableSpan {
+  clean(span: ReadableSpan, capture: boolean, redactor: Redactor, droppedBy: DroppedBy = 'sdk'): ReadableSpan {
     const attrs = { ...span.attributes };
-    if (!capture) for (const k of CONTENT_KEYS) delete attrs[k];
+    if (!capture) {
+      for (const k of CONTENT_KEYS) delete attrs[k];
+      attrs[DROPPED_ATTR] = droppedBy;
+    }
     const events = span.events
       .filter((e) => capture || !e.name.startsWith('gen_ai.')) // GenAI events carry message content
       .map((e) => ({ ...e, attributes: redactor.applyAttributes(e.attributes) }));
@@ -70,10 +80,10 @@ export class RedactingSpanExporter implements SpanExporter {
   }
 
   export(spans: ReadableSpan[], done: (r: ExportResult) => void): void {
-    const { capture, redactor } = this.policy;
+    const { capture, redactor, droppedBy } = this.policy;
     let cleaned: ReadableSpan[];
     try {
-      cleaned = spans.map((s) => this.clean(s, capture, redactor));
+      cleaned = spans.map((s) => this.clean(s, capture, redactor, droppedBy));
     } catch (e) {
       // Never send unredacted data on error.
       done({ code: ExportResultCode.FAILED, error: e as Error });

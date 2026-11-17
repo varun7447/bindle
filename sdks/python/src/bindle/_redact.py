@@ -1,5 +1,5 @@
 """First-pass redaction that runs inside the customer's process, before any
-data leaves it. Mirrors the server-side rules in services/internal/redact."""
+data leaves it. Mirrors the server-side rules in backend/internal/redact."""
 
 from __future__ import annotations
 

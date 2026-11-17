@@ -115,7 +115,8 @@ def _apply_remote(settings) -> None:
     if sampler is not None:
         sampler.set_rate(rate)
     if exporter is not None:
-        exporter.update(capture, _local_redactor(cfg, settings.redact_patterns))
+        exporter.update(capture, _local_redactor(cfg, settings.redact_patterns),
+                        "sdk" if not cfg.capture_content else "workspace")
     _state["capture"], _state["remote"] = capture, settings
     log.debug("bindle: remote config v%s applied (sample_rate=%s, capture_content=%s, patterns=%d)",
               settings.version, rate, capture, len(settings.redact_patterns))

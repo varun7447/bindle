@@ -1,5 +1,5 @@
 // First-pass redaction inside the customer's process, before data leaves it.
-// Mirrors sdk/python/src/bindle/_redact.py and services/internal/redact;
+// Mirrors sdks/python/src/bindle/_redact.py and backend/internal/redact;
 // ingest redacts again.
 
 import type { AttributeValue, Attributes } from '@opentelemetry/api';

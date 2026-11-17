@@ -40,7 +40,7 @@ def _init(agent: str) -> str:
     )
 
 
-# Keep in step with web/lib/snippets.ts (the console's Connect page).
+# Keep in step with console/lib/snippets.ts (the console's Connect page).
 # Order matters: the first match wins, so agent frameworks come before the
 # LLM clients they depend on.
 FRAMEWORKS: Tuple[Framework, ...] = (

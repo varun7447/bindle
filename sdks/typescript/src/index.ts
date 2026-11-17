@@ -137,7 +137,7 @@ function applyRemote(s: RemoteSettings): void {
   if (!cfg) return;
   const capture = cfg.captureContent && s.captureContent;
   state.sampler?.setRate(Math.min(cfg.sampleRate, s.sampleRate));
-  state.exporter?.update(capture, localRedactor(cfg, s.redactPatterns));
+  state.exporter?.update(capture, localRedactor(cfg, s.redactPatterns), cfg.captureContent ? 'workspace' : 'sdk');
   state.capture = capture;
   state.remote = s;
   debug(`bindle: remote config v${s.version} applied`);

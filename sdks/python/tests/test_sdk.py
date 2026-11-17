@@ -90,5 +90,5 @@ def test_capture_off_drops_genai_content():
         span.add_event("gen_ai.user.message", {"content": "secret plan"})
         span.add_event("retry", {"n": 1})
     (s,) = mem.get_finished_spans()
-    assert dict(s.attributes) == {"gen_ai.usage.input_tokens": 40}
+    assert dict(s.attributes) == {"gen_ai.usage.input_tokens": 40, "bindle.content_dropped": "sdk"}
     assert [e.name for e in s.events] == ["retry"]

@@ -15,14 +15,20 @@ from ._redact import Redactor
 
 
 class RedactingSpanExporter(SpanExporter):
-    def __init__(self, delegate: SpanExporter, redactor: Redactor, capture_content: bool = True):
+    # When content is dropped, spans say who turned capture off, so the
+    # console can explain an empty input/output: "sdk" (this app's code or
+    # environment) or "workspace" (the console's SDK settings).
+    DROPPED_ATTR = "bindle.content_dropped"
+
+    def __init__(self, delegate: SpanExporter, redactor: Redactor, capture_content: bool = True,
+                 dropped_by: str = "sdk"):
         self._delegate = delegate
         # One tuple, replaced atomically by update(), read once per export.
-        self._policy = (capture_content, redactor)
+        self._policy = (capture_content, redactor, dropped_by)
 
-    def update(self, capture_content: bool, redactor: Redactor) -> None:
+    def update(self, capture_content: bool, redactor: Redactor, dropped_by: str = "sdk") -> None:
         """Switch settings at runtime (remote config)."""
-        self._policy = (capture_content, redactor)
+        self._policy = (capture_content, redactor, dropped_by)
 
     @property
     def capture_content(self) -> bool:
@@ -34,11 +40,12 @@ class RedactingSpanExporter(SpanExporter):
                      "gen_ai.input.messages", "gen_ai.output.messages", "gen_ai.system_instructions",
                      "gen_ai.tool.call.arguments", "gen_ai.tool.call.result")
 
-    def _clean(self, span: ReadableSpan, capture_content: bool, redactor: Redactor) -> ReadableSpan:
+    def _clean(self, span: ReadableSpan, capture_content: bool, redactor: Redactor, dropped_by: str = "sdk") -> ReadableSpan:
         attrs = dict(span.attributes or {})
         if not capture_content:
             for k in self._CONTENT_KEYS:
                 attrs.pop(k, None)
+            attrs[self.DROPPED_ATTR] = dropped_by
         attrs = redactor.apply_attributes(attrs)
         events = [
             Event(e.name, redactor.apply_attributes(dict(e.attributes or {})), e.timestamp)
@@ -62,9 +69,9 @@ class RedactingSpanExporter(SpanExporter):
         )
 
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
-        capture_content, redactor = self._policy
+        capture_content, redactor, dropped_by = self._policy
         try:
-            cleaned = [self._clean(s, capture_content, redactor) for s in spans]
+            cleaned = [self._clean(s, capture_content, redactor, dropped_by) for s in spans]
         except Exception:  # noqa: BLE001 - never send unredacted data on error
             return SpanExportResult.FAILURE
         return self._delegate.export(cleaned)
