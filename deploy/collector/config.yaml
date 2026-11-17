@@ -1,0 +1,77 @@
+# OpenTelemetry Collector (contrib distribution) in front of Bindle, for
+# tenants that must filter trace data inside their own network before it
+# leaves. Optional: Bindle never needs a collector or host agent.
+#
+#   BINDLE_API_KEY=bd_live_... docker run --rm \
+#     -e BINDLE_API_KEY -p 127.0.0.1:4318:4318 \
+#     -v "$PWD/deploy/collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro" \
+#     otel/opentelemetry-collector-contrib
+#
+# Agents then export to http://localhost:4318 (the Bindle SDK:
+# BINDLE_ENDPOINT=http://localhost:4318; it still needs BINDLE_API_KEY set,
+# which the collector replaces with its own).
+#
+# The receiver listens on loopback. To accept traces from other hosts, set
+# BINDLE_COLLECTOR_LISTEN to a private interface address (never a public
+# one) and restrict it with your network's firewall rules; add TLS (the
+# receiver's tls: settings) if the traffic crosses an untrusted network.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: ${env:BINDLE_COLLECTOR_LISTEN:-127.0.0.1:4318}
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 15
+
+  # Drop prompt, output and reasoning content entirely. Delete this block
+  # to send content (Bindle still redacts it server-side).
+  attributes/drop_content:
+    actions:
+      - { key: input.value, action: delete }
+      - { key: output.value, action: delete }
+      - { key: gen_ai.prompt, action: delete }
+      - { key: gen_ai.completion, action: delete }
+      - { key: bindle.input, action: delete }
+      - { key: bindle.output, action: delete }
+      - { key: bindle.reasoning, action: delete }
+
+  # Mask well-known secret and PII shapes in whatever remains. Add your own
+  # patterns here; Bindle applies its built-in rules again on ingest.
+  redaction:
+    allow_all_keys: true
+    blocked_values:
+      - "AKIA[0-9A-Z]{16}"                                 # AWS access key ID
+      - "sk-[A-Za-z0-9_-]{20,}"                            # API secret keys
+      - "gh[pousr]_[A-Za-z0-9]{36,}"                       # GitHub tokens
+      - "xox[baprs]-[A-Za-z0-9-]{10,}"                     # Slack tokens
+      - "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"  # email addresses
+      - "\\b\\d{3}-\\d{2}-\\d{4}\\b"                        # US SSN
+    summary: info
+
+  batch:
+    send_batch_size: 512
+    timeout: 1s
+
+exporters:
+  otlphttp/bindle:
+    endpoint: ${env:BINDLE_ENDPOINT:-https://ingest.bindle.ai}
+    headers:
+      authorization: "Bearer ${env:BINDLE_API_KEY}"
+    compression: gzip
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/drop_content, redaction, batch]
+      exporters: [otlphttp/bindle]

@@ -85,7 +85,8 @@ Alerts go to Slack incoming webhooks, HTTPS webhooks or email (Amazon SES). They
 | `web` | Console (Next.js): overview, runs, trace explorer, alerts, keys, SDK settings, connect-an-agent. See `web/README.md` |
 | `design/console` | Console design mockups (visual spec for `web/`) |
 | `docs/images` | README screenshots |
-| `deploy` | `docker-compose.yml` for a local stack (OpenSearch, PostgreSQL, setup, ingest, API, alerts) |
+| `docs/plans` | Scoped plans: LLM gateway, evals, step replay, SOC 2 |
+| `deploy` | `collector/config.yaml`: optional OpenTelemetry Collector that drops content and masks secrets inside the customer's network. `docker-compose.yml` for a local stack (OpenSearch, PostgreSQL, setup, ingest, API, alerts) |
 | `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, Kinesis stream, Fargate processor and alerts services, OpenSearch Service domain, RDS PostgreSQL (control plane), Cognito user pool, setup task, secrets, S3 payload bucket |
 | `examples/python` | `quickstart.py` (minimal) and `demo_agent.py` (richer run with LLM steps, retries and an optional runaway loop) |
 
@@ -179,5 +180,6 @@ Next:
 - [ ] Contract tests per framework release for the normalizer mappings
 - [x] Onboarding: `bindle init`, `bindle mcp` (MCP server), `llms.txt`
 - [x] TypeScript SDK (`sdk/typescript`)
-- [ ] Hosted LLM gateway
+- [x] Optional OpenTelemetry Collector config for regulated tenants (`deploy/collector`)
+- [ ] Hosted LLM gateway, evals, step replay, SOC 2: scoped plans in `docs/plans/`
 - [ ] Fill `services/pricing.example.json` with real prices from each provider
