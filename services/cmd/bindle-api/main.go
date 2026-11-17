@@ -82,6 +82,7 @@ func run(log *slog.Logger) error {
 		Store:          &search.Store{Client: client, Names: search.Names{Prefix: os.Getenv("BINDLE_SEARCH_PREFIX")}},
 		Sessions:       sessions,
 		Keys:           keyStore(store),
+		Config:         configStore(store),
 		Limiter:        ratelimit.New(float64(rps), float64(rps*2)),
 		Log:            log,
 		LoopMinRepeats: envInt("BINDLE_API_LOOP_MIN_REPEATS", 5),
@@ -134,6 +135,13 @@ func envInt(k string, def int) int {
 
 // keyStore avoids a typed-nil interface when the control plane is absent.
 func keyStore(s *control.Store) api.KeyStore {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
+func configStore(s *control.Store) api.ConfigStore {
 	if s == nil {
 		return nil
 	}

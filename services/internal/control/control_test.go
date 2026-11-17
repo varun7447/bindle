@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+
+	"github.com/bindle-ai/bindle/services/internal/sdkconfig"
 )
 
 func TestKeyFormat(t *testing.T) {
@@ -54,34 +56,8 @@ func TestCleanName(t *testing.T) {
 // Runs only when BINDLE_POSTGRES_TEST_URL is set to a superuser URL. It
 // creates and drops its own database and roles.
 func TestIntegrationControlPlane(t *testing.T) {
-	admin := os.Getenv("BINDLE_POSTGRES_TEST_URL")
-	if admin == "" {
-		t.Skip("BINDLE_POSTGRES_TEST_URL not set")
-	}
 	ctx := context.Background()
-	sfx := randHex(4)
-	dbName := "control_itest_" + sfx
-	roles := Roles{API: "itest_api_" + sfx, Ingest: "itest_ingest_" + sfx, APIPassword: randHex(12), IngestPassword: randHex(12)}
-	root := open(t, admin)
-	if _, err := root.ExecContext(ctx, "CREATE DATABASE "+pq.QuoteIdentifier(dbName)); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_, _ = root.ExecContext(ctx, "DROP DATABASE IF EXISTS "+pq.QuoteIdentifier(dbName)+" WITH (FORCE)")
-		for _, r := range []string{roles.API, roles.Ingest} {
-			_, _ = root.ExecContext(ctx, "DROP ROLE IF EXISTS "+pq.QuoteIdentifier(r))
-		}
-		root.Close()
-	})
-	owner := open(t, withDB(t, admin, dbName, "", ""))
-	if applied, err := Migrate(ctx, owner, roles); err != nil || len(applied) != 1 {
-		t.Fatalf("migrate: %v %v", applied, err)
-	}
-	if again, err := Migrate(ctx, owner, roles); err != nil || len(again) != 0 {
-		t.Fatalf("migrate again: %v %v", again, err)
-	}
-	apiDB := open(t, withDB(t, admin, dbName, roles.API, roles.APIPassword))
-	ingestDB := open(t, withDB(t, admin, dbName, roles.Ingest, roles.IngestPassword))
+	owner, apiDB, ingestDB := newTestDB(t)
 	store := &Store{DB: apiDB}
 
 	// First sign-in creates the user and, concurrently, exactly one tenant.
@@ -275,6 +251,114 @@ func TestResolverCacheIsBounded(t *testing.T) {
 	}
 	if len(r.cache) > 10 {
 		t.Fatalf("cache grew to %d", len(r.cache))
+	}
+}
+
+// newTestDB creates a migrated throwaway database with unique roles, or
+// skips when BINDLE_POSTGRES_TEST_URL (a superuser URL) is not set.
+func newTestDB(t *testing.T) (owner, apiDB, ingestDB *sql.DB) {
+	t.Helper()
+	admin := os.Getenv("BINDLE_POSTGRES_TEST_URL")
+	if admin == "" {
+		t.Skip("BINDLE_POSTGRES_TEST_URL not set")
+	}
+	ctx := context.Background()
+	sfx := randHex(4)
+	dbName := "control_itest_" + sfx
+	roles := Roles{API: "itest_api_" + sfx, Ingest: "itest_ingest_" + sfx, APIPassword: randHex(12), IngestPassword: randHex(12)}
+	root := open(t, admin)
+	if _, err := root.ExecContext(ctx, "CREATE DATABASE "+pq.QuoteIdentifier(dbName)); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = root.ExecContext(ctx, "DROP DATABASE IF EXISTS "+pq.QuoteIdentifier(dbName)+" WITH (FORCE)")
+		for _, r := range []string{roles.API, roles.Ingest} {
+			_, _ = root.ExecContext(ctx, "DROP ROLE IF EXISTS "+pq.QuoteIdentifier(r))
+		}
+		root.Close()
+	})
+	owner = open(t, withDB(t, admin, dbName, "", ""))
+	if applied, err := Migrate(ctx, owner, roles); err != nil || len(applied) == 0 {
+		t.Fatalf("migrate: %v %v", applied, err)
+	}
+	if again, err := Migrate(ctx, owner, roles); err != nil || len(again) != 0 {
+		t.Fatalf("migrate again: %v %v", again, err)
+	}
+	return owner, open(t, withDB(t, admin, dbName, roles.API, roles.APIPassword)), open(t, withDB(t, admin, dbName, roles.Ingest, roles.IngestPassword))
+}
+
+func TestIntegrationSDKConfig(t *testing.T) {
+	ctx := context.Background()
+	_, apiDB, ingestDB := newTestDB(t)
+	store := &Store{DB: apiDB}
+	alice, _ := store.EnsureUser(ctx, "sub-a", "")
+	ma, _ := store.Provision(ctx, alice, "A")
+	bob, _ := store.EnsureUser(ctx, "sub-b", "")
+	mb, _ := store.Provision(ctx, bob, "B")
+
+	c, err := store.GetSDKConfig(ctx, ma.TenantID)
+	if err != nil || c.Version != 0 || c.SampleRate != 1 || !c.CaptureContent || len(c.RedactPatterns) != 0 {
+		t.Fatalf("default: %+v %v", c, err)
+	}
+	c.SampleRate, c.CaptureContent = 0.25, false
+	c.RedactPatterns = []sdkconfig.Pattern{{Name: "ORDER", Pattern: `ord_\d+`}}
+	saved, err := store.PutSDKConfig(ctx, ma.TenantID, alice.ID, c)
+	if err != nil || saved.Version != 1 {
+		t.Fatalf("first save: %+v %v", saved, err)
+	}
+	if _, err := store.PutSDKConfig(ctx, ma.TenantID, alice.ID, c); !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("stale save (version 0) must conflict: %v", err)
+	}
+	saved.SampleRate = 0.5
+	saved2, err := store.PutSDKConfig(ctx, ma.TenantID, alice.ID, saved)
+	if err != nil || saved2.Version != 2 {
+		t.Fatalf("second save: %+v %v", saved2, err)
+	}
+	if _, err := store.PutSDKConfig(ctx, ma.TenantID, alice.ID, saved); !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("stale save (version 1) must conflict: %v", err)
+	}
+	bad := saved2
+	bad.RedactPatterns = []sdkconfig.Pattern{{Name: "X", Pattern: `(a+)+`}}
+	if _, err := store.PutSDKConfig(ctx, ma.TenantID, alice.ID, bad); err == nil {
+		t.Fatal("invalid pattern saved")
+	}
+	if got, _ := store.GetSDKConfig(ctx, mb.TenantID); got.Version != 0 {
+		t.Fatalf("tenant B sees tenant A config: %+v", got)
+	}
+
+	now := time.Now()
+	r := &ConfigResolver{DB: ingestDB, Now: func() time.Time { return now }}
+	res, err := r.Policy(ctx, ma.TenantID)
+	if err != nil || res.Config.Version != 2 || res.Config.SampleRate != 0.5 || res.Config.CaptureContent ||
+		res.Redactor.Apply("ord_42") != "[REDACTED:ORDER]" {
+		t.Fatalf("resolver: %+v %v", res.Config, err)
+	}
+	if res, err := r.Policy(ctx, mb.TenantID); err != nil || res.Config.Version != 0 || !res.Config.CaptureContent {
+		t.Fatalf("defaults for B: %+v %v", res.Config, err)
+	}
+	if _, err := ingestDB.ExecContext(ctx, "SELECT * FROM control.sdk_config"); err == nil {
+		t.Fatal("ingest role can read the config table directly")
+	}
+	if _, err := apiDB.ExecContext(ctx, "DELETE FROM control.sdk_config"); err == nil {
+		t.Fatal("api role can delete configs")
+	}
+}
+
+func TestConfigResolverOutage(t *testing.T) {
+	db, _ := sql.Open("postgres", "postgres://nobody@127.0.0.1:1/none?sslmode=disable&connect_timeout=1")
+	now := time.Now()
+	r := &ConfigResolver{DB: db, Now: func() time.Time { return now }}
+	if _, err := r.Policy(context.Background(), "t"); err == nil {
+		t.Fatal("unknown tenant during outage must error, not default")
+	}
+	r.cache = map[string]cfgEntry{"t": {cfg: sdkconfig.Config{Version: 3, SampleRate: 0.1}, at: now}}
+	now = now.Add(time.Minute)
+	if res, err := r.Policy(context.Background(), "t"); err != nil || res.Config.Version != 3 {
+		t.Fatalf("stale config should be served: %+v %v", res, err)
+	}
+	now = now.Add(time.Hour)
+	if _, err := r.Policy(context.Background(), "t"); err == nil {
+		t.Fatal("stale config served too long")
 	}
 }
 

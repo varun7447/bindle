@@ -16,6 +16,7 @@ import (
 	"github.com/bindle-ai/bindle/services/internal/control"
 	"github.com/bindle-ai/bindle/services/internal/query"
 	"github.com/bindle-ai/bindle/services/internal/ratelimit"
+	"github.com/bindle-ai/bindle/services/internal/sdkconfig"
 	"github.com/bindle-ai/bindle/services/internal/session"
 )
 
@@ -535,5 +536,75 @@ func TestSessionBackendFailureIs503(t *testing.T) {
 	h := (&Server{Store: &fakeStore{}, Sessions: brokenResolver{}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}).Handler()
 	if w, _ := send(t, h, "GET", "/api/runs", "x", ""); w.Code != 503 {
 		t.Fatalf("got %d", w.Code)
+	}
+}
+
+// ---- config ------------------------------------------------------------------
+
+type fakeConfig struct {
+	stored  sdkconfig.Config
+	tenants []string
+	err     error
+}
+
+func (f *fakeConfig) GetSDKConfig(_ context.Context, t string) (sdkconfig.Config, error) {
+	f.tenants = append(f.tenants, t)
+	return f.stored, f.err
+}
+func (f *fakeConfig) PutSDKConfig(_ context.Context, t, _ string, c sdkconfig.Config) (sdkconfig.Config, error) {
+	f.tenants = append(f.tenants, t)
+	if f.err != nil {
+		return c, f.err
+	}
+	c.Version++
+	f.stored = c
+	return c, nil
+}
+
+func configServerAPI(f *fakeConfig) http.Handler {
+	return (&Server{Store: &fakeStore{}, Config: f,
+		Sessions: tokenResolver{"tok-a": "tenant-a", "member-tok": "tenant-a"},
+		Log:      slog.New(slog.NewTextHandler(io.Discard, nil))}).Handler()
+}
+
+func sendPut(t *testing.T, h http.Handler, token, body string) (*httptest.ResponseRecorder, map[string]any) {
+	return send(t, h, "PUT", "/api/config", token, body)
+}
+
+func TestConfigEndpoints(t *testing.T) {
+	f := &fakeConfig{stored: sdkconfig.Default()}
+	h := configServerAPI(f)
+	w, body := send(t, h, "GET", "/api/config", "tok-a", "")
+	if w.Code != 200 || body["sample_rate"] != float64(1) || body["version"] != float64(0) {
+		t.Fatalf("get %d %v", w.Code, body)
+	}
+	w, body = sendPut(t, h, "tok-a", `{"version":0,"sample_rate":0.2,"capture_content":false,"redact_patterns":[{"name":"ORDER","pattern":"ord_\\d+"}]}`)
+	if w.Code != 200 || body["version"] != float64(1) || body["capture_content"] != false {
+		t.Fatalf("put %d %v", w.Code, body)
+	}
+	for _, bad := range []string{
+		`{"version":1,"sample_rate":2,"capture_content":true}`,
+		`{"version":1,"capture_content":true}`,
+		`{"version":1,"sample_rate":0.5,"capture_content":true,"redact_patterns":[{"name":"X","pattern":"(a+)+"}]}`,
+		`{"version":1,"sample_rate":0.5,"capture_content":true,"tenant_id":"other"}`,
+	} {
+		if w, _ := sendPut(t, h, "tok-a", bad); w.Code != 400 {
+			t.Errorf("%s: %d", bad, w.Code)
+		}
+	}
+	if w, _ := sendPut(t, h, "member-tok", `{"version":1,"sample_rate":0.5,"capture_content":true}`); w.Code != 403 {
+		t.Errorf("member put: %d", w.Code)
+	}
+	f.err = control.ErrVersionConflict
+	if w, body := sendPut(t, h, "tok-a", `{"version":1,"sample_rate":0.5,"capture_content":true}`); w.Code != 409 || errCode(body) != "conflict" {
+		t.Errorf("conflict: %d %v", w.Code, body)
+	}
+	for _, tn := range f.tenants {
+		if tn != "tenant-a" {
+			t.Fatalf("config store got tenant %q", tn)
+		}
+	}
+	if w, _ := send(t, (&Server{Store: &fakeStore{}, Sessions: tokenResolver{"tok-a": "tenant-a"}}).Handler(), "GET", "/api/config", "tok-a", ""); w.Code != 503 {
+		t.Errorf("unconfigured: %d", w.Code)
 	}
 }

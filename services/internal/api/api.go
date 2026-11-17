@@ -22,6 +22,7 @@ import (
 	"github.com/bindle-ai/bindle/services/internal/control"
 	"github.com/bindle-ai/bindle/services/internal/query"
 	"github.com/bindle-ai/bindle/services/internal/ratelimit"
+	"github.com/bindle-ai/bindle/services/internal/sdkconfig"
 	"github.com/bindle-ai/bindle/services/internal/session"
 )
 
@@ -33,10 +34,18 @@ type KeyStore interface {
 	RevokeKey(ctx context.Context, tenant, keyID string) error
 }
 
+// ConfigStore reads and saves a tenant's remote SDK config.
+// Implemented by *control.Store.
+type ConfigStore interface {
+	GetSDKConfig(ctx context.Context, tenant string) (sdkconfig.Config, error)
+	PutSDKConfig(ctx context.Context, tenant, userID string, c sdkconfig.Config) (sdkconfig.Config, error)
+}
+
 // Server holds the API's dependencies.
 type Server struct {
 	Store    query.Store
-	Keys     KeyStore // nil disables the /api/keys endpoints (503)
+	Keys     KeyStore    // nil disables the /api/keys endpoints (503)
+	Config   ConfigStore // nil disables the /api/config endpoints (503)
 	Sessions session.Resolver
 	Limiter  *ratelimit.Limiter // per-tenant requests/sec; nil disables
 	Log      *slog.Logger
@@ -71,6 +80,8 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/keys", s.createKey)
 	api.HandleFunc("POST /api/keys/{id}/rotate", s.rotateKey)
 	api.HandleFunc("POST /api/keys/{id}/revoke", s.revokeKey)
+	api.HandleFunc("GET /api/config", s.getConfig)
+	api.HandleFunc("PUT /api/config", s.putConfig)
 	api.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})
@@ -521,7 +532,8 @@ var keyIDRe = regexp.MustCompile(`^key_[0-9a-f]{20}$`)
 const (
 	defaultRotateGrace = 24 * time.Hour
 	maxRotateGrace     = 7 * 24 * time.Hour
-	maxBodyBytes       = 4 << 10
+	maxBodyBytes       = 4 << 10  // key endpoints
+	maxConfigBodyBytes = 16 << 10 // 20 patterns of up to 200 characters
 )
 
 // keysAllowed checks the key store is configured and, for changes, the role.
@@ -540,7 +552,11 @@ func (s *Server) keysAllowed(w http.ResponseWriter, r *http.Request, change bool
 
 // decodeBody reads a small JSON object; an empty body is allowed.
 func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	return decodeBodyLimit(w, r, v, maxBodyBytes)
+}
+
+func decodeBodyLimit(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil && !errors.Is(err, io.EOF) {
@@ -641,4 +657,73 @@ func (s *Server) revokeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---- remote SDK config -------------------------------------------------------
+
+func configJSON(c sdkconfig.Config) map[string]any {
+	if c.RedactPatterns == nil {
+		c.RedactPatterns = []sdkconfig.Pattern{}
+	}
+	out := map[string]any{
+		"version": c.Version, "sample_rate": c.SampleRate, "capture_content": c.CaptureContent,
+		"redact_patterns": c.RedactPatterns, "poll_interval_seconds": sdkconfig.PollSeconds,
+	}
+	if !c.UpdatedAt.IsZero() {
+		out["updated_at"] = c.UpdatedAt
+	}
+	return out
+}
+
+func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
+	if s.Config == nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "remote config is not configured")
+		return
+	}
+	c, err := s.Config.GetSDKConfig(r.Context(), tenantFrom(r.Context()))
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, configJSON(c))
+}
+
+func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
+	p := principalFrom(r.Context())
+	if s.Config == nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "remote config is not configured")
+		return
+	}
+	if !p.CanManageKeys() {
+		writeError(w, http.StatusForbidden, "forbidden", "only owners and admins can change SDK settings")
+		return
+	}
+	var body struct {
+		Version        *int64              `json:"version"`
+		SampleRate     *float64            `json:"sample_rate"`
+		CaptureContent *bool               `json:"capture_content"`
+		RedactPatterns []sdkconfig.Pattern `json:"redact_patterns"`
+	}
+	if !decodeBodyLimit(w, r, &body, maxConfigBodyBytes) {
+		return
+	}
+	if body.Version == nil || body.SampleRate == nil || body.CaptureContent == nil {
+		badRequest(w, "version, sample_rate and capture_content are required")
+		return
+	}
+	c := sdkconfig.Config{Version: *body.Version, SampleRate: *body.SampleRate, CaptureContent: *body.CaptureContent, RedactPatterns: body.RedactPatterns}
+	if err := sdkconfig.Validate(c); err != nil {
+		badRequest(w, err.Error()) // our own validation messages, safe to show
+		return
+	}
+	saved, err := s.Config.PutSDKConfig(r.Context(), p.TenantID, p.UserID, c)
+	if errors.Is(err, control.ErrVersionConflict) {
+		writeError(w, http.StatusConflict, "conflict", "settings were changed by someone else; reload and try again")
+		return
+	}
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, configJSON(saved))
 }

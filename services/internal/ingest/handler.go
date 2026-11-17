@@ -4,11 +4,14 @@ package ingest
 
 import (
 	"compress/gzip"
+	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/bindle-ai/bindle/services/internal/auth"
@@ -17,6 +20,7 @@ import (
 	"github.com/bindle-ai/bindle/services/internal/otlp"
 	"github.com/bindle-ai/bindle/services/internal/pipeline"
 	"github.com/bindle-ai/bindle/services/internal/ratelimit"
+	"github.com/bindle-ai/bindle/services/internal/sdkconfig"
 )
 
 // Submitter accepts normalized steps (the batcher in v0, Kinesis in v0.2).
@@ -24,9 +28,16 @@ type Submitter interface {
 	Submit(steps []model.Step) error
 }
 
+// PolicySource gives a tenant's remote SDK configuration.
+// Implemented by control.ConfigResolver.
+type PolicySource interface {
+	Policy(ctx context.Context, tenant string) (sdkconfig.Policy, error)
+}
+
 // Handler serves POST /v1/traces.
 type Handler struct {
 	Keys         auth.Resolver
+	Policies     PolicySource // nil: no remote policy (defaults)
 	Normalizer   *normalize.Normalizer
 	Limiter      *ratelimit.Limiter
 	Out          Submitter
@@ -73,6 +84,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	steps := make([]model.Step, 0, len(spans))
 	for _, s := range spans {
 		steps = append(steps, h.Normalizer.Normalize(tenant, s))
+	}
+	if h.Policies != nil {
+		pol, err := h.Policies.Policy(r.Context(), tenant)
+		if err != nil {
+			// Unknown policy: don't guess (capture may be off). Exporters retry.
+			h.Log.Error("policy lookup failed", "tenant", tenant, "err", err)
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, "temporarily unavailable, retry", http.StatusServiceUnavailable)
+			return
+		}
+		steps = ApplyPolicy(pol, steps)
 	}
 	if err := h.Out.Submit(steps); err != nil {
 		if errors.Is(err, pipeline.ErrBackpressure) {
@@ -131,4 +153,89 @@ func isJSONContent(ct string) bool {
 		return false
 	}
 	return mt == "application/json"
+}
+
+// ApplyPolicy enforces a tenant's remote settings on normalized steps, so
+// they hold even for clients the SDK does not control: traces outside the
+// sample are dropped (same rule as the SDK, so whole traces), content is
+// removed when capture is off, and extra patterns are applied on top of the
+// built-in redaction the normalizer already ran.
+func ApplyPolicy(p sdkconfig.Policy, steps []model.Step) []model.Step {
+	c := p.Config
+	out := steps[:0]
+	for _, s := range steps {
+		if !sdkconfig.Sampled(s.TraceID, c.SampleRate) {
+			continue
+		}
+		if !c.CaptureContent {
+			s.Input, s.Output, s.Reasoning = "", "", ""
+		}
+		if !p.Redactor.Empty() {
+			s.Name = p.Redactor.Apply(s.Name)
+			s.Input, s.Output = p.Redactor.Apply(s.Input), p.Redactor.Apply(s.Output)
+			s.Reasoning, s.ErrorMessage = p.Redactor.Apply(s.Reasoning), p.Redactor.Apply(s.ErrorMessage)
+			if len(s.Attributes) > 0 {
+				attrs := make(map[string]string, len(s.Attributes))
+				for k, v := range s.Attributes {
+					attrs[k] = p.Redactor.Apply(v)
+				}
+				s.Attributes = attrs
+			}
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// ConfigHandler serves GET /v1/config: the tenant's SDK settings, for the
+// SDK to poll with its ingest key. Supports If-None-Match.
+type ConfigHandler struct {
+	Keys     auth.Resolver
+	Policies PolicySource
+	Limiter  *ratelimit.Limiter
+	Log      *slog.Logger
+}
+
+func (h *ConfigHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	tenant, ok := h.Keys.Tenant(r)
+	if !ok {
+		http.Error(w, "invalid or missing API key", http.StatusUnauthorized)
+		return
+	}
+	if !h.Limiter.Allow(tenant, 1) {
+		w.Header().Set("Retry-After", "10")
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+	cfg := sdkconfig.Default()
+	if h.Policies != nil {
+		pol, err := h.Policies.Policy(r.Context(), tenant)
+		if err != nil {
+			h.Log.Error("config lookup failed", "tenant", tenant, "err", err)
+			w.Header().Set("Retry-After", "30")
+			http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		cfg = pol.Config
+	}
+	etag := `"v` + strconv.FormatInt(cfg.Version, 10) + `"`
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, no-cache")
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	if cfg.RedactPatterns == nil {
+		cfg.RedactPatterns = []sdkconfig.Pattern{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(struct {
+		sdkconfig.Config
+		PollIntervalSeconds int `json:"poll_interval_seconds"`
+	}{cfg, sdkconfig.PollSeconds})
 }

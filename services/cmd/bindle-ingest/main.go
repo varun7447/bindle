@@ -52,6 +52,7 @@ func run(log *slog.Logger) error {
 	defer stop()
 
 	var keys auth.Resolver
+	var policies ingest.PolicySource // remote SDK config, from the control plane
 	controlDB, err := control.OpenFromEnv("BINDLE_CONTROL_DB_URL")
 	if err != nil {
 		return err
@@ -64,6 +65,7 @@ func run(log *slog.Logger) error {
 		r := &control.KeyResolver{DB: controlDB, Log: log}
 		go r.RunUsageFlusher(ctx, time.Minute)
 		keys = r
+		policies = &control.ConfigResolver{DB: controlDB, Log: log}
 	default:
 		k, err := auth.ParseEnv(static)
 		if err != nil {
@@ -100,10 +102,12 @@ func run(log *slog.Logger) error {
 	go batcher.Run(ctx)
 
 	rate := envFloat("BINDLE_RATE_LIMIT_SPANS_PER_SEC", 2000)
+	limiter := ratelimit.New(rate, rate*5)
 	h := &ingest.Handler{
 		Keys:         keys,
+		Policies:     policies,
 		Normalizer:   &normalize.Normalizer{Prices: prices, Redactor: redact.Default()},
-		Limiter:      ratelimit.New(rate, rate*5),
+		Limiter:      limiter,
 		Out:          batcher,
 		MaxBodyBytes: int64(envFloat("BINDLE_MAX_BODY_BYTES", 8<<20)),
 		Log:          log,
@@ -111,6 +115,7 @@ func run(log *slog.Logger) error {
 
 	mux := http.NewServeMux()
 	mux.Handle("/v1/traces", h)
+	mux.Handle("/v1/config", &ingest.ConfigHandler{Keys: keys, Policies: policies, Limiter: limiter, Log: log})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 
 	srv := &http.Server{
