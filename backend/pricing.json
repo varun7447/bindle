@@ -1,0 +1,407 @@
+{
+  "_comment": "USD per million tokens, Standard tier, global routing. Copied from each provider's pricing page on the as_of date (source per entry); never estimated. Keys are provider/model; a key also prices dated or versioned IDs of the same model (claude-opus-4-5-20251101, gpt-4o-2024-08-06), never a different model. Models missing here, cached tokens without a published cached price, and partner platforms (Bedrock, Vertex, Azure OpenAI) are reported as cost unknown.",
+  "_not_modeled": "Anthropic cache writes (billed at 1.25x/2x input; counted here as base input), Anthropic US-only inference_geo (1.1x), OpenAI cache writes, batch and priority tiers, and dated price changes. Google Gemini is not included yet: its page has prices that change on 2026-12-01 and 2027-01-01, which needs effective-dated entries.",
+  "anthropic/claude-fable-5-2": {
+    "input_per_mtok": 8,
+    "cached_input_per_mtok": 0.2,
+    "output_per_mtok": 40,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-mythos-5-2": {
+    "input_per_mtok": 8,
+    "cached_input_per_mtok": 0.2,
+    "output_per_mtok": 40,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-fable-5-1": {
+    "input_per_mtok": 10,
+    "cached_input_per_mtok": 0.25,
+    "output_per_mtok": 50,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-mythos-5-1": {
+    "input_per_mtok": 10,
+    "cached_input_per_mtok": 0.25,
+    "output_per_mtok": 50,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-fable-5": {
+    "input_per_mtok": 10,
+    "cached_input_per_mtok": 1,
+    "output_per_mtok": 50,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-mythos-5": {
+    "input_per_mtok": 10,
+    "cached_input_per_mtok": 1,
+    "output_per_mtok": 50,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-opus-5-5": {
+    "input_per_mtok": 4,
+    "cached_input_per_mtok": 0.2,
+    "output_per_mtok": 20,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-opus-5": {
+    "input_per_mtok": 5,
+    "cached_input_per_mtok": 0.5,
+    "output_per_mtok": 25,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-opus-4-8": {
+    "input_per_mtok": 5,
+    "cached_input_per_mtok": 0.5,
+    "output_per_mtok": 25,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-opus-4-7": {
+    "input_per_mtok": 5,
+    "cached_input_per_mtok": 0.5,
+    "output_per_mtok": 25,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-opus-4-6": {
+    "input_per_mtok": 5,
+    "cached_input_per_mtok": 0.5,
+    "output_per_mtok": 25,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-opus-4-5": {
+    "input_per_mtok": 5,
+    "cached_input_per_mtok": 0.5,
+    "output_per_mtok": 25,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-opus-4-1-20250805": {
+    "input_per_mtok": 15,
+    "cached_input_per_mtok": 1.5,
+    "output_per_mtok": 75,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-opus-4-20250514": {
+    "input_per_mtok": 15,
+    "cached_input_per_mtok": 1.5,
+    "output_per_mtok": 75,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-sonnet-5-5": {
+    "input_per_mtok": 2,
+    "cached_input_per_mtok": 0.1,
+    "output_per_mtok": 10,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-sonnet-5": {
+    "input_per_mtok": 2,
+    "cached_input_per_mtok": 0.2,
+    "output_per_mtok": 10,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-sonnet-4-6": {
+    "input_per_mtok": 3,
+    "cached_input_per_mtok": 0.3,
+    "output_per_mtok": 15,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-sonnet-4-5": {
+    "input_per_mtok": 3,
+    "cached_input_per_mtok": 0.3,
+    "output_per_mtok": 15,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-sonnet-4-20250514": {
+    "input_per_mtok": 3,
+    "cached_input_per_mtok": 0.3,
+    "output_per_mtok": 15,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-haiku-4-5": {
+    "input_per_mtok": 1,
+    "cached_input_per_mtok": 0.1,
+    "output_per_mtok": 5,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "anthropic/claude-haiku-5-5": {
+    "input_per_mtok": 0.1,
+    "cached_input_per_mtok": 0.01,
+    "output_per_mtok": 0.5,
+    "long_above_input_tokens": 100000,
+    "long_input_per_mtok": 0.5,
+    "long_cached_input_per_mtok": 0.05,
+    "long_output_per_mtok": 2.5,
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-6.2-astra": {
+    "input_per_mtok": 8.0,
+    "output_per_mtok": 40.0,
+    "long_above_input_tokens": 272000,
+    "long_input_per_mtok": 16.0,
+    "long_output_per_mtok": 60.0,
+    "cached_input_per_mtok": 0.4,
+    "long_cached_input_per_mtok": 0.8,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-6.2-sol": {
+    "input_per_mtok": 2.0,
+    "output_per_mtok": 10.0,
+    "long_above_input_tokens": 272000,
+    "long_input_per_mtok": 4.0,
+    "long_output_per_mtok": 15.0,
+    "cached_input_per_mtok": 0.1,
+    "long_cached_input_per_mtok": 0.2,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-6-astra": {
+    "input_per_mtok": 10.0,
+    "output_per_mtok": 50.0,
+    "long_above_input_tokens": 272000,
+    "long_input_per_mtok": 20.0,
+    "long_output_per_mtok": 75.0,
+    "cached_input_per_mtok": 1.0,
+    "long_cached_input_per_mtok": 2.0,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-6.1-sol": {
+    "input_per_mtok": 2.0,
+    "output_per_mtok": 10.0,
+    "long_above_input_tokens": 272000,
+    "long_input_per_mtok": 4.0,
+    "long_output_per_mtok": 15.0,
+    "cached_input_per_mtok": 0.1,
+    "long_cached_input_per_mtok": 0.2,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-6.1-terra": {
+    "input_per_mtok": 1.0,
+    "output_per_mtok": 5.0,
+    "long_above_input_tokens": 272000,
+    "long_input_per_mtok": 2.0,
+    "long_output_per_mtok": 7.5,
+    "cached_input_per_mtok": 0.05,
+    "long_cached_input_per_mtok": 0.1,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-6-luna": {
+    "input_per_mtok": 0.1,
+    "output_per_mtok": 0.5,
+    "long_above_input_tokens": 272000,
+    "long_input_per_mtok": 0.2,
+    "long_output_per_mtok": 0.75,
+    "cached_input_per_mtok": 0.01,
+    "long_cached_input_per_mtok": 0.02,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-6-sol": {
+    "input_per_mtok": 2.0,
+    "output_per_mtok": 10.0,
+    "long_above_input_tokens": 272000,
+    "long_input_per_mtok": 4.0,
+    "long_output_per_mtok": 15.0,
+    "cached_input_per_mtok": 0.2,
+    "long_cached_input_per_mtok": 0.4,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5.6-sol": {
+    "input_per_mtok": 4.0,
+    "output_per_mtok": 20.0,
+    "long_above_input_tokens": 272000,
+    "long_input_per_mtok": 8.0,
+    "long_output_per_mtok": 30.0,
+    "cached_input_per_mtok": 0.4,
+    "long_cached_input_per_mtok": 0.8,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5.6-terra": {
+    "input_per_mtok": 2.0,
+    "output_per_mtok": 12.0,
+    "long_above_input_tokens": 272000,
+    "long_input_per_mtok": 4.0,
+    "long_output_per_mtok": 18.0,
+    "cached_input_per_mtok": 0.2,
+    "long_cached_input_per_mtok": 0.4,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5.6-luna": {
+    "input_per_mtok": 0.2,
+    "output_per_mtok": 1.2,
+    "long_above_input_tokens": 272000,
+    "long_input_per_mtok": 0.4,
+    "long_output_per_mtok": 1.8,
+    "cached_input_per_mtok": 0.02,
+    "long_cached_input_per_mtok": 0.04,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5.5": {
+    "input_per_mtok": 5.0,
+    "output_per_mtok": 30.0,
+    "long_above_input_tokens": 272000,
+    "long_input_per_mtok": 10.0,
+    "long_output_per_mtok": 45.0,
+    "cached_input_per_mtok": 0.5,
+    "long_cached_input_per_mtok": 1.0,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5.5-pro": {
+    "input_per_mtok": 30.0,
+    "output_per_mtok": 180.0,
+    "long_above_input_tokens": 272000,
+    "long_input_per_mtok": 60.0,
+    "long_output_per_mtok": 270.0,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5.4": {
+    "input_per_mtok": 2.5,
+    "output_per_mtok": 15.0,
+    "long_above_input_tokens": 272000,
+    "long_input_per_mtok": 5.0,
+    "long_output_per_mtok": 22.5,
+    "cached_input_per_mtok": 0.25,
+    "long_cached_input_per_mtok": 0.5,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5.4-pro": {
+    "input_per_mtok": 30.0,
+    "output_per_mtok": 180.0,
+    "long_above_input_tokens": 272000,
+    "long_input_per_mtok": 60.0,
+    "long_output_per_mtok": 270.0,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5.4-mini": {
+    "input_per_mtok": 0.75,
+    "output_per_mtok": 4.5,
+    "cached_input_per_mtok": 0.075,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5.4-nano": {
+    "input_per_mtok": 0.2,
+    "output_per_mtok": 1.25,
+    "cached_input_per_mtok": 0.02,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5.2": {
+    "input_per_mtok": 1.75,
+    "output_per_mtok": 14.0,
+    "cached_input_per_mtok": 0.175,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5.2-pro": {
+    "input_per_mtok": 21.0,
+    "output_per_mtok": 168.0,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5.1": {
+    "input_per_mtok": 1.25,
+    "output_per_mtok": 10.0,
+    "cached_input_per_mtok": 0.125,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5": {
+    "input_per_mtok": 1.25,
+    "output_per_mtok": 10.0,
+    "cached_input_per_mtok": 0.125,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5-mini": {
+    "input_per_mtok": 0.25,
+    "output_per_mtok": 2.0,
+    "cached_input_per_mtok": 0.025,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5-nano": {
+    "input_per_mtok": 0.05,
+    "output_per_mtok": 0.4,
+    "cached_input_per_mtok": 0.005,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-5-pro": {
+    "input_per_mtok": 15.0,
+    "output_per_mtok": 120.0,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-4.1": {
+    "input_per_mtok": 2.0,
+    "output_per_mtok": 8.0,
+    "cached_input_per_mtok": 0.5,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-4.1-mini": {
+    "input_per_mtok": 0.4,
+    "output_per_mtok": 1.6,
+    "cached_input_per_mtok": 0.1,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-4o": {
+    "input_per_mtok": 2.5,
+    "output_per_mtok": 10.0,
+    "cached_input_per_mtok": 1.25,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/gpt-4o-mini": {
+    "input_per_mtok": 0.15,
+    "output_per_mtok": 0.6,
+    "cached_input_per_mtok": 0.075,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/o3-pro": {
+    "input_per_mtok": 20.0,
+    "output_per_mtok": 80.0,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  },
+  "openai/o3": {
+    "input_per_mtok": 2.0,
+    "output_per_mtok": 8.0,
+    "cached_input_per_mtok": 0.5,
+    "source": "https://developers.openai.com/api/docs/pricing",
+    "as_of": "2026-11-17"
+  }
+}

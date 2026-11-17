@@ -1,5 +1,0 @@
-{
-  "_comment": "USD per million tokens. Keys are 'provider/model' or a model-name prefix. Fill these from each provider's current pricing page before launch; unknown models are reported as cost_known=false rather than guessed. The values below are placeholders, not real prices.",
-  "anthropic/claude-example": { "input_per_mtok": 0, "output_per_mtok": 0, "cached_input_per_mtok": 0 },
-  "openai/gpt-example":       { "input_per_mtok": 0, "output_per_mtok": 0, "cached_input_per_mtok": 0 }
-}
