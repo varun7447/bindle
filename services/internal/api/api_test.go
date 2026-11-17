@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bindle-ai/bindle/services/internal/control"
 	"github.com/bindle-ai/bindle/services/internal/query"
 	"github.com/bindle-ai/bindle/services/internal/ratelimit"
 	"github.com/bindle-ai/bindle/services/internal/session"
@@ -68,14 +69,20 @@ func (f *fakeStore) Loops(_ context.Context, t string, from, to time.Time, n int
 	return f.loops, f.err
 }
 
-// tokenResolver is a test-only resolver: one known token per tenant.
+// tokenResolver is a test-only resolver: one known token per tenant. Tokens
+// starting with "member-" resolve as role member, others as owner.
 type tokenResolver map[string]string
 
-func (m tokenResolver) Tenant(r *http.Request) (string, error) {
-	if t, ok := m[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]; ok {
-		return t, nil
+func (m tokenResolver) Resolve(r *http.Request) (session.Principal, error) {
+	tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if t, ok := m[tok]; ok {
+		role := control.RoleOwner
+		if strings.HasPrefix(tok, "member-") {
+			role = control.RoleMember
+		}
+		return session.Principal{TenantID: t, UserID: "usr_" + tok, Role: role}, nil
 	}
-	return "", session.ErrUnauthenticated
+	return session.Principal{}, session.ErrUnauthenticated
 }
 
 var now = time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
@@ -120,7 +127,7 @@ func errCode(body map[string]any) string {
 
 var allPaths = []string{
 	"/api/runs", "/api/traces/" + traceID, "/api/traces/" + traceID + "/steps/" + stepID,
-	"/api/overview", "/api/alerts", "/api/nope",
+	"/api/overview", "/api/alerts", "/api/nope", "/api/me", "/api/keys",
 }
 
 func TestAuthRequiredEverywhere(t *testing.T) {
@@ -380,5 +387,153 @@ func TestCursorRoundTrip(t *testing.T) {
 	}
 	if _, err := decodeCursor(encodeCursor(ts, "not-hex")); err == nil {
 		t.Fatal("cursor with bad trace id accepted")
+	}
+}
+
+// ---- keys ------------------------------------------------------------------
+
+type fakeKeys struct {
+	tenants []string
+	users   []string
+	grace   time.Duration
+	err     error
+}
+
+func (f *fakeKeys) ListKeys(_ context.Context, t string) ([]control.APIKey, error) {
+	f.tenants = append(f.tenants, t)
+	return []control.APIKey{{ID: "key_0123456789abcdef0123", Name: "prod", DisplayPrefix: "bd_live_abcd1234"}}, f.err
+}
+func (f *fakeKeys) CreateKey(_ context.Context, t, u, name string) (control.APIKey, string, error) {
+	f.tenants, f.users = append(f.tenants, t), append(f.users, u)
+	return control.APIKey{ID: "key_new", Name: name}, "bd_live_secret", f.err
+}
+func (f *fakeKeys) RotateKey(_ context.Context, t, u, id string, g time.Duration) (control.APIKey, string, error) {
+	f.tenants, f.users, f.grace = append(f.tenants, t), append(f.users, u), g
+	return control.APIKey{ID: "key_rotated"}, "bd_live_secret2", f.err
+}
+func (f *fakeKeys) RevokeKey(_ context.Context, t, id string) error {
+	f.tenants = append(f.tenants, t)
+	return f.err
+}
+
+func keysServer(k *fakeKeys) http.Handler {
+	return (&Server{Store: &fakeStore{}, Keys: k,
+		Sessions: tokenResolver{"tok-a": "tenant-a", "member-tok": "tenant-a", "tok-b": "tenant-b"},
+		Log:      slog.New(slog.NewTextHandler(io.Discard, nil))}).Handler()
+}
+
+func send(t *testing.T, h http.Handler, method, path, token, body string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	var out map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	return w, out
+}
+
+const keyID = "key_0123456789abcdef0123"
+
+func TestKeysLifecycleEndpoints(t *testing.T) {
+	k := &fakeKeys{}
+	h := keysServer(k)
+	if w, body := send(t, h, "GET", "/api/keys", "tok-a", ""); w.Code != 200 || len(body["keys"].([]any)) != 1 {
+		t.Fatalf("list %d %v", w.Code, body)
+	}
+	w, body := send(t, h, "POST", "/api/keys", "tok-a", `{"name":"prod agents"}`)
+	if w.Code != 201 || body["secret"] != "bd_live_secret" || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("create %d %v %v", w.Code, body, w.Header())
+	}
+	if w, _ := send(t, h, "POST", "/api/keys/"+keyID+"/rotate", "tok-a", ""); w.Code != 201 || k.grace != 24*time.Hour {
+		t.Fatalf("rotate default grace: %d %v", w.Code, k.grace)
+	}
+	if w, _ := send(t, h, "POST", "/api/keys/"+keyID+"/rotate", "tok-a", `{"grace_hours":0}`); w.Code != 201 || k.grace != 0 {
+		t.Fatalf("rotate grace 0: %d %v", w.Code, k.grace)
+	}
+	if w, _ := send(t, h, "POST", "/api/keys/"+keyID+"/revoke", "tok-a", ""); w.Code != 204 {
+		t.Fatalf("revoke %d", w.Code)
+	}
+	for _, tn := range k.tenants {
+		if tn != "tenant-a" {
+			t.Fatalf("key store got tenant %q", tn)
+		}
+	}
+	for _, u := range k.users {
+		if u != "usr_tok-a" {
+			t.Fatalf("key store got user %q", u)
+		}
+	}
+}
+
+func TestKeysAuthorizationAndValidation(t *testing.T) {
+	k := &fakeKeys{}
+	h := keysServer(k)
+	// Members can list but not change keys.
+	if w, _ := send(t, h, "GET", "/api/keys", "member-tok", ""); w.Code != 200 {
+		t.Errorf("member list %d", w.Code)
+	}
+	for _, c := range []struct{ method, path string }{
+		{"POST", "/api/keys"}, {"POST", "/api/keys/" + keyID + "/rotate"}, {"POST", "/api/keys/" + keyID + "/revoke"},
+	} {
+		if w, body := send(t, h, c.method, c.path, "member-tok", ""); w.Code != 403 || errCode(body) != "forbidden" {
+			t.Errorf("member %s %s: %d", c.method, c.path, w.Code)
+		}
+		if w, _ := send(t, h, c.method, c.path, "", ""); w.Code != 401 {
+			t.Errorf("anonymous %s %s: %d", c.method, c.path, w.Code)
+		}
+	}
+	k.tenants = nil // only the rejected requests below are under test
+	for _, c := range []struct{ path, body string }{
+		{"/api/keys", `{"name":"x","tenant_id":"tenant-b"}`}, // unknown fields rejected
+		{"/api/keys", `not json`},
+		{"/api/keys", `{"name":"` + strings.Repeat("x", 5000) + `"}`},
+		{"/api/keys/../rotate", ``},
+		{"/api/keys/key_bad/rotate", ``},
+		{"/api/keys/" + keyID + "/rotate", `{"grace_hours":-1}`},
+		{"/api/keys/" + keyID + "/rotate", `{"grace_hours":1000}`},
+	} {
+		if w, _ := send(t, h, "POST", c.path, "tok-a", c.body); w.Code/100 == 2 {
+			t.Errorf("POST %s %q: %d", c.path, c.body[:min(len(c.body), 40)], w.Code)
+		}
+	}
+	if len(k.tenants) != 0 {
+		t.Fatalf("key store called for rejected requests: %v", k.tenants)
+	}
+	k.err = control.ErrNotFound
+	if w, _ := send(t, h, "POST", "/api/keys/"+keyID+"/revoke", "tok-b", ""); w.Code != 404 {
+		t.Errorf("revoke missing key: %d", w.Code)
+	}
+	if w, _ := send(t, h, "POST", "/api/keys/"+keyID+"/rotate", "tok-b", ""); w.Code != 404 {
+		t.Errorf("rotate missing key: %d", w.Code)
+	}
+}
+
+func TestKeysUnconfigured(t *testing.T) {
+	h := (&Server{Store: &fakeStore{}, Sessions: tokenResolver{"tok-a": "tenant-a"}}).Handler()
+	if w, _ := send(t, h, "GET", "/api/keys", "tok-a", ""); w.Code != 503 {
+		t.Fatalf("got %d", w.Code)
+	}
+}
+
+func TestMe(t *testing.T) {
+	w, body := send(t, keysServer(&fakeKeys{}), "GET", "/api/me", "member-tok", "")
+	if w.Code != 200 || body["tenant_id"] != "tenant-a" || body["role"] != "member" || body["can_manage_keys"] != false {
+		t.Fatalf("%d %v", w.Code, body)
+	}
+}
+
+type brokenResolver struct{}
+
+func (brokenResolver) Resolve(*http.Request) (session.Principal, error) {
+	return session.Principal{}, errors.New("db down")
+}
+
+func TestSessionBackendFailureIs503(t *testing.T) {
+	h := (&Server{Store: &fakeStore{}, Sessions: brokenResolver{}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}).Handler()
+	if w, _ := send(t, h, "GET", "/api/runs", "x", ""); w.Code != 503 {
+		t.Fatalf("got %d", w.Code)
 	}
 }

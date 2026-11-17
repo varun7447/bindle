@@ -1,4 +1,4 @@
-# Local Bindle stack: OpenSearch + setup + ingest + query API.
+# Local Bindle stack: OpenSearch (traces) + PostgreSQL (control plane) + setup + ingest + query API.
 #   ./deploy/dev-env.sh                      # creates/updates deploy/.env with random local credentials
 #   docker compose -f deploy/docker-compose.yml up --build
 # Then point any agent at http://localhost:4318 with BINDLE_API_KEY from deploy/.env.
@@ -31,8 +31,24 @@ services:
       interval: 5s
       retries: 40
 
-  # Creates the retention policy, index template, rollup index and the
-  # bindle_writer / bindle_reader users, then exits.
+  postgres:
+    image: postgres:17
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: bindle_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run deploy/dev-env.sh to create deploy/.env}
+      POSTGRES_DB: bindle
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "bindle_owner", "-d", "bindle"]
+      interval: 2s
+      retries: 30
+
+  # OpenSearch: retention policy, index template, rollup index, and the
+  # bindle_writer / bindle_reader users. PostgreSQL: control-plane roles and
+  # schema, plus the local dev tenant with BINDLE_API_KEY. Then exits.
   setup:
     build: ../services
     entrypoint: ["/bindle-migrate"]
@@ -44,8 +60,15 @@ services:
       BINDLE_SEARCH_WRITER_PASSWORD: ${BINDLE_SEARCH_WRITER_PASSWORD:?run deploy/dev-env.sh}
       BINDLE_SEARCH_READER_PASSWORD: ${BINDLE_SEARCH_READER_PASSWORD:?run deploy/dev-env.sh}
       BINDLE_SEARCH_REPLICAS: "0"
+      BINDLE_CONTROL_DB_ADMIN_URL: postgres://bindle_owner:${POSTGRES_PASSWORD:?run deploy/dev-env.sh}@postgres:5432/bindle?sslmode=disable
+      BINDLE_CONTROL_API_PASSWORD: ${BINDLE_CONTROL_API_PASSWORD:?run deploy/dev-env.sh}
+      BINDLE_CONTROL_INGEST_PASSWORD: ${BINDLE_CONTROL_INGEST_PASSWORD:?run deploy/dev-env.sh}
+      BINDLE_DEV_SEED_TENANT: dev-tenant
+      BINDLE_DEV_SEED_KEY: ${BINDLE_API_KEY:?run deploy/dev-env.sh}
     depends_on:
       opensearch:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
 
   ingest:
@@ -54,7 +77,8 @@ services:
       - "127.0.0.1:4318:4318"
     environment:
       <<: *search
-      BINDLE_API_KEYS: ${BINDLE_API_KEYS:?run deploy/dev-env.sh to create deploy/.env}
+      # Ingest keys are resolved in the control plane.
+      BINDLE_CONTROL_DB_URL: postgres://bindle_ingest:${BINDLE_CONTROL_INGEST_PASSWORD:?run deploy/dev-env.sh}@postgres:5432/bindle?sslmode=disable
       BINDLE_SINK: opensearch
       BINDLE_SEARCH_USER: bindle_writer
       BINDLE_SEARCH_PASSWORD: ${BINDLE_SEARCH_WRITER_PASSWORD:?run deploy/dev-env.sh}
@@ -73,10 +97,14 @@ services:
       BINDLE_API_LISTEN: ":8080"
       BINDLE_SEARCH_USER: bindle_reader
       BINDLE_SEARCH_PASSWORD: ${BINDLE_SEARCH_READER_PASSWORD:?run deploy/dev-env.sh}
-      # Until real console auth exists (step 3) the API rejects every request.
-      # deploy/.env opts into the local-only bypass; it is accepted on the
-      # container's wildcard bind only because the port above is published
-      # to 127.0.0.1.
+      BINDLE_CONTROL_DB_URL: postgres://bindle_api:${BINDLE_CONTROL_API_PASSWORD:?run deploy/dev-env.sh}@postgres:5432/bindle?sslmode=disable
+      # Console sign-in uses Amazon Cognito when BINDLE_COGNITO_ISSUER and
+      # BINDLE_COGNITO_CLIENT_ID are set (see infra/cdk). Without them the API
+      # rejects every request, unless deploy/.env opts into the local-only
+      # bypass; that is accepted on the container's wildcard bind only because
+      # the port above is published to 127.0.0.1.
+      BINDLE_COGNITO_ISSUER: ${BINDLE_COGNITO_ISSUER:-}
+      BINDLE_COGNITO_CLIENT_ID: ${BINDLE_COGNITO_CLIENT_ID:-}
       BINDLE_API_DEV_AUTH_BYPASS_TENANT: ${BINDLE_API_DEV_AUTH_BYPASS_TENANT:-}
       BINDLE_API_DEV_AUTH_BYPASS_IN_CONTAINER: "1"
     depends_on:
@@ -85,3 +113,4 @@ services:
 
 volumes:
   os-data:
+  pg-data:

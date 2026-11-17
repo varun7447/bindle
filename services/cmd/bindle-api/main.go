@@ -8,6 +8,9 @@
 //	BINDLE_SEARCH_PREFIX                     index name prefix (default bindle)
 //	BINDLE_API_RATE_LIMIT_RPS                per-tenant requests/sec (default 20; 0 disables)
 //	BINDLE_API_LOOP_MIN_REPEATS              runaway-loop threshold (default 5)
+//	BINDLE_CONTROL_DB_URL                    control-plane PostgreSQL URL for the API role (or PGHOST, ... env vars)
+//	BINDLE_COGNITO_ISSUER                    https://cognito-idp.<region>.amazonaws.com/<user pool id>
+//	BINDLE_COGNITO_CLIENT_ID                 the console's app client ID
 //	BINDLE_API_DEV_AUTH_BYPASS_TENANT        local dev only: map every request to this tenant
 //	BINDLE_API_DEV_AUTH_BYPASS_IN_CONTAINER  set to 1 to allow the bypass on a container's
 //	                                         wildcard bind (publish the port to 127.0.0.1 only)
@@ -28,6 +31,7 @@ import (
 	"time"
 
 	"github.com/bindle-ai/bindle/services/internal/api"
+	"github.com/bindle-ai/bindle/services/internal/control"
 	"github.com/bindle-ai/bindle/services/internal/ratelimit"
 	"github.com/bindle-ai/bindle/services/internal/search"
 	"github.com/bindle-ai/bindle/services/internal/session"
@@ -43,13 +47,26 @@ func main() {
 
 func run(log *slog.Logger) error {
 	addr := env("BINDLE_API_LISTEN", "127.0.0.1:8080")
-	sessions, err := session.FromEnv(os.Getenv, addr)
+	controlDB, err := control.OpenFromEnv("BINDLE_CONTROL_DB_URL")
+	if err != nil {
+		return err
+	}
+	var store *control.Store
+	var dir session.Directory
+	if controlDB != nil {
+		defer controlDB.Close()
+		store = &control.Store{DB: controlDB}
+		dir = store
+	}
+	sessions, err := session.FromEnv(os.Getenv, addr, dir)
 	if err != nil {
 		return err
 	}
 	switch s := sessions.(type) {
 	case session.FailClosed:
 		log.Warn("no session verifier configured: every /api request will be rejected with 401")
+	case *session.Cognito:
+		log.Info("console sign-in: Amazon Cognito", "issuer", s.Verifier.Issuer)
 	case session.DevBypass:
 		log.Warn("DEV AUTH BYPASS enabled: all requests are served as one tenant; local use only",
 			"tenant", s.TenantID, "addr", addr)
@@ -64,6 +81,7 @@ func run(log *slog.Logger) error {
 	srvAPI := &api.Server{
 		Store:          &search.Store{Client: client, Names: search.Names{Prefix: os.Getenv("BINDLE_SEARCH_PREFIX")}},
 		Sessions:       sessions,
+		Keys:           keyStore(store),
 		Limiter:        ratelimit.New(float64(rps), float64(rps*2)),
 		Log:            log,
 		LoopMinRepeats: envInt("BINDLE_API_LOOP_MIN_REPEATS", 5),
@@ -112,4 +130,12 @@ func envInt(k string, def int) int {
 		}
 	}
 	return def
+}
+
+// keyStore avoids a typed-nil interface when the control plane is absent.
+func keyStore(s *control.Store) api.KeyStore {
+	if s == nil {
+		return nil
+	}
+	return s
 }

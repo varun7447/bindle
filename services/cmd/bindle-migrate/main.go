@@ -1,8 +1,8 @@
-// Command bindle-migrate prepares OpenSearch for Bindle: the retention
-// policy, index template, rollup index, and the least-privilege writer and
-// reader users. Idempotent; run it on every deploy before ingest and the API.
+// Command bindle-migrate prepares Bindle's storage. Idempotent; run it on
+// every deploy before ingest and the API. Each part runs when configured:
 //
-// Environment:
+// OpenSearch (traces): the retention policy, index template, rollup index,
+// and the least-privilege writer and reader users.
 //
 //	BINDLE_SEARCH_URL               OpenSearch endpoint (https; http only with BINDLE_SEARCH_ALLOW_HTTP=1)
 //	BINDLE_SEARCH_ADMIN_USER        admin user (security plugin admin, or the AWS FGAC master user)
@@ -12,16 +12,27 @@
 //	BINDLE_SEARCH_PREFIX            index name prefix (default bindle)
 //	BINDLE_SEARCH_REPLICAS          replicas per shard (default 1; 0 for a single-node dev cluster)
 //	BINDLE_RETENTION_DAYS           default 30
+//
+// PostgreSQL (control plane): roles and schema for tenants, users and keys.
+//
+//	BINDLE_CONTROL_DB_ADMIN_URL     schema-owner URL (or PGHOST, PGUSER, ... env vars)
+//	BINDLE_CONTROL_API_PASSWORD     sets the bindle_api role's password
+//	BINDLE_CONTROL_INGEST_PASSWORD  sets the bindle_ingest role's password
+//	BINDLE_DEV_SEED_TENANT / BINDLE_DEV_SEED_KEY
+//	                                local development only: make this key valid for this tenant
 package main
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/bindle-ai/bindle/services/internal/control"
 	"github.com/bindle-ai/bindle/services/internal/search"
 )
 
@@ -34,12 +45,67 @@ func main() {
 }
 
 func run(log *slog.Logger) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	ran := false
+	if os.Getenv("BINDLE_SEARCH_URL") != "" {
+		if err := setupSearch(ctx, log); err != nil {
+			return err
+		}
+		ran = true
+	}
+	db, err := control.OpenFromEnv("BINDLE_CONTROL_DB_ADMIN_URL")
+	if err != nil {
+		return err
+	}
+	if db != nil {
+		defer db.Close()
+		if err := setupControl(ctx, log, db); err != nil {
+			return err
+		}
+		ran = true
+	}
+	if !ran {
+		return errors.New("nothing to do: set BINDLE_SEARCH_URL and/or BINDLE_CONTROL_DB_ADMIN_URL (or PGHOST)")
+	}
+	return nil
+}
+
+func setupControl(ctx context.Context, log *slog.Logger, db *sql.DB) error {
+	var err error
+	for { // the database may still be starting
+		if err = db.PingContext(ctx); err == nil || ctx.Err() != nil {
+			break
+		}
+		log.Info("waiting for PostgreSQL", "err", err)
+		time.Sleep(3 * time.Second)
+	}
+	if err != nil {
+		return err
+	}
+	roles := control.DefaultRoles
+	roles.APIPassword = os.Getenv("BINDLE_CONTROL_API_PASSWORD")
+	roles.IngestPassword = os.Getenv("BINDLE_CONTROL_INGEST_PASSWORD")
+	applied, err := control.Migrate(ctx, db, roles)
+	if err != nil {
+		return err
+	}
+	log.Info("control plane migrations complete", "applied", applied)
+	tenant, key := os.Getenv("BINDLE_DEV_SEED_TENANT"), os.Getenv("BINDLE_DEV_SEED_KEY")
+	if tenant != "" && key != "" {
+		if err := control.SeedKey(ctx, db, tenant, "Local dev", key); err != nil {
+			return err
+		}
+		log.Warn("seeded a development ingest key", "tenant", tenant)
+	}
+	return nil
+}
+
+func setupSearch(ctx context.Context, log *slog.Logger) error {
 	client, err := search.FromEnv(os.Getenv, os.Getenv("BINDLE_SEARCH_ADMIN_USER"), os.Getenv("BINDLE_SEARCH_ADMIN_PASSWORD"))
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
 	// The cluster may still be starting.
 	for {
 		err = client.Do(ctx, http.MethodGet, "/_cluster/health", nil, nil, nil)

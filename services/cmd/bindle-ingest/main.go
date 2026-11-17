@@ -3,7 +3,9 @@
 // Environment:
 //
 //	BINDLE_LISTEN                  listen address (default 127.0.0.1:4318; the container image sets :4318)
-//	BINDLE_API_KEYS                "key=tenant,key2=tenant2" (dev; prod reads Secrets Manager)
+//	BINDLE_CONTROL_DB_URL          control-plane PostgreSQL URL for the ingest role (or PGHOST, PGUSER, ... env vars);
+//	                               ingest keys are resolved there
+//	BINDLE_API_KEYS                "key=tenant,..." static keys: tests and development only
 //	BINDLE_SINK                    stdout | opensearch (default stdout)
 //	BINDLE_SEARCH_URL              OpenSearch endpoint (https; http only with BINDLE_SEARCH_ALLOW_HTTP=1)
 //	BINDLE_SEARCH_USER / BINDLE_SEARCH_PASSWORD   the writer user (default user bindle_writer)
@@ -26,6 +28,7 @@ import (
 	"time"
 
 	"github.com/bindle-ai/bindle/services/internal/auth"
+	"github.com/bindle-ai/bindle/services/internal/control"
 	"github.com/bindle-ai/bindle/services/internal/cost"
 	"github.com/bindle-ai/bindle/services/internal/ingest"
 	"github.com/bindle-ai/bindle/services/internal/normalize"
@@ -45,17 +48,34 @@ func main() {
 }
 
 func run(log *slog.Logger) error {
-	keys, err := auth.ParseEnv(os.Getenv("BINDLE_API_KEYS"))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	var keys auth.Resolver
+	controlDB, err := control.OpenFromEnv("BINDLE_CONTROL_DB_URL")
 	if err != nil {
 		return err
+	}
+	switch static := os.Getenv("BINDLE_API_KEYS"); {
+	case controlDB != nil && static != "":
+		return errors.New("set either the control database or BINDLE_API_KEYS, not both")
+	case controlDB != nil:
+		defer controlDB.Close()
+		r := &control.KeyResolver{DB: controlDB, Log: log}
+		go r.RunUsageFlusher(ctx, time.Minute)
+		keys = r
+	default:
+		k, err := auth.ParseEnv(static)
+		if err != nil {
+			return err
+		}
+		log.Warn("using static BINDLE_API_KEYS: for tests and development only")
+		keys = k
 	}
 	prices, err := cost.Load(os.Getenv("BINDLE_PRICING_FILE"))
 	if err != nil {
 		return err
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	var out pipeline.Sink
 	switch env("BINDLE_SINK", "stdout") {

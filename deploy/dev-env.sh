@@ -25,9 +25,12 @@ add BINDLE_ENDPOINT "http://localhost:4318"
 add OPENSEARCH_ADMIN_PASSWORD "$(strong)"
 add BINDLE_SEARCH_WRITER_PASSWORD "$(strong)"
 add BINDLE_SEARCH_READER_PASSWORD "$(strong)"
+add POSTGRES_PASSWORD "$(rand)"
+add BINDLE_CONTROL_API_PASSWORD "$(rand)"
+add BINDLE_CONTROL_INGEST_PASSWORD "$(rand)"
 # Local-only: the query API on 127.0.0.1:8080 serves every request as this
 # tenant until real console auth exists. Remove the line to make it reject all.
 add BINDLE_API_DEV_AUTH_BYPASS_TENANT "dev-tenant"
-# No longer used (storage moved to OpenSearch).
-sed -i.bak -E '/^(CLICKHOUSE_PASSWORD|POSTGRES_PASSWORD|BINDLE_DB_WRITER_PASSWORD|BINDLE_DB_READER_PASSWORD)=/d' "$out" && rm -f "$out.bak"
+# No longer used.
+sed -i.bak -E '/^(CLICKHOUSE_PASSWORD|BINDLE_DB_WRITER_PASSWORD|BINDLE_DB_READER_PASSWORD)=/d' "$out" && rm -f "$out.bak"
 echo "ok: $out"

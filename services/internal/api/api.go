@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -18,14 +19,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bindle-ai/bindle/services/internal/control"
 	"github.com/bindle-ai/bindle/services/internal/query"
 	"github.com/bindle-ai/bindle/services/internal/ratelimit"
 	"github.com/bindle-ai/bindle/services/internal/session"
 )
 
+// KeyStore manages a tenant's ingest keys. Implemented by *control.Store.
+type KeyStore interface {
+	ListKeys(ctx context.Context, tenant string) ([]control.APIKey, error)
+	CreateKey(ctx context.Context, tenant, userID, name string) (control.APIKey, string, error)
+	RotateKey(ctx context.Context, tenant, userID, keyID string, grace time.Duration) (control.APIKey, string, error)
+	RevokeKey(ctx context.Context, tenant, keyID string) error
+}
+
 // Server holds the API's dependencies.
 type Server struct {
 	Store    query.Store
+	Keys     KeyStore // nil disables the /api/keys endpoints (503)
 	Sessions session.Resolver
 	Limiter  *ratelimit.Limiter // per-tenant requests/sec; nil disables
 	Log      *slog.Logger
@@ -55,6 +66,11 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/traces/{id}/steps/{step}", s.getStep)
 	api.HandleFunc("GET /api/overview", s.overview)
 	api.HandleFunc("GET /api/alerts", s.alerts)
+	api.HandleFunc("GET /api/me", s.me)
+	api.HandleFunc("GET /api/keys", s.listKeys)
+	api.HandleFunc("POST /api/keys", s.createKey)
+	api.HandleFunc("POST /api/keys/{id}/rotate", s.rotateKey)
+	api.HandleFunc("POST /api/keys/{id}/revoke", s.revokeKey)
 	api.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})
@@ -69,25 +85,32 @@ func (s *Server) Handler() http.Handler {
 
 type ctxKey struct{}
 
-func tenantFrom(ctx context.Context) string {
-	t, _ := ctx.Value(ctxKey{}).(string)
-	return t
+func principalFrom(ctx context.Context) session.Principal {
+	p, _ := ctx.Value(ctxKey{}).(session.Principal)
+	return p
 }
+
+func tenantFrom(ctx context.Context) string { return principalFrom(ctx).TenantID }
 
 func (s *Server) authed(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tenant, err := s.Sessions.Tenant(r)
-		if err != nil || tenant == "" {
+		p, err := s.Sessions.Resolve(r)
+		if err != nil || p.TenantID == "" {
+			if err != nil && !errors.Is(err, session.ErrUnauthenticated) {
+				s.logger().Error("session", "err", err) // control plane failure, not a bad token
+				writeError(w, http.StatusServiceUnavailable, "unavailable", "sign-in is temporarily unavailable")
+				return
+			}
 			w.Header().Set("WWW-Authenticate", `Bearer realm="bindle"`)
 			writeError(w, http.StatusUnauthorized, "unauthenticated", "a valid session is required")
 			return
 		}
-		if !s.Limiter.Allow(tenant, 1) {
+		if !s.Limiter.Allow(p.TenantID, 1) {
 			w.Header().Set("Retry-After", "1")
 			writeError(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, tenant)))
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, p)))
 	})
 }
 
@@ -481,4 +504,141 @@ func (s *Server) alerts(w http.ResponseWriter, r *http.Request) {
 		Window string      `json:"window"`
 		Alerts []AlertJSON `json:"alerts"`
 	}{name, out})
+}
+
+// ---- account and keys ----------------------------------------------------
+
+func (s *Server) me(w http.ResponseWriter, r *http.Request) {
+	p := principalFrom(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user_id": p.UserID, "tenant_id": p.TenantID, "tenant_name": p.TenantName,
+		"role": p.Role, "can_manage_keys": p.CanManageKeys(),
+	})
+}
+
+var keyIDRe = regexp.MustCompile(`^key_[0-9a-f]{20}$`)
+
+const (
+	defaultRotateGrace = 24 * time.Hour
+	maxRotateGrace     = 7 * 24 * time.Hour
+	maxBodyBytes       = 4 << 10
+)
+
+// keysAllowed checks the key store is configured and, for changes, the role.
+func (s *Server) keysAllowed(w http.ResponseWriter, r *http.Request, change bool) (session.Principal, bool) {
+	p := principalFrom(r.Context())
+	if s.Keys == nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "key management is not configured")
+		return p, false
+	}
+	if change && !p.CanManageKeys() {
+		writeError(w, http.StatusForbidden, "forbidden", "only owners and admins can manage keys")
+		return p, false
+	}
+	return p, true
+}
+
+// decodeBody reads a small JSON object; an empty body is allowed.
+func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil && !errors.Is(err, io.EOF) {
+		badRequest(w, "invalid JSON body")
+		return false
+	}
+	return true
+}
+
+func (s *Server) listKeys(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.keysAllowed(w, r, false)
+	if !ok {
+		return
+	}
+	keys, err := s.Keys.ListKeys(r.Context(), p.TenantID)
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	if keys == nil {
+		keys = []control.APIKey{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"keys": keys})
+}
+
+func (s *Server) createKey(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.keysAllowed(w, r, true)
+	if !ok {
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	k, secret, err := s.Keys.CreateKey(r.Context(), p.TenantID, p.UserID, body.Name)
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"key": k, "secret": secret})
+}
+
+func (s *Server) rotateKey(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.keysAllowed(w, r, true)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if !keyIDRe.MatchString(id) {
+		badRequest(w, "invalid key id")
+		return
+	}
+	var body struct {
+		GraceHours *float64 `json:"grace_hours"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	grace := defaultRotateGrace
+	if body.GraceHours != nil {
+		if *body.GraceHours < 0 || time.Duration(*body.GraceHours*float64(time.Hour)) > maxRotateGrace {
+			badRequest(w, "grace_hours must be between 0 and 168")
+			return
+		}
+		grace = time.Duration(*body.GraceHours * float64(time.Hour))
+	}
+	k, secret, err := s.Keys.RotateKey(r.Context(), p.TenantID, p.UserID, id, grace)
+	if errors.Is(err, control.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", "no active key with that id")
+		return
+	}
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"key": k, "secret": secret, "old_key_expires_in_hours": grace.Hours()})
+}
+
+func (s *Server) revokeKey(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.keysAllowed(w, r, true)
+	if !ok {
+		return
+	}
+	id := r.PathValue("id")
+	if !keyIDRe.MatchString(id) {
+		badRequest(w, "invalid key id")
+		return
+	}
+	err := s.Keys.RevokeKey(r.Context(), p.TenantID, id)
+	if errors.Is(err, control.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", "key not found")
+		return
+	}
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
