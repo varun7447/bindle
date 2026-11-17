@@ -16,6 +16,9 @@ new BindleStack(app, 'BindleDataPlane', {
   searchInstanceType: app.node.tryGetContext('searchInstanceType'),
   searchDataNodes: app.node.tryGetContext('searchDataNodes') ? Number(app.node.tryGetContext('searchDataNodes')) : undefined,
   searchVolumeGiB: app.node.tryGetContext('searchVolumeGiB') ? Number(app.node.tryGetContext('searchVolumeGiB')) : undefined,
+  dbInstanceClass: app.node.tryGetContext('dbInstanceClass'),
+  consoleUrl: app.node.tryGetContext('consoleUrl'),
+  authDomainPrefix: app.node.tryGetContext('authDomainPrefix'),
 });
 
 cdk.Tags.of(app).add('project', 'bindle');

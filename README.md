@@ -6,7 +6,10 @@ This repo holds the first end-to-end slice:
 
 ```
 agent + bindle-sdk ──OTLP/HTTP──► bindle-ingest (Go) ──► OpenSearch ◄── bindle-api (Go) ◄── console (Next.js)
-   (redact #1)                   auth · decode · normalize
+   (redact #1)                   key → tenant · decode           │  Cognito sign-in    │
+                                 normalize · redact #2           ▼                     │
+                                 cost · batch         ──► PostgreSQL (control plane) ◄─┘
+                                                          tenants · users · API keys
                                  redact #2 · cost · batch
 ```
 
@@ -28,24 +31,35 @@ What a team sees after connecting an agent. Screenshots are from the console in 
 
 The design mockups for these screens are in [`design/console/`](design/console/). They render inside the design canvas, not as standalone pages.
 
+### Accounts and ingest keys
+
+The control plane lives in PostgreSQL:
+- **Tenants, users and memberships.** A user's first sign-in creates their workspace, with them as owner. For now each user belongs to one workspace.
+- **Ingest keys.** Keys look like `bd_live_…` and carry 256 random bits. Only a SHA-256 hash is stored, and the key is shown once.
+  - **Rotate:** issues a replacement; the old key keeps working for a grace period you choose, 24 hours by default.
+  - **Revoke:** takes effect within a minute, the length of ingest's key cache. If the database is briefly unavailable, keys used in the last 10 minutes keep working and unknown keys are rejected.
+- **Least privilege.** Ingest can only resolve a key hash through a database function and has no table access. The API can't delete anything, and sees only its own tenant's keys.
+
+**Console sign-in** uses Amazon Cognito: the console sends people to Cognito's hosted pages, and the API verifies Cognito's tokens itself. Without Cognito configured (local development), the API's dev bypass serves the local tenant, and `deploy/.env`'s `BINDLE_API_KEY` is seeded as that tenant's key.
+
 ## Repository layout
 
 | Path | What it is |
 |---|---|
 | `sdk/python` | `bindle-sdk`: one-line `bindle.init()`, auto-instrumentation, client-side redaction, `trace_step` / `trace_tool` / `decision` / `handoff` helpers |
-| `services` | `bindle-api`: read API for the console (runs, trace waterfall, step detail, overview, alerts) over OpenSearch. `bindle-migrate`: creates the indices, retention policy and least-privilege users. `bindle-ingest`: OTLP/HTTP receiver (protobuf + JSON, gzip), API-key → tenant, framework normalizer, server-side redaction, cost, per-tenant rate limit, backpressure, OpenSearch writer. Go standard library only, no third-party dependencies. |
+| `services` | `bindle-api`: read API for the console (runs, trace waterfall, step detail, overview, alerts) over OpenSearch, plus account and ingest-key management, with Amazon Cognito sign-in. `bindle-migrate`: sets up OpenSearch (indices, retention, users) and the control-plane database (schema, roles). `bindle-ingest`: OTLP/HTTP receiver (protobuf + JSON, gzip), API-key → tenant, framework normalizer, server-side redaction, cost, per-tenant rate limit, backpressure, OpenSearch writer. Go standard library plus one vendored dependency, the PostgreSQL driver `lib/pq` (control plane). |
 | `web` | Console (Next.js): overview, runs, trace explorer, connect-an-agent. See `web/README.md` |
 | `design/console` | Console design mockups (visual spec for `web/`) |
 | `docs/images` | README screenshots |
-| `deploy` | `docker-compose.yml` for a local stack (OpenSearch, setup, ingest, API) |
-| `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, OpenSearch Service domain, setup task, secrets, S3 payload bucket |
+| `deploy` | `docker-compose.yml` for a local stack (OpenSearch, PostgreSQL, setup, ingest, API) |
+| `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, OpenSearch Service domain, RDS PostgreSQL (control plane), Cognito user pool, setup task, secrets, S3 payload bucket |
 | `examples/python` | `quickstart.py` (minimal) and `demo_agent.py` (richer run with LLM steps, retries and an optional runaway loop) |
 
 ## Run it locally
 
 ```bash
 ./deploy/dev-env.sh                      # once: random local credentials in deploy/.env (git-ignored)
-set -a; . deploy/.env; set +a            # BINDLE_API_KEY, BINDLE_ENDPOINT, OPENSEARCH_ADMIN_PASSWORD
+set -a; . deploy/.env; set +a            # BINDLE_API_KEY, BINDLE_ENDPOINT, OPENSEARCH_ADMIN_PASSWORD, POSTGRES_PASSWORD
 docker compose -f deploy/docker-compose.yml up --build
 pip install -e sdk/python
 python examples/python/quickstart.py
@@ -85,7 +99,8 @@ Services need Go 1.23 or newer (`go.mod` sets the minimum) and use only the stan
 
 ```bash
 cd services && go vet ./... && go test ./...
-# optional: OpenSearch integration test (uses its own index prefix and users, removes them afterwards)
+# optional: integration tests (each creates and removes its own database/indices and users)
+BINDLE_POSTGRES_TEST_URL="postgres://bindle_owner:$POSTGRES_PASSWORD@127.0.0.1:5432/postgres?sslmode=disable" go test ./internal/control/
 BINDLE_OPENSEARCH_TEST_URL=http://127.0.0.1:9200 BINDLE_OPENSEARCH_TEST_USER=admin \
   BINDLE_OPENSEARCH_TEST_PASSWORD="$OPENSEARCH_ADMIN_PASSWORD" go test ./internal/search/
 cd sdk/python && pip install -e '.[dev]' && pytest
@@ -104,9 +119,10 @@ Synth fails without a certificate: ingest carries API keys and agent payloads, s
 The stack creates an Amazon OpenSearch Service domain (OpenSearch 3.7): in subnets with no internet route, HTTPS-only (TLS 1.2 with forward secrecy), encrypted at rest and between nodes, with fine-grained access control. Its master and app-user passwords live in Secrets Manager. Defaults are two `m7g.medium.search` data nodes in two Availability Zones with 20 GiB gp3 each; override with `-c searchInstanceType=... -c searchDataNodes=... -c searchVolumeGiB=...` (`t3.small.search` is fine for a dev stack). These resources cost money once deployed.
 
 After deploy:
-1. Run the `MigrateCommand` stack output (an `aws ecs run-task` command). It creates the indices, the retention policy, and the `bindle_writer` and `bindle_reader` users.
-2. Set `bindle/ingest-api-keys` to `key=tenant` pairs.
-3. Point `ingest.bindle.ai` at the `IngestEndpoint` output.
+1. Run the `MigrateCommand` stack output (an `aws ecs run-task` command). It sets up OpenSearch (indices, retention policy, `bindle_writer` and `bindle_reader` users) and the control-plane database (schema, `bindle_api` and `bindle_ingest` roles).
+2. Point `ingest.bindle.ai` at the `IngestEndpoint` output.
+
+The stack also creates an RDS PostgreSQL 17 instance for the control plane (`db.t4g.micro` by default; private, encrypted, TLS required, deletion protection) and a Cognito user pool with a hosted sign-in domain (`-c authDomainPrefix=...`, which must be globally unique) and a console app client whose callback is `-c consoleUrl=...` (default `https://app.bindle.ai`). The API and console aren't deployed by the stack yet; the `CognitoIssuer`, `CognitoDomain` and `ConsoleClientId` outputs configure them.
 
 ## Design rules
 

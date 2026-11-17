@@ -8,7 +8,9 @@ import * as ecsPatterns from 'aws-cdk-lib/aws-ecs-patterns';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as opensearch from 'aws-cdk-lib/aws-opensearchservice';
+import * as rds from 'aws-cdk-lib/aws-rds';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 
@@ -29,6 +31,12 @@ export interface BindleStackProps extends cdk.StackProps {
   readonly searchDataNodes?: number;
   /** EBS gp3 volume per data node, GiB. Default 20. */
   readonly searchVolumeGiB?: number;
+  /** Control-plane RDS instance class. Default t4g.micro. */
+  readonly dbInstanceClass?: string;
+  /** Public URL of the console (OAuth callback and sign-out target). */
+  readonly consoleUrl?: string;
+  /** Cognito hosted UI domain prefix; must be globally unique. */
+  readonly authDomainPrefix?: string;
 }
 
 /**
@@ -39,6 +47,11 @@ export interface BindleStackProps extends cdk.StackProps {
  * HTTPS-only with fine-grained access control, and accepts connections
  * only from the ingest service and the setup task. Index setup and the
  * least-privilege users are created by the bindle-migrate task (see outputs).
+ *
+ * Control plane: RDS PostgreSQL (tenants, users, ingest API keys) in the
+ * same isolated subnets, TLS required, reachable only from ingest and the
+ * setup task. Console sign-in: an Amazon Cognito user pool with the hosted
+ * UI. The API and console services are not deployed by this stack yet.
  *
  * Also provisioned for payload offload (step 5, not yet used by the service):
  *   - S3 bucket for large prompt/output payloads
@@ -130,14 +143,85 @@ export class BindleStack extends cdk.Stack {
     }));
     const searchUrl = `https://${search.domainEndpoint}`;
 
-    const image = ecs.ContainerImage.fromAsset(path.join(__dirname, '../../../services'));
-
-    // Dev bootstrap for ingest keys ("key=tenant,key2=tenant2"). Replaced by
-    // the control-plane key service once self-serve sign-up exists.
-    const ingestKeys = new secretsmanager.Secret(this, 'IngestKeys', {
-      secretName: 'bindle/ingest-api-keys',
-      description: 'Comma-separated key=tenant pairs for bindle-ingest (v0 bootstrap)',
+    // ---- control plane (PostgreSQL) -------------------------------------------
+    const dbSg = new ec2.SecurityGroup(this, 'DbSg', { vpc, description: 'Bindle control plane PostgreSQL', allowAllOutbound: false });
+    const pgEngine = rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_17 });
+    const db = new rds.DatabaseInstance(this, 'ControlDb', {
+      engine: pgEngine,
+      instanceType: new ec2.InstanceType(props.dbInstanceClass ?? 't4g.micro'),
+      multiAz: false,
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+      securityGroups: [dbSg],
+      databaseName: 'bindle',
+      credentials: rds.Credentials.fromGeneratedSecret('bindle_owner', { secretName: 'bindle/control-db-owner' }),
+      parameterGroup: new rds.ParameterGroup(this, 'ControlDbParams', {
+        engine: pgEngine,
+        parameters: { 'rds.force_ssl': '1', timezone: 'UTC' },
+      }),
+      allocatedStorage: 20,
+      maxAllocatedStorage: 100,
+      storageType: rds.StorageType.GP3,
+      storageEncrypted: true,
+      backupRetention: cdk.Duration.days(7),
+      deletionProtection: true,
+      removalPolicy: cdk.RemovalPolicy.SNAPSHOT,
+      publiclyAccessible: false,
+      autoMinorVersionUpgrade: true,
+      cloudwatchLogsExports: ['postgresql'],
+      cloudwatchLogsRetention: logs.RetentionDays.ONE_MONTH,
     });
+    const rolePassword = () => ({ excludePunctuation: true, passwordLength: 40 });
+    const dbIngest = new secretsmanager.Secret(this, 'ControlDbIngest', { secretName: 'bindle/control-db-ingest', generateSecretString: rolePassword() });
+    const dbApi = new secretsmanager.Secret(this, 'ControlDbApi', { secretName: 'bindle/control-db-api', generateSecretString: rolePassword() });
+    // libpq settings; TLS verified against the RDS CA bundle in the image.
+    const dbEnv = {
+      PGHOST: db.dbInstanceEndpointAddress,
+      PGPORT: db.dbInstanceEndpointPort,
+      PGDATABASE: 'bindle',
+      PGSSLMODE: 'verify-full',
+      PGSSLROOTCERT: '/etc/bindle/rds-ca.pem',
+      PGCONNECT_TIMEOUT: '10',
+    };
+
+    // ---- console sign-in (Cognito) --------------------------------------------
+    const consoleUrl = (props.consoleUrl ?? 'https://app.bindle.ai').replace(/\/+$/, '');
+    const userPool = new cognito.UserPool(this, 'Users', {
+      userPoolName: 'bindle-users',
+      selfSignUpEnabled: true,
+      signInAliases: { email: true },
+      autoVerify: { email: true },
+      standardAttributes: { email: { required: true, mutable: true } },
+      passwordPolicy: { minLength: 12, requireLowercase: true, requireUppercase: true, requireDigits: true, requireSymbols: false },
+      mfa: cognito.Mfa.OPTIONAL,
+      mfaSecondFactor: { otp: true, sms: false },
+      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+      featurePlan: cognito.FeaturePlan.ESSENTIALS,
+      deletionProtection: true,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    const authDomain = userPool.addDomain('HostedUi', {
+      cognitoDomain: { domainPrefix: props.authDomainPrefix ?? 'bindle' },
+    });
+    const consoleClient = userPool.addClient('Console', {
+      userPoolClientName: 'bindle-console',
+      generateSecret: true,
+      authFlows: {}, // no direct password APIs: sign-in only through the hosted UI
+      oAuth: {
+        flows: { authorizationCodeGrant: true },
+        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL],
+        callbackUrls: [`${consoleUrl}/auth/callback`],
+        logoutUrls: [`${consoleUrl}/`],
+      },
+      supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
+      preventUserExistenceErrors: true,
+      accessTokenValidity: cdk.Duration.hours(1),
+      idTokenValidity: cdk.Duration.hours(1),
+      refreshTokenValidity: cdk.Duration.days(30),
+      enableTokenRevocation: true,
+    });
+
+    const image = ecs.ContainerImage.fromAsset(path.join(__dirname, '../../../services'));
 
     const payloads = new s3.Bucket(this, 'Payloads', {
       encryption: s3.BucketEncryption.S3_MANAGED,
@@ -175,6 +259,8 @@ export class BindleStack extends cdk.Stack {
         image,
         containerPort: 4318,
         environment: {
+          ...dbEnv,
+          PGUSER: 'bindle_ingest',
           BINDLE_SINK: 'opensearch',
           BINDLE_SEARCH_URL: searchUrl,
           BINDLE_SEARCH_USER: 'bindle_writer',
@@ -184,7 +270,7 @@ export class BindleStack extends cdk.Stack {
         },
         secrets: {
           BINDLE_SEARCH_PASSWORD: ecs.Secret.fromSecretsManager(searchWriter, 'password'),
-          BINDLE_API_KEYS: ecs.Secret.fromSecretsManager(ingestKeys),
+          PGPASSWORD: ecs.Secret.fromSecretsManager(dbIngest),
         },
         logDriver: ecs.LogDrivers.awsLogs({ streamPrefix: 'ingest', logRetention: logs.RetentionDays.ONE_MONTH }),
       },
@@ -213,6 +299,7 @@ export class BindleStack extends cdk.Stack {
 
     payloads.grantWrite(ingest.taskDefinition.taskRole);
     searchSg.addIngressRule(ec2.Peer.securityGroupId(ingest.service.connections.securityGroups[0].securityGroupId), ec2.Port.tcp(443), 'bindle-ingest');
+    db.connections.allowDefaultPortFrom(ingest.service, 'bindle-ingest');
 
     // One-off setup task: run it after each deploy (command in the
     // MigrateCommand output). Same image, different entrypoint.
@@ -220,8 +307,12 @@ export class BindleStack extends cdk.Stack {
     migrateTask.addContainer('migrate', {
       image,
       entryPoint: ['/bindle-migrate'],
-      environment: { BINDLE_SEARCH_URL: searchUrl, BINDLE_SEARCH_REPLICAS: '1' },
+      environment: { BINDLE_SEARCH_URL: searchUrl, BINDLE_SEARCH_REPLICAS: '1', ...dbEnv },
       secrets: {
+        PGUSER: ecs.Secret.fromSecretsManager(db.secret!, 'username'),
+        PGPASSWORD: ecs.Secret.fromSecretsManager(db.secret!, 'password'),
+        BINDLE_CONTROL_API_PASSWORD: ecs.Secret.fromSecretsManager(dbApi),
+        BINDLE_CONTROL_INGEST_PASSWORD: ecs.Secret.fromSecretsManager(dbIngest),
         BINDLE_SEARCH_ADMIN_USER: ecs.Secret.fromSecretsManager(searchAdmin, 'username'),
         BINDLE_SEARCH_ADMIN_PASSWORD: ecs.Secret.fromSecretsManager(searchAdmin, 'password'),
         BINDLE_SEARCH_WRITER_PASSWORD: ecs.Secret.fromSecretsManager(searchWriter, 'password'),
@@ -231,6 +322,7 @@ export class BindleStack extends cdk.Stack {
     });
     const migrateSg = new ec2.SecurityGroup(this, 'MigrateSg', { vpc, description: 'bindle-migrate task' });
     searchSg.addIngressRule(ec2.Peer.securityGroupId(migrateSg.securityGroupId), ec2.Port.tcp(443), 'bindle-migrate');
+    db.connections.allowDefaultPortFrom(migrateSg, 'bindle-migrate');
     const appSubnets = vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }).subnetIds;
 
     new cdk.CfnOutput(this, 'IngestEndpoint', {
@@ -239,8 +331,21 @@ export class BindleStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, 'PayloadBucket', { value: payloads.bucketName });
     new cdk.CfnOutput(this, 'SearchEndpoint', { value: searchUrl });
+    new cdk.CfnOutput(this, 'ControlDbEndpoint', { value: db.dbInstanceEndpointAddress });
+    new cdk.CfnOutput(this, 'CognitoIssuer', {
+      description: 'BINDLE_COGNITO_ISSUER for bindle-api',
+      value: `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
+    });
+    new cdk.CfnOutput(this, 'CognitoDomain', {
+      description: 'BINDLE_COGNITO_DOMAIN for the console',
+      value: authDomain.baseUrl(),
+    });
+    new cdk.CfnOutput(this, 'ConsoleClientId', {
+      description: 'BINDLE_COGNITO_CLIENT_ID for the console and bindle-api (secret: aws cognito-idp describe-user-pool-client)',
+      value: consoleClient.userPoolClientId,
+    });
     new cdk.CfnOutput(this, 'MigrateCommand', {
-      description: 'Run after each deploy to create the indices, retention policy and users',
+      description: 'Run after each deploy: OpenSearch indices, retention policy and users; control-plane schema and roles',
       value: cdk.Fn.join('', [
         'aws ecs run-task --cluster ', cluster.clusterName,
         ' --launch-type FARGATE --task-definition ', migrateTask.taskDefinitionArn,
