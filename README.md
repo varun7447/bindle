@@ -79,6 +79,7 @@ Alerts go to Slack incoming webhooks, HTTPS webhooks or email (Amazon SES). They
 
 | Path | What it is |
 |---|---|
+| `sdk/typescript` | `@bindle-ai/sdk` for Node.js: `bindle.init()`, client-side redaction, `step` / `traceTool` / `decision` / `handoff`, same sampling rule and remote settings as Python |
 | `sdk/python` | `bindle-sdk`: one-line `bindle.init()`, auto-instrumentation, client-side redaction, `trace_step` / `trace_tool` / `decision` / `handoff` helpers |
 | `services` | `bindle-api`: read API for the console (runs, trace waterfall, step detail, overview, alerts) over OpenSearch, plus account and ingest-key management, with Amazon Cognito sign-in. `bindle-migrate`: sets up OpenSearch (indices, retention, users) and the control-plane database (schema, roles). `bindle-processor`: Kinesis consumer that writes OpenSearch. `bindle-alerts`: alert rule evaluation and delivery. `bindle-ingest`: OTLP/HTTP receiver (protobuf + JSON, gzip), API-key → tenant, framework normalizer, server-side redaction, cost, per-tenant rate limit, backpressure, OpenSearch writer. Go standard library plus one vendored dependency, the PostgreSQL driver `lib/pq` (control plane). |
 | `web` | Console (Next.js): overview, runs, trace explorer, alerts, keys, SDK settings, connect-an-agent. See `web/README.md` |
@@ -177,5 +178,6 @@ Next:
 - [x] Control-plane key service (replaces the env-var bootstrap)
 - [ ] Contract tests per framework release for the normalizer mappings
 - [x] Onboarding: `bindle init`, `bindle mcp` (MCP server), `llms.txt`
-- [ ] TypeScript SDK, hosted LLM gateway
+- [x] TypeScript SDK (`sdk/typescript`)
+- [ ] Hosted LLM gateway
 - [ ] Fill `services/pricing.example.json` with real prices from each provider
