@@ -176,5 +176,6 @@ Next:
 - [x] Alerts: runaway loops, failure rate, run cost → Slack, webhooks, email
 - [x] Control-plane key service (replaces the env-var bootstrap)
 - [ ] Contract tests per framework release for the normalizer mappings
-- [ ] TypeScript SDK, `bindle init` CLI, hosted LLM gateway
+- [x] Onboarding: `bindle init`, `bindle mcp` (MCP server), `llms.txt`
+- [ ] TypeScript SDK, hosted LLM gateway
 - [ ] Fill `services/pricing.example.json` with real prices from each provider

@@ -13,7 +13,22 @@ import bindle
 bindle.init(api_key="bd_live_...", agent="support-triage", version="v12")
 ```
 
-That's it. Installed frameworks are detected and instrumented automatically. Frameworks that already emit OpenTelemetry (such as Strands) are picked up through the global tracer provider.
+That's it. Installed frameworks are detected and instrumented automatically. Frameworks that already emit OpenTelemetry (such as Strands) are picked up through the global tracer provider. Prefer `BINDLE_API_KEY` in the environment over a key in code.
+
+## Set up in one command
+
+```bash
+bindle init      # detect the framework, save the key to .env, send a test trace, print the code to add
+bindle check     # verify the key and endpoint (sends nothing)
+```
+
+`bindle init` asks for the key with hidden input (or takes `--key` / `BINDLE_API_KEY`), writes `.env` readable only by you, and adds `.env` to `.gitignore` in git repositories. It never prints the full key.
+
+For coding agents, `bindle mcp` runs an MCP server on stdio with setup-guide, framework-detection, connection-check and test-trace tools. The key is read from the environment and never returned to the model:
+
+```bash
+claude mcp add bindle -- bindle mcp
+```
 
 ## Custom agent code
 
