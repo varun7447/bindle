@@ -42,6 +42,17 @@ func TestClassifyConventions(t *testing.T) {
 	}
 }
 
+func TestRootChainIsTheAgentRun(t *testing.T) {
+	n := newN()
+	chain := map[string]any{"openinference.span.kind": "CHAIN"}
+	if st := n.Normalize("t1", model.Span{SpanID: "a", Attributes: chain}); st.Type != model.StepAgent {
+		t.Errorf("root chain: %s", st.Type)
+	}
+	if st := n.Normalize("t1", model.Span{SpanID: "b", ParentSpanID: "a", Attributes: chain}); st.Type != model.StepOther {
+		t.Errorf("nested chain: %s", st.Type)
+	}
+}
+
 func TestLLMFieldsAndCost(t *testing.T) {
 	n := newN()
 	st := n.Normalize("acme", model.Span{

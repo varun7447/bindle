@@ -136,6 +136,13 @@ func classify(s model.Span, st model.Step) string {
 		return model.StepRetrieval
 	case "AGENT":
 		return model.StepAgent
+	case "CHAIN":
+		// Frameworks such as LangGraph mark the whole run as a CHAIN; the
+		// root of a trace is the agent run. Nested chains (graph nodes)
+		// stay generic steps.
+		if s.ParentSpanID == "" {
+			return model.StepAgent
+		}
 	case "EVALUATOR":
 		return model.StepEval
 	case "GUARDRAIL":
