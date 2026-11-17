@@ -6,6 +6,7 @@
 //	BINDLE_SEARCH_URL                        OpenSearch endpoint (https; http only with BINDLE_SEARCH_ALLOW_HTTP=1)
 //	BINDLE_SEARCH_USER / BINDLE_SEARCH_PASSWORD   the read-only user (default user bindle_reader)
 //	BINDLE_SEARCH_PREFIX                     index name prefix (default bindle)
+//	BINDLE_PAYLOAD_STORE                     s3://bucket/prefix or file:///dir (read-only use: offloaded payloads)
 //	BINDLE_API_RATE_LIMIT_RPS                per-tenant requests/sec (default 20; 0 disables)
 //	BINDLE_API_LOOP_MIN_REPEATS              runaway-loop threshold (default 5)
 //	BINDLE_CONTROL_DB_URL                    control-plane PostgreSQL URL for the API role (or PGHOST, ... env vars)
@@ -32,6 +33,7 @@ import (
 
 	"github.com/bindle-ai/bindle/services/internal/api"
 	"github.com/bindle-ai/bindle/services/internal/control"
+	"github.com/bindle-ai/bindle/services/internal/payload"
 	"github.com/bindle-ai/bindle/services/internal/ratelimit"
 	"github.com/bindle-ai/bindle/services/internal/search"
 	"github.com/bindle-ai/bindle/services/internal/session"
@@ -77,9 +79,14 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	blobs, err := payload.FromURL(os.Getenv("BINDLE_PAYLOAD_STORE"), os.Getenv)
+	if err != nil {
+		return err
+	}
+
 	rps := envInt("BINDLE_API_RATE_LIMIT_RPS", 20)
 	srvAPI := &api.Server{
-		Store:          &search.Store{Client: client, Names: search.Names{Prefix: os.Getenv("BINDLE_SEARCH_PREFIX")}},
+		Store:          &search.Store{Client: client, Names: search.Names{Prefix: os.Getenv("BINDLE_SEARCH_PREFIX")}, Payloads: blobs, Log: log},
 		Sessions:       sessions,
 		Keys:           keyStore(store),
 		Config:         configStore(store),

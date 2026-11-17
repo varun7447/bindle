@@ -83,6 +83,10 @@ services:
       BINDLE_SEARCH_USER: bindle_writer
       BINDLE_SEARCH_PASSWORD: ${BINDLE_SEARCH_WRITER_PASSWORD:?run deploy/dev-env.sh}
       BINDLE_PRICING_FILE: /etc/bindle/pricing.json
+      # Fields over 32 KiB go to the payload store (S3 on AWS).
+      BINDLE_PAYLOAD_STORE: file:///data/payloads
+    volumes:
+      - payloads:/data/payloads
     depends_on:
       setup:
         condition: service_completed_successfully
@@ -97,6 +101,7 @@ services:
       BINDLE_API_LISTEN: ":8080"
       BINDLE_SEARCH_USER: bindle_reader
       BINDLE_SEARCH_PASSWORD: ${BINDLE_SEARCH_READER_PASSWORD:?run deploy/dev-env.sh}
+      BINDLE_PAYLOAD_STORE: file:///data/payloads
       BINDLE_CONTROL_DB_URL: postgres://bindle_api:${BINDLE_CONTROL_API_PASSWORD:?run deploy/dev-env.sh}@postgres:5432/bindle?sslmode=disable
       # Console sign-in uses Amazon Cognito when BINDLE_COGNITO_ISSUER and
       # BINDLE_COGNITO_CLIENT_ID are set (see infra/cdk). Without them the API
@@ -107,6 +112,8 @@ services:
       BINDLE_COGNITO_CLIENT_ID: ${BINDLE_COGNITO_CLIENT_ID:-}
       BINDLE_API_DEV_AUTH_BYPASS_TENANT: ${BINDLE_API_DEV_AUTH_BYPASS_TENANT:-}
       BINDLE_API_DEV_AUTH_BYPASS_IN_CONTAINER: "1"
+    volumes:
+      - payloads:/data/payloads:ro
     depends_on:
       setup:
         condition: service_completed_successfully
@@ -114,3 +121,4 @@ services:
 volumes:
   os-data:
   pg-data:
+  payloads:

@@ -14,8 +14,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bindle-ai/bindle/services/internal/model"
+	"github.com/bindle-ai/bindle/services/internal/payload"
 )
 
 // Writer indexes normalized steps and maintains the trace rollups. It
@@ -28,50 +30,56 @@ type Writer struct {
 	// may already be deleted), or ones more than a day ahead, are dropped.
 	Retention time.Duration
 	Now       func() time.Time
+	// Payloads, if set, receives input/output/reasoning fields larger than
+	// OffloadBytes; the index keeps a PreviewBytes preview and a reference.
+	Payloads     payload.Store
+	OffloadBytes int // default 32 KiB
+	PreviewBytes int // default 4 KiB
 }
 
 const maxFutureSkew = 24 * time.Hour
 
 // stepDoc is the indexed form of a step.
 type stepDoc struct {
-	TenantID       string            `json:"tenant_id"`
-	TraceID        string            `json:"trace_id"`
-	StepID         string            `json:"step_id"`
-	ParentStepID   string            `json:"parent_step_id"`
-	Name           string            `json:"name"`
-	Type           string            `json:"type"`
-	Status         string            `json:"status"`
-	Attempt        int64             `json:"attempt"`
-	Framework      string            `json:"framework"`
-	ServiceName    string            `json:"service_name"`
-	AgentName      string            `json:"agent_name"`
-	AgentVersion   string            `json:"agent_version"`
-	SessionID      string            `json:"session_id"`
-	Environment    string            `json:"environment"`
-	Provider       string            `json:"provider"`
-	Model          string            `json:"model"`
-	ToolName       string            `json:"tool_name"`
-	InputTokens    int64             `json:"input_tokens"`
-	OutputTokens   int64             `json:"output_tokens"`
-	CachedTokens   int64             `json:"cached_tokens"`
-	CostUSD        float64           `json:"cost_usd"`
-	CostKnown      bool              `json:"cost_known"`
-	StartTime      string            `json:"start_time"`
-	StartNs        int64             `json:"start_ns"`
-	DurationMs     float64           `json:"duration_ms"`
-	ErrorMessage   string            `json:"error_message"`
-	Input          string            `json:"input"`
-	Output         string            `json:"output"`
-	Reasoning      string            `json:"reasoning"`
-	Attributes     map[string]string `json:"attributes"`
-	Links          []string          `json:"links"`
-	InputHash      string            `json:"input_hash"`
-	InputBytes     int               `json:"input_bytes"`
-	OutputBytes    int               `json:"output_bytes"`
-	ReasoningBytes int               `json:"reasoning_bytes"`
-	Redacted       bool              `json:"redacted"`
-	RedactedKinds  []string          `json:"redacted_kinds"`
-	IngestedAt     string            `json:"ingested_at"`
+	TenantID       string                 `json:"tenant_id"`
+	TraceID        string                 `json:"trace_id"`
+	StepID         string                 `json:"step_id"`
+	ParentStepID   string                 `json:"parent_step_id"`
+	Name           string                 `json:"name"`
+	Type           string                 `json:"type"`
+	Status         string                 `json:"status"`
+	Attempt        int64                  `json:"attempt"`
+	Framework      string                 `json:"framework"`
+	ServiceName    string                 `json:"service_name"`
+	AgentName      string                 `json:"agent_name"`
+	AgentVersion   string                 `json:"agent_version"`
+	SessionID      string                 `json:"session_id"`
+	Environment    string                 `json:"environment"`
+	Provider       string                 `json:"provider"`
+	Model          string                 `json:"model"`
+	ToolName       string                 `json:"tool_name"`
+	InputTokens    int64                  `json:"input_tokens"`
+	OutputTokens   int64                  `json:"output_tokens"`
+	CachedTokens   int64                  `json:"cached_tokens"`
+	CostUSD        float64                `json:"cost_usd"`
+	CostKnown      bool                   `json:"cost_known"`
+	StartTime      string                 `json:"start_time"`
+	StartNs        int64                  `json:"start_ns"`
+	DurationMs     float64                `json:"duration_ms"`
+	ErrorMessage   string                 `json:"error_message"`
+	Input          string                 `json:"input"`
+	Output         string                 `json:"output"`
+	Reasoning      string                 `json:"reasoning"`
+	Attributes     map[string]string      `json:"attributes"`
+	Links          []string               `json:"links"`
+	InputHash      string                 `json:"input_hash"`
+	InputBytes     int                    `json:"input_bytes"`
+	OutputBytes    int                    `json:"output_bytes"`
+	ReasoningBytes int                    `json:"reasoning_bytes"`
+	Redacted       bool                   `json:"redacted"`
+	RedactedKinds  []string               `json:"redacted_kinds"`
+	IngestedAt     string                 `json:"ingested_at"`
+	PayloadRefs    map[string]payload.Ref `json:"payload_refs,omitempty"`
 }
 
 // traceDoc is the per-trace rollup.
@@ -146,6 +154,8 @@ func (w *Writer) Write(ctx context.Context, steps []model.Step) error {
 	enc := json.NewEncoder(&bulk)
 	touched := map[string]map[string]bool{} // tenant -> trace IDs
 	dropped := 0
+	docs := make([]stepDoc, 0, len(steps))
+	days := make([]string, 0, len(steps))
 	for _, s := range steps {
 		if s.TenantID == "" {
 			continue // never write a step without a tenant
@@ -155,21 +165,28 @@ func (w *Writer) Write(ctx context.Context, steps []model.Step) error {
 			dropped++
 			continue
 		}
+		docs = append(docs, toDoc(s, ingested))
+		days = append(days, t.Format("2006.01.02"))
+	}
+	if err := w.offload(ctx, docs, days); err != nil {
+		return err
+	}
+	for i, d := range docs {
 		meta := map[string]any{"create": map[string]any{
-			"_index":  w.Names.StepsIndex(t.Format("2006.01.02")),
-			"_id":     docID(s.TenantID, s.TraceID, s.StepID),
-			"routing": s.TenantID,
+			"_index":  w.Names.StepsIndex(days[i]),
+			"_id":     docID(d.TenantID, d.TraceID, d.StepID),
+			"routing": d.TenantID,
 		}}
 		if err := enc.Encode(meta); err != nil {
 			return err
 		}
-		if err := enc.Encode(toDoc(s, ingested)); err != nil {
+		if err := enc.Encode(d); err != nil {
 			return err
 		}
-		if touched[s.TenantID] == nil {
-			touched[s.TenantID] = map[string]bool{}
+		if touched[d.TenantID] == nil {
+			touched[d.TenantID] = map[string]bool{}
 		}
-		touched[s.TenantID][s.TraceID] = true
+		touched[d.TenantID][d.TraceID] = true
 	}
 	if dropped > 0 {
 		w.logger().Warn("dropping steps outside the accepted time window", "dropped", dropped, "retention", w.retention().String())
@@ -454,4 +471,76 @@ func (w *Writer) logger() *slog.Logger {
 		return w.Log
 	}
 	return slog.Default()
+}
+
+// offload moves oversized fields to the payload store (in parallel) and
+// leaves a preview and reference in the document. Keys are deterministic,
+// so retrying a batch overwrites the same objects.
+func (w *Writer) offload(ctx context.Context, docs []stepDoc, days []string) error {
+	if w.Payloads == nil {
+		return nil
+	}
+	limit, preview := w.OffloadBytes, w.PreviewBytes
+	if limit <= 0 {
+		limit = 32 << 10
+	}
+	if preview <= 0 {
+		preview = 4 << 10
+	}
+	type job struct{ key, data string }
+	var jobs []job
+	for i := range docs {
+		d := &docs[i]
+		for _, f := range []struct {
+			name string
+			val  *string
+		}{{"input", &d.Input}, {"output", &d.Output}, {"reasoning", &d.Reasoning}} {
+			if len(*f.val) <= limit {
+				continue
+			}
+			key, err := payload.Key(d.TenantID, days[i], d.TraceID, d.StepID, f.name)
+			if err != nil {
+				continue // unusual IDs: keep the field inline
+			}
+			jobs = append(jobs, job{key, *f.val})
+			if d.PayloadRefs == nil {
+				d.PayloadRefs = map[string]payload.Ref{}
+			}
+			d.PayloadRefs[f.name] = payload.Ref{Key: key, Bytes: int64(len(*f.val)), SHA256: payload.Checksum([]byte(*f.val))}
+			*f.val = utf8Prefix(*f.val, preview)
+		}
+	}
+	if len(jobs) == 0 {
+		return nil
+	}
+	sem := make(chan struct{}, 8)
+	errs := make(chan error, len(jobs))
+	for _, j := range jobs {
+		sem <- struct{}{}
+		go func(j job) {
+			defer func() { <-sem }()
+			errs <- w.Payloads.Put(ctx, j.key, []byte(j.data))
+		}(j)
+	}
+	var first error
+	for range jobs {
+		if err := <-errs; err != nil && first == nil {
+			first = err
+		}
+	}
+	if first != nil {
+		return fmt.Errorf("search: payload offload: %w", first)
+	}
+	return nil
+}
+
+// utf8Prefix cuts s to at most n bytes without splitting a character.
+func utf8Prefix(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }

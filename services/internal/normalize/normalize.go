@@ -21,15 +21,18 @@ import (
 )
 
 const (
-	maxPayloadChars = 32 * 1024 // larger payloads go to object storage (v0.2)
-	maxAttrValue    = 2 * 1024
-	maxAttrs        = 256
+	// Per-field cap when there is no payload store. With one, ingest sets
+	// Normalizer.MaxPayloadBytes higher and large fields go to S3.
+	defaultMaxPayload = 32 * 1024
+	maxAttrValue      = 2 * 1024
+	maxAttrs          = 256
 )
 
 // Normalizer converts spans to steps.
 type Normalizer struct {
-	Prices   *cost.Table
-	Redactor *redact.Redactor
+	Prices          *cost.Table
+	Redactor        *redact.Redactor
+	MaxPayloadBytes int // input/output/reasoning cap; default 32 KiB
 }
 
 // Keys pulled into first-class fields; everything else lands in Attributes.
@@ -105,9 +108,13 @@ func (n *Normalizer) Normalize(tenantID string, s model.Span) model.Step {
 
 	// Server-side second-pass redaction, then truncation.
 	r := n.Redactor
-	st.Input = truncate(r.Apply(st.Input), maxPayloadChars)
-	st.Output = truncate(r.Apply(st.Output), maxPayloadChars)
-	st.Reasoning = truncate(r.Apply(st.Reasoning), maxPayloadChars)
+	maxPayload := n.MaxPayloadBytes
+	if maxPayload <= 0 {
+		maxPayload = defaultMaxPayload
+	}
+	st.Input = truncate(r.Apply(st.Input), maxPayload)
+	st.Output = truncate(r.Apply(st.Output), maxPayload)
+	st.Reasoning = truncate(r.Apply(st.Reasoning), maxPayload)
 	st.ErrorMessage = truncate(r.Apply(st.ErrorMessage), maxAttrValue)
 	for k, v := range st.Attributes {
 		st.Attributes[k] = r.Apply(v)

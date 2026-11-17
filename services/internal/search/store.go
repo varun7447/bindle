@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bindle-ai/bindle/services/internal/payload"
 	"github.com/bindle-ai/bindle/services/internal/query"
 )
 
@@ -17,6 +19,11 @@ import (
 type Store struct {
 	Client *Client
 	Names  Names
+	// Payloads, if set, is read for offloaded fields in step detail, up to
+	// MaxPayloadBytes per field (default 1 MiB).
+	Payloads        payload.Store
+	MaxPayloadBytes int64
+	Log             *slog.Logger
 }
 
 var _ query.Store = (*Store)(nil)
@@ -194,11 +201,53 @@ func (s *Store) GetStep(ctx context.Context, tenant, traceID, stepID string) (*q
 		return nil, nil
 	}
 	d := st.Hits.Hits[0].Source
-	return &query.StepDetail{
+	sd := &query.StepDetail{
 		StepSummary: d.summary(), TraceID: d.TraceID, Framework: d.Framework,
 		Input: d.Input, Output: d.Output, Reasoning: d.Reasoning,
 		Attributes: d.Attributes, Links: d.Links, RedactedKinds: d.RedactedKinds,
-	}, nil
+	}
+	s.loadPayloads(ctx, tenant, d, sd)
+	return sd, nil
+}
+
+// loadPayloads replaces previews with offloaded content. The object key is
+// rebuilt from the caller's tenant and the step's IDs, never read from the
+// document, and must match the stored reference.
+func (s *Store) loadPayloads(ctx context.Context, tenant string, d stepDoc, sd *query.StepDetail) {
+	if len(d.PayloadRefs) == 0 {
+		return
+	}
+	max := s.MaxPayloadBytes
+	if max <= 0 {
+		max = 1 << 20
+	}
+	day := time.Unix(0, d.StartNs).UTC().Format("2006.01.02")
+	for _, f := range []struct {
+		name string
+		val  *string
+	}{{"input", &sd.Input}, {"output", &sd.Output}, {"reasoning", &sd.Reasoning}} {
+		ref, ok := d.PayloadRefs[f.name]
+		if !ok {
+			continue
+		}
+		key, err := payload.Key(tenant, day, d.TraceID, d.StepID, f.name)
+		if err != nil || key != ref.Key || s.Payloads == nil {
+			sd.TruncatedFields = append(sd.TruncatedFields, f.name)
+			continue
+		}
+		data, truncated, err := s.Payloads.Get(ctx, key, max)
+		if err != nil {
+			if s.Log != nil {
+				s.Log.Error("payload fetch failed", "tenant", tenant, "field", f.name, "err", err)
+			}
+			sd.TruncatedFields = append(sd.TruncatedFields, f.name)
+			continue
+		}
+		*f.val = string(data)
+		if truncated {
+			sd.TruncatedFields = append(sd.TruncatedFields, f.name)
+		}
+	}
 }
 
 // ---- overview ------------------------------------------------------------

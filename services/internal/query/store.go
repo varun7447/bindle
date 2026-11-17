@@ -104,6 +104,9 @@ type StepDetail struct {
 	Attributes    map[string]string `json:"attributes"`
 	Links         []string          `json:"links"`
 	RedactedKinds []string          `json:"redacted_kinds"`
+	// TruncatedFields lists fields shown only in part (very large, or the
+	// full payload could not be loaded).
+	TruncatedFields []string `json:"truncated_fields,omitempty"`
 }
 
 // ---- overview ------------------------------------------------------------

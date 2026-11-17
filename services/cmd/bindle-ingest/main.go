@@ -11,6 +11,10 @@
 //	BINDLE_SEARCH_USER / BINDLE_SEARCH_PASSWORD   the writer user (default user bindle_writer)
 //	BINDLE_SEARCH_PREFIX           index name prefix (default bindle)
 //	BINDLE_RETENTION_DAYS          retention (default 30; must match bindle-migrate)
+//	BINDLE_PAYLOAD_STORE           s3://bucket/prefix or file:///dir: where fields over
+//	                               BINDLE_PAYLOAD_OFFLOAD_BYTES (default 32768) are stored;
+//	                               fields are then capped at BINDLE_PAYLOAD_MAX_BYTES (default 1 MiB)
+//	BINDLE_BUFFER_MAX_BYTES        bytes of steps buffered before 503 backpressure (default 256 MiB)
 //	BINDLE_PRICING_FILE            path to a JSON price table (optional)
 //	BINDLE_RATE_LIMIT_SPANS_PER_SEC per-tenant limit (default 2000; 0 disables)
 //	BINDLE_MAX_BODY_BYTES          default 8 MiB
@@ -32,6 +36,7 @@ import (
 	"github.com/bindle-ai/bindle/services/internal/cost"
 	"github.com/bindle-ai/bindle/services/internal/ingest"
 	"github.com/bindle-ai/bindle/services/internal/normalize"
+	"github.com/bindle-ai/bindle/services/internal/payload"
 	"github.com/bindle-ai/bindle/services/internal/pipeline"
 	"github.com/bindle-ai/bindle/services/internal/ratelimit"
 	"github.com/bindle-ai/bindle/services/internal/redact"
@@ -80,15 +85,27 @@ func run(log *slog.Logger) error {
 	}
 
 	var out pipeline.Sink
+	maxPayload := 0 // normalizer default (32 KiB) unless a payload store takes large fields
 	switch env("BINDLE_SINK", "stdout") {
 	case "opensearch":
 		client, err := search.FromEnv(os.Getenv, env("BINDLE_SEARCH_USER", search.DefaultUsers.Writer), os.Getenv("BINDLE_SEARCH_PASSWORD"))
 		if err != nil {
 			return err
 		}
+		blobs, err := payload.FromURL(os.Getenv("BINDLE_PAYLOAD_STORE"), os.Getenv)
+		if err != nil {
+			return err
+		}
 		w := &search.Writer{
 			Client: client, Names: search.Names{Prefix: os.Getenv("BINDLE_SEARCH_PREFIX")}, Log: log,
-			Retention: time.Duration(envFloat("BINDLE_RETENTION_DAYS", 30)*24) * time.Hour,
+			Retention:    time.Duration(envFloat("BINDLE_RETENTION_DAYS", 30)*24) * time.Hour,
+			Payloads:     blobs,
+			OffloadBytes: int(envFloat("BINDLE_PAYLOAD_OFFLOAD_BYTES", 32<<10)),
+		}
+		if blobs == nil {
+			log.Warn("BINDLE_PAYLOAD_STORE not set: fields are capped at 32 KiB in the search index")
+		} else {
+			maxPayload = int(envFloat("BINDLE_PAYLOAD_MAX_BYTES", 1<<20))
 		}
 		go w.Maintain(ctx, time.Hour)
 		out = w
@@ -99,6 +116,7 @@ func run(log *slog.Logger) error {
 	}
 
 	batcher := pipeline.NewBatcher(out, 50_000, 1_000, time.Second, log)
+	batcher.MaxBytes = int64(envFloat("BINDLE_BUFFER_MAX_BYTES", 256<<20))
 	go batcher.Run(ctx)
 
 	rate := envFloat("BINDLE_RATE_LIMIT_SPANS_PER_SEC", 2000)
@@ -106,7 +124,7 @@ func run(log *slog.Logger) error {
 	h := &ingest.Handler{
 		Keys:         keys,
 		Policies:     policies,
-		Normalizer:   &normalize.Normalizer{Prices: prices, Redactor: redact.Default()},
+		Normalizer:   &normalize.Normalizer{Prices: prices, Redactor: redact.Default(), MaxPayloadBytes: maxPayload},
 		Limiter:      limiter,
 		Out:          batcher,
 		MaxBodyBytes: int64(envFloat("BINDLE_MAX_BODY_BYTES", 8<<20)),

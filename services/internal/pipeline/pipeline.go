@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/bindle-ai/bindle/services/internal/model"
@@ -31,6 +32,21 @@ type Batcher struct {
 	flushEvery time.Duration
 	log        *slog.Logger
 	done       chan struct{}
+
+	// MaxBytes bounds the payload bytes queued or being written (0: no
+	// limit). Large prompts can make a few steps weigh megabytes, so a
+	// step-count bound alone doesn't bound memory.
+	MaxBytes int64
+	inflight atomic.Int64
+}
+
+// stepBytes estimates a step's memory: its text fields plus overhead.
+func stepBytes(s model.Step) int64 {
+	n := len(s.Input) + len(s.Output) + len(s.Reasoning) + len(s.Name) + len(s.ErrorMessage) + 512
+	for k, v := range s.Attributes {
+		n += len(k) + len(v)
+	}
+	return int64(n)
 }
 
 // NewBatcher creates a batcher with a bounded buffer.
@@ -50,15 +66,34 @@ func (b *Batcher) Submit(steps []model.Step) error {
 	if cap(b.ch)-len(b.ch) < len(steps) {
 		return ErrBackpressure
 	}
+	var size int64
 	for _, s := range steps {
+		size += stepBytes(s)
+	}
+	if b.MaxBytes > 0 && b.inflight.Add(size) > b.MaxBytes {
+		b.inflight.Add(-size)
+		return ErrBackpressure
+	}
+	for i, s := range steps {
 		select {
 		case b.ch <- s:
 		default:
+			// Release the budget of the steps not enqueued.
+			var rest int64
+			for _, r := range steps[i:] {
+				rest += stepBytes(r)
+			}
+			if b.MaxBytes > 0 {
+				b.inflight.Add(-rest)
+			}
 			return ErrBackpressure
 		}
 	}
 	return nil
 }
+
+// InflightBytes reports the bytes currently counted against MaxBytes.
+func (b *Batcher) InflightBytes() int64 { return b.inflight.Load() }
 
 // Run flushes until ctx is cancelled, then drains what is buffered.
 func (b *Batcher) Run(ctx context.Context) {
@@ -100,6 +135,15 @@ func (b *Batcher) Run(ctx context.Context) {
 func (b *Batcher) Wait() { <-b.done }
 
 func (b *Batcher) write(batch []model.Step) {
+	if b.MaxBytes > 0 {
+		defer func() {
+			var n int64
+			for _, st := range batch {
+				n += stepBytes(st)
+			}
+			b.inflight.Add(-n) // written or dropped: either way, no longer held
+		}()
+	}
 	backoff := 200 * time.Millisecond
 	for attempt := 1; attempt <= 3; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

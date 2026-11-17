@@ -78,8 +78,12 @@ func stepsMapping() map[string]any {
 		p[f] = map[string]any{"type": "text"}
 	}
 	p["attributes"] = map[string]any{"type": "flat_object"}
+	p["payload_refs"] = payloadRefsMapping()
 	return map[string]any{"dynamic": "strict", "properties": p}
 }
+
+// payloadRefsMapping: kept in _source, not indexed.
+func payloadRefsMapping() map[string]any { return map[string]any{"type": "object", "enabled": false} }
 
 func tracesMapping() map[string]any {
 	p := map[string]any{}
@@ -143,6 +147,13 @@ func Setup(ctx context.Context, c *Client, o SetupOptions) error {
 		"template":       map[string]any{"settings": settings, "mappings": stepsMapping()},
 	}, nil); err != nil {
 		return fmt.Errorf("search: index template: %w", err)
+	}
+
+	// Additive mapping changes for step indices that already exist.
+	if err := c.Do(ctx, http.MethodPut, "/"+n.StepsPattern()+"/_mapping",
+		url.Values{"allow_no_indices": {"true"}, "ignore_unavailable": {"true"}},
+		map[string]any{"properties": map[string]any{"payload_refs": payloadRefsMapping()}}, nil); err != nil {
+		return fmt.Errorf("search: steps mapping: %w", err)
 	}
 
 	err := c.Do(ctx, http.MethodPut, "/"+n.Traces(), nil, map[string]any{"settings": settings, "mappings": tracesMapping()}, nil)

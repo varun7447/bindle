@@ -108,3 +108,14 @@ func TestTruncateKeepsUTF8(t *testing.T) {
 		t.Fatalf("bad truncate: %q", out)
 	}
 }
+
+func TestMaxPayloadBytesConfigurable(t *testing.T) {
+	big := strings.Repeat("y", 100<<10)
+	sp := model.Span{TraceID: "t", SpanID: "s", Name: "n", Attributes: map[string]any{"input.value": big}}
+	if got := (&Normalizer{}).Normalize("t", sp).Input; len(got) > 33<<10 {
+		t.Fatalf("default cap not applied: %d", len(got))
+	}
+	if got := (&Normalizer{MaxPayloadBytes: 1 << 20}).Normalize("t", sp).Input; got != big {
+		t.Fatalf("raised cap not applied: %d", len(got))
+	}
+}
