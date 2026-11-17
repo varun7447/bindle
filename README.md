@@ -65,17 +65,27 @@ From the console's **SDK settings** page, owners and admins can change three thi
 
 The SDK polls `GET /v1/config` on the ingest endpoint with its ingest key. These settings are a ceiling: code can only be stricter. Ingest enforces the same settings on every batch, including from apps whose OpenTelemetry setup the SDK doesn't control. Extra patterns must compile as RE2 and may not nest repetition, so they can't slow an agent down, and the built-in redaction can't be turned off.
 
+### Alerts
+
+`bindle-alerts` checks every workspace's rules once a minute. Each new workspace starts with two rules: a runaway loop (the same tool called 5+ times with the same input in one run) and a failure rate (20%+ of runs over an hour, at least 20 runs). Owners and admins can add an expensive-run rule (one run costs at least $X, using known prices only) and change thresholds on the console's **Alerts** page.
+
+Alerts go to Slack incoming webhooks, HTTPS webhooks or email (Amazon SES). They carry counts, tool names and a console link, never prompt or output content. Each alert fires once: its fingerprint is unique in the control plane, so repeated or concurrent checks don't send it twice.
+
+- **Webhooks are signed.** Each webhook channel gets a secret, shown once. `X-Bindle-Signature` is `sha256=` plus the HMAC-SHA256 of `X-Bindle-Timestamp + "." + body`.
+- **No requests to internal addresses.** Customer URLs are checked when saved and again at connect time: private, loopback, link-local, carrier-grade NAT and metadata addresses are refused (so DNS tricks don't help), and redirects aren't followed. Slack channels must be `https://hooks.slack.com/services/...`.
+- **Least privilege.** The alerts role can read rules and channels, add events and record delivery, and nothing else. An event's rule must belong to the event's tenant (a composite foreign key).
+
 ## Repository layout
 
 | Path | What it is |
 |---|---|
 | `sdk/python` | `bindle-sdk`: one-line `bindle.init()`, auto-instrumentation, client-side redaction, `trace_step` / `trace_tool` / `decision` / `handoff` helpers |
-| `services` | `bindle-api`: read API for the console (runs, trace waterfall, step detail, overview, alerts) over OpenSearch, plus account and ingest-key management, with Amazon Cognito sign-in. `bindle-migrate`: sets up OpenSearch (indices, retention, users) and the control-plane database (schema, roles). `bindle-ingest`: OTLP/HTTP receiver (protobuf + JSON, gzip), API-key → tenant, framework normalizer, server-side redaction, cost, per-tenant rate limit, backpressure, OpenSearch writer. Go standard library plus one vendored dependency, the PostgreSQL driver `lib/pq` (control plane). |
-| `web` | Console (Next.js): overview, runs, trace explorer, connect-an-agent. See `web/README.md` |
+| `services` | `bindle-api`: read API for the console (runs, trace waterfall, step detail, overview, alerts) over OpenSearch, plus account and ingest-key management, with Amazon Cognito sign-in. `bindle-migrate`: sets up OpenSearch (indices, retention, users) and the control-plane database (schema, roles). `bindle-processor`: Kinesis consumer that writes OpenSearch. `bindle-alerts`: alert rule evaluation and delivery. `bindle-ingest`: OTLP/HTTP receiver (protobuf + JSON, gzip), API-key → tenant, framework normalizer, server-side redaction, cost, per-tenant rate limit, backpressure, OpenSearch writer. Go standard library plus one vendored dependency, the PostgreSQL driver `lib/pq` (control plane). |
+| `web` | Console (Next.js): overview, runs, trace explorer, alerts, keys, SDK settings, connect-an-agent. See `web/README.md` |
 | `design/console` | Console design mockups (visual spec for `web/`) |
 | `docs/images` | README screenshots |
-| `deploy` | `docker-compose.yml` for a local stack (OpenSearch, PostgreSQL, setup, ingest, API) |
-| `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, Kinesis stream, Fargate processor, OpenSearch Service domain, RDS PostgreSQL (control plane), Cognito user pool, setup task, secrets, S3 payload bucket |
+| `deploy` | `docker-compose.yml` for a local stack (OpenSearch, PostgreSQL, setup, ingest, API, alerts) |
+| `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, Kinesis stream, Fargate processor and alerts services, OpenSearch Service domain, RDS PostgreSQL (control plane), Cognito user pool, setup task, secrets, S3 payload bucket |
 | `examples/python` | `quickstart.py` (minimal) and `demo_agent.py` (richer run with LLM steps, retries and an optional runaway loop) |
 
 ## Run it locally
@@ -145,7 +155,7 @@ After deploy:
 1. Run the `MigrateCommand` stack output (an `aws ecs run-task` command). It sets up OpenSearch (indices, retention policy, `bindle_writer` and `bindle_reader` users) and the control-plane database (schema, `bindle_api` and `bindle_ingest` roles).
 2. Point `ingest.bindle.ai` at the `IngestEndpoint` output.
 
-The stack also creates an RDS PostgreSQL 17 instance for the control plane (`db.t4g.micro` by default; private, encrypted, TLS required, deletion protection) and a Cognito user pool with a hosted sign-in domain (`-c authDomainPrefix=...`, which must be globally unique) and a console app client whose callback is `-c consoleUrl=...` (default `https://app.bindle.ai`). The API and console aren't deployed by the stack yet; the `CognitoIssuer`, `CognitoDomain` and `ConsoleClientId` outputs configure them.
+The stack also creates an RDS PostgreSQL 17 instance for the control plane (`db.t4g.micro` by default; private, encrypted, TLS required, deletion protection) and a Cognito user pool with a hosted sign-in domain (`-c authDomainPrefix=...`, which must be globally unique) and a console app client whose callback is `-c consoleUrl=...` (default `https://app.bindle.ai`). Email alerts need `-c alertsEmailFrom=alerts@yourdomain` and that domain verified as an Amazon SES identity (not created by the stack); without it, Slack and webhook alerts still work. The API and console aren't deployed by the stack yet; the `CognitoIssuer`, `CognitoDomain` and `ConsoleClientId` outputs configure them.
 
 ## Design rules
 
@@ -161,9 +171,10 @@ Verified locally: Go vet and tests (including the OpenSearch integration test), 
 Next:
 - [x] Query API (`bindle-api`)
 - [x] Console (`web/`)
-- [ ] Payload offload to S3 for large prompts and outputs
+- [x] Payload offload to S3 for large prompts and outputs
 - [x] Split ingest → Kinesis → processor service
-- [ ] Control-plane key service (replaces the env-var bootstrap)
+- [x] Alerts: runaway loops, failure rate, run cost → Slack, webhooks, email
+- [x] Control-plane key service (replaces the env-var bootstrap)
 - [ ] Contract tests per framework release for the normalizer mappings
 - [ ] TypeScript SDK, `bindle init` CLI, hosted LLM gateway
 - [ ] Fill `services/pricing.example.json` with real prices from each provider

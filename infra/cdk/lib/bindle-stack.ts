@@ -38,6 +38,12 @@ export interface BindleStackProps extends cdk.StackProps {
   readonly consoleUrl?: string;
   /** Cognito hosted UI domain prefix; must be globally unique. */
   readonly authDomainPrefix?: string;
+  /**
+   * Sender for email alerts, e.g. alerts@bindle.ai. Its domain must be a
+   * verified Amazon SES identity (not created by this stack). Unset: email
+   * alert channels are not delivered; Slack and webhooks still are.
+   */
+  readonly alertsEmailFrom?: string;
 }
 
 /**
@@ -176,6 +182,7 @@ export class BindleStack extends cdk.Stack {
     const dbIngest = new secretsmanager.Secret(this, 'ControlDbIngest', { secretName: 'bindle/control-db-ingest', generateSecretString: rolePassword() });
     const dbProcessor = new secretsmanager.Secret(this, 'ControlDbProcessor', { secretName: 'bindle/control-db-processor', generateSecretString: rolePassword() });
     const dbApi = new secretsmanager.Secret(this, 'ControlDbApi', { secretName: 'bindle/control-db-api', generateSecretString: rolePassword() });
+    const dbAlerts = new secretsmanager.Secret(this, 'ControlDbAlerts', { secretName: 'bindle/control-db-alerts', generateSecretString: rolePassword() });
     // libpq settings; TLS verified against the RDS CA bundle in the image.
     const dbEnv = {
       PGHOST: db.dbInstanceEndpointAddress,
@@ -330,6 +337,7 @@ export class BindleStack extends cdk.Stack {
         BINDLE_CONTROL_API_PASSWORD: ecs.Secret.fromSecretsManager(dbApi),
         BINDLE_CONTROL_INGEST_PASSWORD: ecs.Secret.fromSecretsManager(dbIngest),
         BINDLE_CONTROL_PROCESSOR_PASSWORD: ecs.Secret.fromSecretsManager(dbProcessor),
+        BINDLE_CONTROL_ALERTS_PASSWORD: ecs.Secret.fromSecretsManager(dbAlerts),
         BINDLE_SEARCH_ADMIN_USER: ecs.Secret.fromSecretsManager(searchAdmin, 'username'),
         BINDLE_SEARCH_ADMIN_PASSWORD: ecs.Secret.fromSecretsManager(searchAdmin, 'password'),
         BINDLE_SEARCH_WRITER_PASSWORD: ecs.Secret.fromSecretsManager(searchWriter, 'password'),
@@ -385,6 +393,50 @@ export class BindleStack extends cdk.Stack {
     }));
     searchSg.addIngressRule(ec2.Peer.securityGroupId(processor.connections.securityGroups[0].securityGroupId), ec2.Port.tcp(443), 'bindle-processor');
     db.connections.allowDefaultPortFrom(processor, 'bindle-processor');
+
+    // ---- alerts: rule evaluation and delivery ------------------------------------
+    // No listener and no load balancer. Egress to customer webhooks goes
+    // through the NAT; the service refuses private and metadata addresses
+    // itself (alerts.SafeClient), since a VPC route can't express that.
+    const alertsTask = new ecs.FargateTaskDefinition(this, 'AlertsTask', { cpu: 256, memoryLimitMiB: 512 });
+    alertsTask.addContainer('alerts', {
+      image,
+      entryPoint: ['/bindle-alerts'],
+      environment: {
+        ...dbEnv,
+        PGUSER: 'bindle_alerts',
+        BINDLE_SEARCH_URL: searchUrl,
+        BINDLE_SEARCH_USER: 'bindle_reader',
+        BINDLE_CONSOLE_URL: consoleUrl,
+        ...(props.alertsEmailFrom ? { BINDLE_ALERTS_EMAIL_FROM: props.alertsEmailFrom } : {}),
+      },
+      secrets: {
+        BINDLE_SEARCH_PASSWORD: ecs.Secret.fromSecretsManager(searchReader, 'password'),
+        PGPASSWORD: ecs.Secret.fromSecretsManager(dbAlerts),
+      },
+      logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'alerts', logRetention: logs.RetentionDays.ONE_MONTH }),
+    });
+    const alertsService = new ecs.FargateService(this, 'Alerts', {
+      cluster,
+      taskDefinition: alertsTask,
+      // One evaluator is enough; more are safe (events are deduplicated).
+      desiredCount: 1,
+      minHealthyPercent: 0,
+      maxHealthyPercent: 200,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      circuitBreaker: { rollback: true },
+    });
+    if (props.alertsEmailFrom) {
+      const domain = props.alertsEmailFrom.split('@')[1];
+      if (!domain) throw new Error('alertsEmailFrom must be an email address');
+      alertsTask.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+        actions: ['ses:SendEmail'],
+        resources: [`arn:aws:ses:${this.region}:${this.account}:identity/${domain}`],
+        conditions: { StringEquals: { 'ses:FromAddress': props.alertsEmailFrom } },
+      }));
+    }
+    searchSg.addIngressRule(ec2.Peer.securityGroupId(alertsService.connections.securityGroups[0].securityGroupId), ec2.Port.tcp(443), 'bindle-alerts');
+    db.connections.allowDefaultPortFrom(alertsService, 'bindle-alerts');
 
     new cdk.CfnOutput(this, 'PayloadBucket', { value: payloads.bucketName });
     new cdk.CfnOutput(this, 'StepsStream', { value: steps.streamName });
