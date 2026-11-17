@@ -90,3 +90,7 @@ Verified locally: all test suites, the Docker stack end to end, framework agents
 - [ ] Google Gemini prices (needs effective-dated entries for scheduled price changes)
 - [ ] Contract tests per framework release for the normalizer mappings
 - [ ] Hosted LLM gateway, evals, step replay, SOC 2: scoped plans in [`docs/plans/`](docs/plans/)
+
+## License
+
+Bindle is licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) for attributions, including the vendored PostgreSQL driver (MIT). Contributions are accepted under the same license; see [CONTRIBUTING.md](CONTRIBUTING.md).

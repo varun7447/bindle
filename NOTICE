@@ -1,0 +1,11 @@
+Bindle
+Copyright 2026 The Bindle Authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It includes the following third-party software:
+
+- github.com/lib/pq (PostgreSQL driver for Go), vendored in
+  backend/vendor/github.com/lib/pq. Copyright (c) 2011-2013, 'pq'
+  Contributors. Portions Copyright (c) 2011 Blake Mizerany. MIT License;
+  the full text is in that directory's LICENSE file.
