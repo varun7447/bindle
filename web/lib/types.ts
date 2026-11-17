@@ -66,6 +66,7 @@ export interface StepDetail extends StepSummary {
   attributes: Record<string, string>;
   links: string[];
   redacted_kinds: string[];
+  truncated_fields?: string[];
 }
 
 export interface StepResponse {

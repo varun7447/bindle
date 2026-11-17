@@ -53,8 +53,8 @@ export interface BindleStackProps extends cdk.StackProps {
  * setup task. Console sign-in: an Amazon Cognito user pool with the hosted
  * UI. The API and console services are not deployed by this stack yet.
  *
- * Also provisioned for payload offload (step 5, not yet used by the service):
- *   - S3 bucket for large prompt/output payloads
+ * Large prompts/outputs (over 32 KiB) are stored in an S3 bucket (SSE,
+ * public access blocked, TLS only, 30-day expiry); ingest may only put.
  * The Kinesis stream for the ingest -> processor split is added in step 6,
  * together with the processor, so it does not cost money while unused.
  */
@@ -266,7 +266,8 @@ export class BindleStack extends cdk.Stack {
           BINDLE_SEARCH_USER: 'bindle_writer',
           BINDLE_PRICING_FILE: '/etc/bindle/pricing.json',
           BINDLE_RATE_LIMIT_SPANS_PER_SEC: '2000',
-          BINDLE_PAYLOAD_BUCKET: payloads.bucketName,
+          // Fields over 32 KiB go here; the index keeps a preview and a reference.
+          BINDLE_PAYLOAD_STORE: `s3://${payloads.bucketName}/payloads`,
         },
         secrets: {
           BINDLE_SEARCH_PASSWORD: ecs.Secret.fromSecretsManager(searchWriter, 'password'),
@@ -297,7 +298,11 @@ export class BindleStack extends cdk.Stack {
       targetGroup: ingest.targetGroup,
     });
 
-    payloads.grantWrite(ingest.taskDefinition.taskRole);
+    // Put only: ingest can't read, list or delete payloads.
+    ingest.taskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ['s3:PutObject'],
+      resources: [payloads.arnForObjects('payloads/*')],
+    }));
     searchSg.addIngressRule(ec2.Peer.securityGroupId(ingest.service.connections.securityGroups[0].securityGroupId), ec2.Port.tcp(443), 'bindle-ingest');
     db.connections.allowDefaultPortFrom(ingest.service, 'bindle-ingest');
 

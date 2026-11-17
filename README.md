@@ -31,6 +31,8 @@ What a team sees after connecting an agent. Screenshots are from the console in 
 
 The design mockups for these screens are in [`design/console/`](design/console/). They render inside the design canvas, not as standalone pages.
 
+Large payloads: an input, output or reasoning field over 32 KB goes to S3 (a local directory in docker-compose) under `tenants/<tenant>/…`, after redaction. The index keeps a 4 KB preview and a reference; the console loads the full text, up to 1 MB per field. Fields are capped at 1 MB on ingest, and a byte budget on ingest's buffer turns floods of large payloads into 503 backpressure rather than memory exhaustion.
+
 ### Accounts and ingest keys
 
 The control plane lives in PostgreSQL:

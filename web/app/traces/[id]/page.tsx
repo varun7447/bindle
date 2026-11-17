@@ -247,9 +247,11 @@ function StepPanel({ step, summary }: { step: StepDetail; summary?: StepSummary 
         <dd className="mono">{step.step_id}</dd>
       </dl>
 
-      <Payload label="Input" text={step.input} bytes={summary?.input_bytes ?? step.input_bytes} />
-      <Payload label="Output" text={step.output} bytes={summary?.output_bytes ?? step.output_bytes} />
-      {step.reasoning ? <Payload label="Reasoning" text={step.reasoning} bytes={step.reasoning_bytes} /> : null}
+      <Payload label="Input" text={step.input} bytes={summary?.input_bytes ?? step.input_bytes} truncated={step.truncated_fields?.includes('input')} />
+      <Payload label="Output" text={step.output} bytes={summary?.output_bytes ?? step.output_bytes} truncated={step.truncated_fields?.includes('output')} />
+      {step.reasoning ? (
+        <Payload label="Reasoning" text={step.reasoning} bytes={step.reasoning_bytes} truncated={step.truncated_fields?.includes('reasoning')} />
+      ) : null}
 
       {attrs.length > 0 ? (
         <details>
@@ -287,13 +289,21 @@ function StepPanel({ step, summary }: { step: StepDetail; summary?: StepSummary 
   );
 }
 
-function Payload({ label, text, bytes }: { label: string; text: string; bytes: number }) {
+function Payload({ label, text, bytes, truncated }: { label: string; text: string; bytes: number; truncated?: boolean }) {
   return (
     <div>
       <div className="payload-label">
         <span>{label}</span>
         <span>{bytes ? formatBytes(bytes) : ''}</span>
       </div>
+      {truncated ? (
+        <div className="notice notice-warn" role="note" style={{ marginBottom: 6 }}>
+          <span aria-hidden="true">⚠</span>
+          <div>
+            Showing the first {formatBytes(new TextEncoder().encode(text).length)} of {formatBytes(bytes)}.
+          </div>
+        </div>
+      ) : null}
       {text ? (
         <pre className="payload">{prettyPayload(text)}</pre>
       ) : (
