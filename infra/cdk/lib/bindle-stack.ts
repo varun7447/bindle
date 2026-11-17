@@ -6,8 +6,9 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecsPatterns from 'aws-cdk-lib/aws-ecs-patterns';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
-import * as rds from 'aws-cdk-lib/aws-rds';
+import * as opensearch from 'aws-cdk-lib/aws-opensearchservice';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 
@@ -22,19 +23,22 @@ export interface BindleStackProps extends cdk.StackProps {
   readonly insecureDevCidr?: string;
   readonly minTasks?: number;
   readonly maxTasks?: number;
-  /** RDS instance class, e.g. "t4g.micro" (default) or "m7g.large". */
-  readonly dbInstanceClass?: string;
-  /** Run the database in two Availability Zones (standby). Default false. */
-  readonly dbMultiAz?: boolean;
+  /** OpenSearch data node type. Default m7g.medium.search; t3.small.search for dev. */
+  readonly searchInstanceType?: string;
+  /** Data nodes, spread over two Availability Zones. Default 2. */
+  readonly searchDataNodes?: number;
+  /** EBS gp3 volume per data node, GiB. Default 20. */
+  readonly searchVolumeGiB?: number;
 }
 
 /**
  * Bindle data plane, v0:
- *   ALB (HTTPS :443 only) -> Fargate "bindle-ingest" (OTLP/HTTP :4318) -> RDS PostgreSQL
+ *   ALB (HTTPS :443 only) -> Fargate "bindle-ingest" (OTLP/HTTP :4318) -> OpenSearch Service
  *
- * The database sits in isolated subnets (no internet route) and accepts
- * connections only from the ingest service and the migrate task, over TLS.
- * Schema and roles are created by the bindle-migrate task (see outputs).
+ * The OpenSearch domain sits in isolated subnets (no internet route), is
+ * HTTPS-only with fine-grained access control, and accepts connections
+ * only from the ingest service and the setup task. Index setup and the
+ * least-privilege users are created by the bindle-migrate task (see outputs).
  *
  * Also provisioned for payload offload (step 5, not yet used by the service):
  *   - S3 bucket for large prompt/output payloads
@@ -67,58 +71,65 @@ export class BindleStack extends cdk.Stack {
       subnetConfiguration: [
         { name: 'public', subnetType: ec2.SubnetType.PUBLIC },
         { name: 'app', subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-        { name: 'db', subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
+        { name: 'data', subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       ],
     });
 
-    // ---- database ----------------------------------------------------------
-    const dbSg = new ec2.SecurityGroup(this, 'DbSg', { vpc, description: 'Bindle PostgreSQL', allowAllOutbound: false });
-    const dbParams = new rds.ParameterGroup(this, 'DbParams', {
-      engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_17 }),
-      parameters: { 'rds.force_ssl': '1', timezone: 'UTC' },
+    // ---- OpenSearch ----------------------------------------------------------
+    // FGAC passwords must include upper, lower, digit and special characters.
+    const strong = (username: string) => ({
+      secretStringTemplate: JSON.stringify({ username }),
+      generateStringKey: 'password',
+      passwordLength: 40,
+      requireEachIncludedType: true,
+      excludeCharacters: `"'\\/@:\` `,
     });
-    const db = new rds.DatabaseInstance(this, 'Db', {
-      engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_17 }),
-      instanceType: new ec2.InstanceType(props.dbInstanceClass ?? 't4g.micro'),
-      multiAz: props.dbMultiAz ?? false,
+    const searchAdmin = new secretsmanager.Secret(this, 'SearchAdmin', {
+      secretName: 'bindle/search-admin',
+      description: 'OpenSearch FGAC master user; used only by the setup task',
+      generateSecretString: strong('bindle_admin'),
+    });
+    const searchWriter = new secretsmanager.Secret(this, 'SearchWriter', {
+      secretName: 'bindle/search-writer', generateSecretString: strong('bindle_writer'),
+    });
+    const searchReader = new secretsmanager.Secret(this, 'SearchReader', {
+      secretName: 'bindle/search-reader', generateSecretString: strong('bindle_reader'),
+    });
+    const searchSg = new ec2.SecurityGroup(this, 'SearchSg', { vpc, description: 'Bindle OpenSearch', allowAllOutbound: false });
+    const search = new opensearch.Domain(this, 'Search', {
+      version: opensearch.EngineVersion.OPENSEARCH_3_7,
       vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
-      securityGroups: [dbSg],
-      databaseName: 'bindle',
-      // Schema owner; only the migrate task uses it.
-      credentials: rds.Credentials.fromGeneratedSecret('bindle_owner', { secretName: 'bindle/db-owner' }),
-      parameterGroup: dbParams,
-      allocatedStorage: 20,
-      maxAllocatedStorage: 200,
-      storageType: rds.StorageType.GP3,
-      storageEncrypted: true,
-      backupRetention: cdk.Duration.days(7),
-      deletionProtection: true,
-      removalPolicy: cdk.RemovalPolicy.SNAPSHOT,
-      publiclyAccessible: false,
-      autoMinorVersionUpgrade: true,
-      enablePerformanceInsights: false,
-      cloudwatchLogsExports: ['postgresql'],
-      cloudwatchLogsRetention: logs.RetentionDays.ONE_MONTH,
+      vpcSubnets: [{ subnetType: ec2.SubnetType.PRIVATE_ISOLATED }],
+      securityGroups: [searchSg],
+      capacity: {
+        dataNodes: props.searchDataNodes ?? 2,
+        dataNodeInstanceType: props.searchInstanceType ?? 'm7g.medium.search',
+        multiAzWithStandbyEnabled: false,
+      },
+      zoneAwareness: { enabled: true, availabilityZoneCount: 2 },
+      ebs: { volumeSize: props.searchVolumeGiB ?? 20, volumeType: ec2.EbsDeviceVolumeType.GP3 },
+      encryptionAtRest: { enabled: true },
+      nodeToNodeEncryption: true,
+      enforceHttps: true,
+      tlsSecurityPolicy: opensearch.TLSSecurityPolicy.TLS_1_2_PFS,
+      fineGrainedAccessControl: {
+        masterUserName: 'bindle_admin',
+        masterUserPassword: searchAdmin.secretValueFromJson('password'),
+      },
+      logging: { appLogEnabled: true },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
-    // App role passwords. bindle-migrate sets them on the roles.
-    const dbWriter = new secretsmanager.Secret(this, 'DbWriter', {
-      secretName: 'bindle/db-writer',
-      generateSecretString: { excludePunctuation: true, passwordLength: 40 },
-    });
-    const dbReader = new secretsmanager.Secret(this, 'DbReader', {
-      secretName: 'bindle/db-reader',
-      generateSecretString: { excludePunctuation: true, passwordLength: 40 },
-    });
-    // libpq-style connection settings; TLS verified against the RDS CA bundle in the image.
-    const dbEnv = {
-      PGHOST: db.dbInstanceEndpointAddress,
-      PGPORT: db.dbInstanceEndpointPort,
-      PGDATABASE: 'bindle',
-      PGSSLMODE: 'verify-full',
-      PGSSLROOTCERT: '/etc/bindle/rds-ca.pem',
-      PGCONNECT_TIMEOUT: '10',
-    };
+    // Reachability is limited by the VPC and security group; who may do
+    // what is decided by fine-grained access control (users and roles
+    // created by bindle-migrate), which is why the domain policy admits
+    // any principal that can reach the endpoint.
+    search.addAccessPolicies(new iam.PolicyStatement({
+      actions: ['es:ESHttp*'],
+      principals: [new iam.AnyPrincipal()],
+      resources: [`${search.domainArn}/*`],
+    }));
+    const searchUrl = `https://${search.domainEndpoint}`;
+
     const image = ecs.ContainerImage.fromAsset(path.join(__dirname, '../../../services'));
 
     // Dev bootstrap for ingest keys ("key=tenant,key2=tenant2"). Replaced by
@@ -164,15 +175,15 @@ export class BindleStack extends cdk.Stack {
         image,
         containerPort: 4318,
         environment: {
-          ...dbEnv,
-          PGUSER: 'bindle_writer',
-          BINDLE_SINK: 'postgres',
+          BINDLE_SINK: 'opensearch',
+          BINDLE_SEARCH_URL: searchUrl,
+          BINDLE_SEARCH_USER: 'bindle_writer',
           BINDLE_PRICING_FILE: '/etc/bindle/pricing.json',
           BINDLE_RATE_LIMIT_SPANS_PER_SEC: '2000',
           BINDLE_PAYLOAD_BUCKET: payloads.bucketName,
         },
         secrets: {
-          PGPASSWORD: ecs.Secret.fromSecretsManager(dbWriter),
+          BINDLE_SEARCH_PASSWORD: ecs.Secret.fromSecretsManager(searchWriter, 'password'),
           BINDLE_API_KEYS: ecs.Secret.fromSecretsManager(ingestKeys),
         },
         logDriver: ecs.LogDrivers.awsLogs({ streamPrefix: 'ingest', logRetention: logs.RetentionDays.ONE_MONTH }),
@@ -201,25 +212,25 @@ export class BindleStack extends cdk.Stack {
     });
 
     payloads.grantWrite(ingest.taskDefinition.taskRole);
-    db.connections.allowDefaultPortFrom(ingest.service, 'bindle-ingest');
+    searchSg.addIngressRule(ec2.Peer.securityGroupId(ingest.service.connections.securityGroups[0].securityGroupId), ec2.Port.tcp(443), 'bindle-ingest');
 
-    // One-off migration task: run it after each deploy that changes the schema
-    // (command in the MigrateCommand output). Same image, different entrypoint.
+    // One-off setup task: run it after each deploy (command in the
+    // MigrateCommand output). Same image, different entrypoint.
     const migrateTask = new ecs.FargateTaskDefinition(this, 'MigrateTask', { cpu: 256, memoryLimitMiB: 512 });
     migrateTask.addContainer('migrate', {
       image,
       entryPoint: ['/bindle-migrate'],
-      environment: dbEnv,
+      environment: { BINDLE_SEARCH_URL: searchUrl, BINDLE_SEARCH_REPLICAS: '1' },
       secrets: {
-        PGUSER: ecs.Secret.fromSecretsManager(db.secret!, 'username'),
-        PGPASSWORD: ecs.Secret.fromSecretsManager(db.secret!, 'password'),
-        BINDLE_DB_WRITER_PASSWORD: ecs.Secret.fromSecretsManager(dbWriter),
-        BINDLE_DB_READER_PASSWORD: ecs.Secret.fromSecretsManager(dbReader),
+        BINDLE_SEARCH_ADMIN_USER: ecs.Secret.fromSecretsManager(searchAdmin, 'username'),
+        BINDLE_SEARCH_ADMIN_PASSWORD: ecs.Secret.fromSecretsManager(searchAdmin, 'password'),
+        BINDLE_SEARCH_WRITER_PASSWORD: ecs.Secret.fromSecretsManager(searchWriter, 'password'),
+        BINDLE_SEARCH_READER_PASSWORD: ecs.Secret.fromSecretsManager(searchReader, 'password'),
       },
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'migrate', logRetention: logs.RetentionDays.ONE_MONTH }),
     });
     const migrateSg = new ec2.SecurityGroup(this, 'MigrateSg', { vpc, description: 'bindle-migrate task' });
-    db.connections.allowDefaultPortFrom(migrateSg, 'bindle-migrate');
+    searchSg.addIngressRule(ec2.Peer.securityGroupId(migrateSg.securityGroupId), ec2.Port.tcp(443), 'bindle-migrate');
     const appSubnets = vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }).subnetIds;
 
     new cdk.CfnOutput(this, 'IngestEndpoint', {
@@ -227,9 +238,9 @@ export class BindleStack extends cdk.Stack {
       description: 'Point a CNAME for ingest.bindle.ai here',
     });
     new cdk.CfnOutput(this, 'PayloadBucket', { value: payloads.bucketName });
-    new cdk.CfnOutput(this, 'DbEndpoint', { value: db.dbInstanceEndpointAddress });
+    new cdk.CfnOutput(this, 'SearchEndpoint', { value: searchUrl });
     new cdk.CfnOutput(this, 'MigrateCommand', {
-      description: 'Run after deploy to create roles and schema',
+      description: 'Run after each deploy to create the indices, retention policy and users',
       value: cdk.Fn.join('', [
         'aws ecs run-task --cluster ', cluster.clusterName,
         ' --launch-type FARGATE --task-definition ', migrateTask.taskDefinitionArn,

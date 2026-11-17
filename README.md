@@ -5,8 +5,8 @@ Observability for AI agents: every step your agent takes, bundled into one trace
 This repo holds the first end-to-end slice:
 
 ```
-agent + bindle-sdk ──OTLP/HTTP──► bindle-ingest (Go) ──► PostgreSQL ◄── bindle-api (Go) ◄── console (Next.js)
-   (redact #1)                   auth · decode · normalize      (RLS per tenant)
+agent + bindle-sdk ──OTLP/HTTP──► bindle-ingest (Go) ──► OpenSearch ◄── bindle-api (Go) ◄── console (Next.js)
+   (redact #1)                   auth · decode · normalize
                                  redact #2 · cost · batch
 ```
 
@@ -33,29 +33,33 @@ The design mockups for these screens are in [`design/console/`](design/console/)
 | Path | What it is |
 |---|---|
 | `sdk/python` | `bindle-sdk`: one-line `bindle.init()`, auto-instrumentation, client-side redaction, `trace_step` / `trace_tool` / `decision` / `handoff` helpers |
-| `services` | `bindle-api`: read API for the console (runs, trace waterfall, step detail, overview, alerts) over PostgreSQL. `bindle-migrate`: creates the database roles and schema. `bindle-ingest`: OTLP/HTTP receiver (protobuf + JSON, gzip), API-key → tenant, framework normalizer, server-side redaction, cost, per-tenant rate limit, backpressure, PostgreSQL writer. Go standard library plus one vendored dependency, the PostgreSQL driver `lib/pq`. |
+| `services` | `bindle-api`: read API for the console (runs, trace waterfall, step detail, overview, alerts) over OpenSearch. `bindle-migrate`: creates the indices, retention policy and least-privilege users. `bindle-ingest`: OTLP/HTTP receiver (protobuf + JSON, gzip), API-key → tenant, framework normalizer, server-side redaction, cost, per-tenant rate limit, backpressure, OpenSearch writer. Go standard library only, no third-party dependencies. |
 | `web` | Console (Next.js): overview, runs, trace explorer, connect-an-agent. See `web/README.md` |
 | `design/console` | Console design mockups (visual spec for `web/`) |
 | `docs/images` | README screenshots |
-| `deploy` | `docker-compose.yml` for a local stack (PostgreSQL, migrations, ingest, API) |
-| `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, RDS PostgreSQL, migrate task, secrets, S3 payload bucket |
+| `deploy` | `docker-compose.yml` for a local stack (OpenSearch, setup, ingest, API) |
+| `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, OpenSearch Service domain, setup task, secrets, S3 payload bucket |
 | `examples/python` | `quickstart.py` (minimal) and `demo_agent.py` (richer run with LLM steps, retries and an optional runaway loop) |
 
 ## Run it locally
 
 ```bash
 ./deploy/dev-env.sh                      # once: random local credentials in deploy/.env (git-ignored)
-set -a; . deploy/.env; set +a            # BINDLE_API_KEY, BINDLE_ENDPOINT, POSTGRES_PASSWORD
+set -a; . deploy/.env; set +a            # BINDLE_API_KEY, BINDLE_ENDPOINT, OPENSEARCH_ADMIN_PASSWORD
 docker compose -f deploy/docker-compose.yml up --build
 pip install -e sdk/python
 python examples/python/quickstart.py
-docker compose -f deploy/docker-compose.yml exec postgres \
-  psql -U bindle_owner -d bindle -c "SELECT name, type, status, input FROM bindle.steps ORDER BY start_ns"
+curl -s -u "admin:$OPENSEARCH_ADMIN_PASSWORD" \
+  'http://127.0.0.1:9200/bindle-steps-*/_search?sort=start_ns:desc&size=5&_source=name,type,status,input'
 ```
 
 ### Storage
 
-PostgreSQL holds everything. `bindle.steps` is partitioned by day (30-day retention, enforced hourly by ingest) and `bindle.traces` is a per-trace rollup updated in the same statement that inserts steps. Re-sent batches are ignored, so exporter retries never duplicate data. Tenant isolation is enforced twice: every query filters by tenant, and row-level security limits each transaction to the tenant it sets. The app roles are least-privilege: `bindle_writer` (ingest) can only insert, and `bindle_reader` (API) can only read. Neither can run DDL or delete data.
+OpenSearch holds the traces:
+- **Steps** go to daily indices (`bindle-steps-YYYY.MM.DD`), deleted automatically after 30 days. Re-sent batches are ignored, so exporter retries never duplicate data. Prompts, outputs and reasoning are full-text indexed.
+- **`bindle-traces`** holds one summary per run, recomputed from the steps after each batch.
+- **Tenant isolation:** every query goes through one function that adds the tenant filter, so no query can skip it. OpenSearch enforcing isolation itself (document-level security tied to the user's sign-in token) comes with Cognito in step 3.
+- **Least-privilege users:** `bindle_writer` (ingest) can only add data, and `bindle_reader` (API) can only read. Neither can delete indices or change security settings.
 
 The query API runs on `http://127.0.0.1:8080`:
 
@@ -77,12 +81,13 @@ export OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer $BINDLE_API_KEY"
 
 ## Tests
 
-Services need Go 1.23 or newer (`go.mod` sets the minimum). The container image builds with Go 1.27. Dependencies are vendored in `services/vendor`.
+Services need Go 1.23 or newer (`go.mod` sets the minimum) and use only the standard library. The container image builds with Go 1.27.
 
 ```bash
 cd services && go vet ./... && go test ./...
-# optional: PostgreSQL integration test (creates and drops its own database and roles)
-BINDLE_POSTGRES_TEST_URL="postgres://bindle_owner:$POSTGRES_PASSWORD@127.0.0.1:5432/postgres?sslmode=disable" go test ./internal/pg/
+# optional: OpenSearch integration test (uses its own index prefix and users, removes them afterwards)
+BINDLE_OPENSEARCH_TEST_URL=http://127.0.0.1:9200 BINDLE_OPENSEARCH_TEST_USER=admin \
+  BINDLE_OPENSEARCH_TEST_PASSWORD="$OPENSEARCH_ADMIN_PASSWORD" go test ./internal/search/
 cd sdk/python && pip install -e '.[dev]' && pytest
 cd web && npm install && npm run typecheck && npm test && npm run build
 ```
@@ -96,10 +101,10 @@ npx cdk deploy -c certificateArn=arn:aws:acm:...   # cert for ingest.bindle.ai
 
 Synth fails without a certificate: ingest carries API keys and agent payloads, so the public listener is HTTPS on 443 only. For a throwaway dev stack without a certificate, pass `-c insecureDevCidr=<your-ip>/32` instead; it serves plain HTTP reachable only from that range (/24 or narrower).
 
-The stack creates an RDS PostgreSQL 17 instance (encrypted, not public, in subnets with no internet route, TLS required, deletion protection, 7-day backups) with passwords in Secrets Manager. Defaults are `db.t4g.micro` in one Availability Zone; override with `-c dbInstanceClass=m7g.large -c dbMultiAz=true`. These resources cost money once deployed.
+The stack creates an Amazon OpenSearch Service domain (OpenSearch 3.7): in subnets with no internet route, HTTPS-only (TLS 1.2 with forward secrecy), encrypted at rest and between nodes, with fine-grained access control. Its master and app-user passwords live in Secrets Manager. Defaults are two `m7g.medium.search` data nodes in two Availability Zones with 20 GiB gp3 each; override with `-c searchInstanceType=... -c searchDataNodes=... -c searchVolumeGiB=...` (`t3.small.search` is fine for a dev stack). These resources cost money once deployed.
 
 After deploy:
-1. Run the `MigrateCommand` stack output (an `aws ecs run-task` command). It creates the `bindle_writer` and `bindle_reader` roles and the schema.
+1. Run the `MigrateCommand` stack output (an `aws ecs run-task` command). It creates the indices, the retention policy, and the `bindle_writer` and `bindle_reader` users.
 2. Set `bindle/ingest-api-keys` to `key=tenant` pairs.
 3. Point `ingest.bindle.ai` at the `IngestEndpoint` output.
 
@@ -112,7 +117,7 @@ After deploy:
 
 ## Status and next steps
 
-Verified locally: Go vet and tests (including the PostgreSQL integration test), the Python SDK against a real `opentelemetry-sdk`, the console build and tests, the docker-compose stack end to end, and `cdk synth`. Not yet run on AWS.
+Verified locally: Go vet and tests (including the OpenSearch integration test), the Python SDK against a real `opentelemetry-sdk`, the console build and tests, the docker-compose stack end to end, and `cdk synth`. Not yet run on AWS.
 
 Next:
 - [x] Query API (`bindle-api`)

@@ -13,8 +13,9 @@ new BindleStack(app, 'BindleDataPlane', {
   insecureDevCidr: app.node.tryGetContext('insecureDevCidr'),
   minTasks: Number(app.node.tryGetContext('minTasks') ?? 2),
   maxTasks: Number(app.node.tryGetContext('maxTasks') ?? 20),
-  dbInstanceClass: app.node.tryGetContext('dbInstanceClass'),
-  dbMultiAz: app.node.tryGetContext('dbMultiAz') === 'true',
+  searchInstanceType: app.node.tryGetContext('searchInstanceType'),
+  searchDataNodes: app.node.tryGetContext('searchDataNodes') ? Number(app.node.tryGetContext('searchDataNodes')) : undefined,
+  searchVolumeGiB: app.node.tryGetContext('searchVolumeGiB') ? Number(app.node.tryGetContext('searchVolumeGiB')) : undefined,
 });
 
 cdk.Tags.of(app).add('project', 'bindle');
