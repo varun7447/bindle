@@ -145,3 +145,11 @@ def test_mcp_without_key(tmp_path):
     out = _rpc(_mcp.Server(root=tmp_path, environ={}),
                {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "bindle_check_connection"}})
     assert out[0]["result"]["isError"] is True and "BINDLE_API_KEY" in out[0]["result"]["content"][0]["text"]
+
+
+def test_detect_new_frameworks(tmp_path):
+    for deps, want in [("google-adk>=2\n", "google-adk"), ("agent-framework\nazure-ai-projects\n", "agent-framework"),
+                       ("azure-ai-agents==1.1\nopenai\n", "foundry-agents"), ("strands-agents\n", "strands")]:
+        (tmp_path / "requirements.txt").write_text(deps)
+        assert ob.detect_framework(tmp_path).id == want, deps
+    assert "AIAgentsInstrumentor().instrument()" in ob.setup_guide(ob.framework_by_id("foundry-agents"))

@@ -13,7 +13,7 @@ import bindle
 bindle.init(api_key="bd_live_...", agent="support-triage", version="v12")
 ```
 
-That's it. Installed frameworks are detected and instrumented automatically. Frameworks that already emit OpenTelemetry (such as Strands) are picked up through the global tracer provider. Prefer `BINDLE_API_KEY` in the environment over a key in code.
+That's it. Installed frameworks are detected and instrumented automatically. Frameworks that already emit OpenTelemetry (Strands, Google ADK, Microsoft Agent Framework) are picked up through the global tracer provider; the console's Connect page shows the switches some of them need to include prompts. Microsoft Foundry Agent Service needs `AIAgentsInstrumentor().instrument()` after `bindle.init()`. Prefer `BINDLE_API_KEY` in the environment over a key in code.
 
 ## Set up in one command
 

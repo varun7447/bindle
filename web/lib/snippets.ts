@@ -72,6 +72,37 @@ with bindle.step("plan", type="decision"):
 # Call init() before creating the Agent.`,
   },
   {
+    id: 'google-adk',
+    label: 'Google ADK',
+    install: 'pip install bindle-sdk',
+    code: `${init('my-adk-agent')}
+
+# ADK emits OpenTelemetry itself; call init() before creating the Runner.`,
+    note: 'To include prompts and responses on the trace, set OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental and OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY (by default ADK sends content as log events, which Bindle does not ingest).',
+  },
+  {
+    id: 'agent-framework',
+    label: 'Microsoft Agent Framework',
+    install: 'pip install bindle-sdk',
+    code: `${init('my-maf-agent')}
+
+# Agent Framework emits OpenTelemetry itself; call init() before creating the Agent.`,
+    note: 'Agent Framework leaves prompts and responses out of traces unless ENABLE_SENSITIVE_DATA=true.',
+  },
+  {
+    id: 'foundry-agents',
+    label: 'Microsoft Foundry Agent Service',
+    install: 'pip install bindle-sdk azure-core-tracing-opentelemetry',
+    code: `${init('my-foundry-agent')}
+
+from azure.core.settings import settings
+from azure.ai.agents.telemetry import AIAgentsInstrumentor
+
+settings.tracing_implementation = "opentelemetry"
+AIAgentsInstrumentor().instrument()`,
+    note: 'For prompts and responses, pass enable_content_recording=True (or set AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true).',
+  },
+  {
     id: 'llm-clients',
     label: 'OpenAI / Anthropic / Bedrock clients',
     install: "pip install 'bindle-sdk[openai,anthropic,bedrock]'",

@@ -28,7 +28,9 @@ INSTRUMENTORS: Dict[str, Tuple[str, str, str, str]] = {
     "bedrock": ("boto3", "openinference.instrumentation.bedrock", "BedrockInstrumentor", "bedrock"),
 }
 
-NATIVE_OTEL = {"strands": "strands"}  # emits OpenTelemetry itself
+# Emit OpenTelemetry themselves (checked against strands-agents 1.65,
+# google-adk 2.14 and agent-framework 1.26).
+NATIVE_OTEL = {"strands": "strands", "google-adk": "google.adk", "agent-framework": "agent_framework"}
 
 
 def _installed(module: str) -> bool:

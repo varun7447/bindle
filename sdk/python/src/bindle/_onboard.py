@@ -58,6 +58,22 @@ FRAMEWORKS: Tuple[Framework, ...] = (
     Framework("strands", "Strands Agents", "pip install bindle-sdk",
               _init("my-strands-agent") + "\n\n# Strands emits OpenTelemetry itself; init() installs the tracer provider it uses.\n"
               "# Call init() before creating the Agent.", ("strands-agents",)),
+    Framework("google-adk", "Google ADK", "pip install bindle-sdk",
+              _init("my-adk-agent") + "\n\n# ADK emits OpenTelemetry itself; call init() before creating the Runner.\n"
+              "# To include prompts and responses on the trace:\n"
+              "#   OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental\n"
+              "#   OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY",
+              ("google-adk",)),
+    Framework("agent-framework", "Microsoft Agent Framework", "pip install bindle-sdk",
+              _init("my-maf-agent") + "\n\n# Agent Framework emits OpenTelemetry itself; call init() before creating the Agent.\n"
+              "# To include prompts and responses: ENABLE_SENSITIVE_DATA=true",
+              ("agent-framework", "agent-framework-core")),
+    Framework("foundry-agents", "Microsoft Foundry Agent Service", "pip install bindle-sdk azure-core-tracing-opentelemetry",
+              _init("my-foundry-agent") + "\n\nfrom azure.core.settings import settings\n"
+              "from azure.ai.agents.telemetry import AIAgentsInstrumentor\n\n"
+              "settings.tracing_implementation = \"opentelemetry\"\n"
+              "AIAgentsInstrumentor().instrument()  # add enable_content_recording=True for prompts and responses",
+              ("azure-ai-agents", "azure-ai-projects")),
     Framework("llm-clients", "OpenAI / Anthropic / Bedrock clients", "pip install 'bindle-sdk[openai,anthropic,bedrock]'",
               _init("my-agent") + "\n\n# Raw client calls (openai, anthropic, boto3 bedrock-runtime) are traced as LLM steps.",
               ("openai", "anthropic", "boto3")),

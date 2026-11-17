@@ -4,7 +4,7 @@
 
 Facts for coding agents adding Bindle to a project:
 
-- Install: `pip install bindle-sdk` (extras per framework: `bindle-sdk[langchain]`, `[openai-agents]`, `[crewai]`, `[llama-index]`, `[openai,anthropic,bedrock]`). Strands Agents needs no extra.
+- Install: `pip install bindle-sdk` (extras per framework: `bindle-sdk[langchain]`, `[openai-agents]`, `[crewai]`, `[llama-index]`, `[openai,anthropic,bedrock]`). Strands Agents, Google ADK and Microsoft Agent Framework emit OpenTelemetry themselves and need no extra; call `bindle.init()` before creating the agent. ADK puts prompts on the trace only with `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY`; Agent Framework only with `ENABLE_SENSITIVE_DATA=true`. Microsoft Foundry Agent Service (`azure-ai-agents`): `pip install azure-core-tracing-opentelemetry`, then `settings.tracing_implementation = "opentelemetry"` (from `azure.core.settings`) and `AIAgentsInstrumentor().instrument()` (from `azure.ai.agents.telemetry`) after `bindle.init()`.
 - Code: `import bindle` then `bindle.init(agent="my-agent", version="v1", environment="dev")` once at startup, before building chains, agents or crews.
 - Config comes from the environment: `BINDLE_API_KEY` (required, an ingest key `bd_live_...` created on the console's Ingest keys page) and `BINDLE_ENDPOINT` (default `https://ingest.bindle.ai`).
 - Never hard-code the key, print it, or ask the user to paste it into chat. Put it in `.env` (git-ignored) or the deployment's secret store.
