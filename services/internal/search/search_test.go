@@ -75,9 +75,10 @@ func TestEverySearchIsTenantScoped(t *testing.T) {
 	_, _ = s.GetStep(ctx, "tenant-1", strings.Repeat("a", 32), strings.Repeat("b", 16))
 	_, _ = s.Overview(ctx, "tenant-1", t0, t0.Add(time.Hour), time.Hour)
 	_, _ = s.Loops(ctx, "tenant-1", t0, t0.Add(time.Hour), 5)
+	_, _ = s.CostlyRuns(ctx, "tenant-1", t0, t0.Add(time.Hour), 2.5, 10)
 
 	reqs := f.all()
-	if len(reqs) < 5 {
+	if len(reqs) < 6 {
 		t.Fatalf("only %d requests", len(reqs))
 	}
 	for _, r := range reqs {
@@ -115,6 +116,7 @@ func TestEmptyTenantSendsNothing(t *testing.T) {
 		func() error { _, err := s.GetStep(ctx, "", "x", "y"); return err }(),
 		func() error { _, err := s.Overview(ctx, "", t0, t0, time.Hour); return err }(),
 		func() error { _, err := s.Loops(ctx, "", t0, t0, 1); return err }(),
+		func() error { _, err := s.CostlyRuns(ctx, "", t0, t0, 1, 1); return err }(),
 	}
 	for i, err := range errs {
 		if !errors.Is(err, query.ErrNoTenant) {

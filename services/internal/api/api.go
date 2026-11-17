@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bindle-ai/bindle/services/internal/alerts"
 	"github.com/bindle-ai/bindle/services/internal/control"
 	"github.com/bindle-ai/bindle/services/internal/query"
 	"github.com/bindle-ai/bindle/services/internal/ratelimit"
@@ -44,8 +45,10 @@ type ConfigStore interface {
 // Server holds the API's dependencies.
 type Server struct {
 	Store    query.Store
-	Keys     KeyStore    // nil disables the /api/keys endpoints (503)
-	Config   ConfigStore // nil disables the /api/config endpoints (503)
+	Keys     KeyStore          // nil disables the /api/keys endpoints (503)
+	Config   ConfigStore       // nil disables the /api/config endpoints (503)
+	Alerting AlertingStore     // nil disables the alert rule/channel endpoints (503)
+	Deliver  *alerts.Deliverer // test sends; nil disables them
 	Sessions session.Resolver
 	Limiter  *ratelimit.Limiter // per-tenant requests/sec; nil disables
 	Log      *slog.Logger
@@ -82,6 +85,15 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/keys/{id}/revoke", s.revokeKey)
 	api.HandleFunc("GET /api/config", s.getConfig)
 	api.HandleFunc("PUT /api/config", s.putConfig)
+	api.HandleFunc("GET /api/alert-rules", s.listAlertRules)
+	api.HandleFunc("POST /api/alert-rules", s.createAlertRule)
+	api.HandleFunc("PUT /api/alert-rules/{id}", s.updateAlertRule)
+	api.HandleFunc("GET /api/alert-channels", s.listAlertChannels)
+	api.HandleFunc("POST /api/alert-channels", s.createAlertChannel)
+	api.HandleFunc("PUT /api/alert-channels/{id}/state", s.setAlertChannelState)
+	api.HandleFunc("DELETE /api/alert-channels/{id}", s.deleteAlertChannel)
+	api.HandleFunc("POST /api/alert-channels/{id}/test", s.testAlertChannel)
+	api.HandleFunc("GET /api/alert-events", s.listAlertEvents)
 	api.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})

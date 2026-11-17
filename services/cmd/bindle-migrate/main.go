@@ -19,6 +19,7 @@
 //	BINDLE_CONTROL_API_PASSWORD     sets the bindle_api role's password
 //	BINDLE_CONTROL_INGEST_PASSWORD  sets the bindle_ingest role's password
 //	BINDLE_CONTROL_PROCESSOR_PASSWORD  sets the bindle_processor role's password (shard leases)
+//	BINDLE_CONTROL_ALERTS_PASSWORD  sets the bindle_alerts role's password (alert evaluation)
 //	BINDLE_DEV_SEED_TENANT / BINDLE_DEV_SEED_KEY
 //	                                local development only: make this key valid for this tenant
 package main
@@ -88,6 +89,7 @@ func setupControl(ctx context.Context, log *slog.Logger, db *sql.DB) error {
 	roles.APIPassword = os.Getenv("BINDLE_CONTROL_API_PASSWORD")
 	roles.IngestPassword = os.Getenv("BINDLE_CONTROL_INGEST_PASSWORD")
 	roles.ProcessorPassword = os.Getenv("BINDLE_CONTROL_PROCESSOR_PASSWORD")
+	roles.AlertsPassword = os.Getenv("BINDLE_CONTROL_ALERTS_PASSWORD")
 	applied, err := control.Migrate(ctx, db, roles)
 	if err != nil {
 		return err

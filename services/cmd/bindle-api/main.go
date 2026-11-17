@@ -31,7 +31,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bindle-ai/bindle/services/internal/alerts"
 	"github.com/bindle-ai/bindle/services/internal/api"
+	"github.com/bindle-ai/bindle/services/internal/awsv4"
 	"github.com/bindle-ai/bindle/services/internal/control"
 	"github.com/bindle-ai/bindle/services/internal/payload"
 	"github.com/bindle-ai/bindle/services/internal/ratelimit"
@@ -84,12 +86,21 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	// Test sends from the console go through the same SSRF-guarded client
+	// as real alerts.
+	deliverer := &alerts.Deliverer{HTTP: alerts.SafeClient(), ConsoleURL: os.Getenv("BINDLE_CONSOLE_URL")}
+	if from := os.Getenv("BINDLE_ALERTS_EMAIL_FROM"); from != "" && os.Getenv("AWS_REGION") != "" {
+		deliverer.SES = &alerts.SES{Region: os.Getenv("AWS_REGION"), From: from, Creds: &awsv4.CredentialChain{Getenv: os.Getenv}}
+	}
+
 	rps := envInt("BINDLE_API_RATE_LIMIT_RPS", 20)
 	srvAPI := &api.Server{
 		Store:          &search.Store{Client: client, Names: search.Names{Prefix: os.Getenv("BINDLE_SEARCH_PREFIX")}, Payloads: blobs, Log: log},
 		Sessions:       sessions,
 		Keys:           keyStore(store),
 		Config:         configStore(store),
+		Alerting:       alertingStore(store),
+		Deliver:        deliverer,
 		Limiter:        ratelimit.New(float64(rps), float64(rps*2)),
 		Log:            log,
 		LoopMinRepeats: envInt("BINDLE_API_LOOP_MIN_REPEATS", 5),
@@ -142,6 +153,13 @@ func envInt(k string, def int) int {
 
 // keyStore avoids a typed-nil interface when the control plane is absent.
 func keyStore(s *control.Store) api.KeyStore {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
+func alertingStore(s *control.Store) api.AlertingStore {
 	if s == nil {
 		return nil
 	}

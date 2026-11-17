@@ -405,3 +405,22 @@ func (s *Store) Loops(ctx context.Context, tenant string, from, to time.Time, mi
 	})
 	return out, nil
 }
+
+// CostlyRuns returns runs started in [from, to) that cost at least
+// minCostUSD, most expensive first (alert evaluation).
+func (s *Store) CostlyRuns(ctx context.Context, tenant string, from, to time.Time, minCostUSD float64, limit int) ([]query.Run, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	clauses := []map[string]any{rangeNs("first_start_ns", from, to), {"range": map[string]any{"cost_usd": map[string]any{"gte": minCostUSD}}}}
+	body := map[string]any{"size": limit, "sort": []any{map[string]any{"cost_usd": "desc"}, map[string]any{"trace_id": "asc"}}}
+	var resp hits[traceDoc]
+	if err := s.search(ctx, tenant, s.Names.Traces(), clauses, body, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]query.Run, 0, len(resp.Hits.Hits))
+	for _, h := range resp.Hits.Hits {
+		out = append(out, h.Source.run())
+	}
+	return out, nil
+}

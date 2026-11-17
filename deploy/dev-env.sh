@@ -28,6 +28,7 @@ add BINDLE_SEARCH_READER_PASSWORD "$(strong)"
 add POSTGRES_PASSWORD "$(rand)"
 add BINDLE_CONTROL_API_PASSWORD "$(rand)"
 add BINDLE_CONTROL_INGEST_PASSWORD "$(rand)"
+add BINDLE_CONTROL_ALERTS_PASSWORD "$(rand)"
 # Local-only: the query API on 127.0.0.1:8080 serves every request as this
 # tenant until real console auth exists. Remove the line to make it reject all.
 add BINDLE_API_DEV_AUTH_BYPASS_TENANT "dev-tenant"

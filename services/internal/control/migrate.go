@@ -29,12 +29,12 @@ var migrationFS embed.FS
 // Roles names the app roles and their passwords. An empty password creates
 // or leaves the role without a password (NOLOGIN for new roles).
 type Roles struct {
-	API, Ingest, Processor                         string
-	APIPassword, IngestPassword, ProcessorPassword string
+	API, Ingest, Processor, Alerts                                 string
+	APIPassword, IngestPassword, ProcessorPassword, AlertsPassword string
 }
 
 // DefaultRoles are the role names used when none are configured.
-var DefaultRoles = Roles{API: "bindle_api", Ingest: "bindle_ingest", Processor: "bindle_processor"}
+var DefaultRoles = Roles{API: "bindle_api", Ingest: "bindle_ingest", Processor: "bindle_processor", Alerts: "bindle_alerts"}
 
 var roleNameRe = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
@@ -45,13 +45,17 @@ const migrationLockKey = 7447_0002
 // transaction under an advisory lock.
 // db must be connected as the schema owner.
 func Migrate(ctx context.Context, db *sql.DB, roles Roles) (applied []string, err error) {
-	for _, r := range []string{roles.API, roles.Ingest, roles.Processor} {
+	for _, r := range []string{roles.API, roles.Ingest, roles.Processor, roles.Alerts} {
 		if !roleNameRe.MatchString(r) {
 			return nil, fmt.Errorf("control: invalid role name %q", r)
 		}
 	}
-	if roles.API == roles.Ingest || roles.API == roles.Processor || roles.Ingest == roles.Processor {
-		return nil, fmt.Errorf("control: API, ingest and processor roles must differ")
+	seen := map[string]bool{}
+	for _, r := range []string{roles.API, roles.Ingest, roles.Processor, roles.Alerts} {
+		if seen[r] {
+			return nil, fmt.Errorf("control: app roles must all differ")
+		}
+		seen[r] = true
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -73,6 +77,9 @@ func Migrate(ctx context.Context, db *sql.DB, roles Roles) (applied []string, er
 		return nil, err
 	}
 	if err = ensureRole(ctx, tx, roles.Processor, roles.ProcessorPassword); err != nil {
+		return nil, err
+	}
+	if err = ensureRole(ctx, tx, roles.Alerts, roles.AlertsPassword); err != nil {
 		return nil, err
 	}
 	if _, err = tx.ExecContext(ctx, `CREATE SCHEMA IF NOT EXISTS control;
@@ -131,6 +138,7 @@ func renderMigration(body string, roles Roles) string {
 		"{{api}}", pq.QuoteIdentifier(roles.API),
 		"{{ingest}}", pq.QuoteIdentifier(roles.Ingest),
 		"{{processor}}", pq.QuoteIdentifier(roles.Processor),
+		"{{alerts}}", pq.QuoteIdentifier(roles.Alerts),
 	).Replace(body)
 }
 

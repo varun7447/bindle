@@ -40,7 +40,7 @@ func TestRenderAndRoleValidation(t *testing.T) {
 	if got := renderMigration("GRANT x TO {{api}}, {{ingest}}, {{processor}};", Roles{API: "a_r", Ingest: "i_r", Processor: "p_r"}); got != `GRANT x TO "a_r", "i_r", "p_r";` {
 		t.Errorf("rendered %q", got)
 	}
-	for _, r := range []Roles{{API: "x", Ingest: "x", Processor: "p"}, {API: "Bad Name", Ingest: "i", Processor: "p"}, {API: "a;drop", Ingest: "i", Processor: "p"}, {API: "a", Ingest: "i"}} {
+	for _, r := range []Roles{{API: "x", Ingest: "x", Processor: "p", Alerts: "al"}, {API: "Bad Name", Ingest: "i", Processor: "p", Alerts: "al"}, {API: "a;drop", Ingest: "i", Processor: "p", Alerts: "al"}, {API: "a", Ingest: "i", Processor: "p"}} {
 		if _, err := Migrate(context.Background(), nil, r); err == nil {
 			t.Errorf("accepted roles %+v", r)
 		}
@@ -265,15 +265,15 @@ func newTestDB(t *testing.T) (owner, apiDB, ingestDB *sql.DB) {
 	ctx := context.Background()
 	sfx := randHex(4)
 	dbName := "control_itest_" + sfx
-	roles := Roles{API: "itest_api_" + sfx, Ingest: "itest_ingest_" + sfx, Processor: "itest_proc_" + sfx,
-		APIPassword: randHex(12), IngestPassword: randHex(12), ProcessorPassword: randHex(12)}
+	roles := Roles{API: "itest_api_" + sfx, Ingest: "itest_ingest_" + sfx, Processor: "itest_proc_" + sfx, Alerts: "itest_alerts_" + sfx,
+		APIPassword: randHex(12), IngestPassword: randHex(12), ProcessorPassword: randHex(12), AlertsPassword: randHex(12)}
 	root := open(t, admin)
 	if _, err := root.ExecContext(ctx, "CREATE DATABASE "+pq.QuoteIdentifier(dbName)); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		_, _ = root.ExecContext(ctx, "DROP DATABASE IF EXISTS "+pq.QuoteIdentifier(dbName)+" WITH (FORCE)")
-		for _, r := range []string{roles.API, roles.Ingest, roles.Processor} {
+		for _, r := range []string{roles.API, roles.Ingest, roles.Processor, roles.Alerts} {
 			_, _ = root.ExecContext(ctx, "DROP ROLE IF EXISTS "+pq.QuoteIdentifier(r))
 		}
 		root.Close()
@@ -286,11 +286,12 @@ func newTestDB(t *testing.T) (owner, apiDB, ingestDB *sql.DB) {
 		t.Fatalf("migrate again: %v %v", again, err)
 	}
 	lastProcessorDSN = withDB(t, admin, dbName, roles.Processor, roles.ProcessorPassword)
+	lastAlertsDSN = withDB(t, admin, dbName, roles.Alerts, roles.AlertsPassword)
 	return owner, open(t, withDB(t, admin, dbName, roles.API, roles.APIPassword)), open(t, withDB(t, admin, dbName, roles.Ingest, roles.IngestPassword))
 }
 
 // lastProcessorDSN is the processor-role URL of the most recent newTestDB.
-var lastProcessorDSN string
+var lastProcessorDSN, lastAlertsDSN string
 
 func TestIntegrationLeases(t *testing.T) {
 	ctx := context.Background()

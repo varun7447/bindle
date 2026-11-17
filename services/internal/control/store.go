@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+
+	"github.com/bindle-ai/bindle/services/internal/alerts"
 )
 
 // Store is the API's access to the control plane. Connect it as the API role.
@@ -119,6 +121,16 @@ func (s *Store) Provision(ctx context.Context, u User, tenantName string) (Membe
 	}
 	if err != nil {
 		return Membership{}, err
+	}
+	// Every workspace starts with the default alert rules (no channels yet,
+	// so they show in the console until a channel is added).
+	if _, err := tx.ExecContext(ctx, `SELECT set_config('bindle.tenant', $1, true)`, tid); err != nil {
+		return Membership{}, err
+	}
+	for _, r := range alerts.DefaultRules() {
+		if _, err := insertRule(ctx, tx, tid, u.ID, r); err != nil {
+			return Membership{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Membership{}, err
@@ -285,8 +297,16 @@ func SeedKey(ctx context.Context, owner *sql.DB, tenantID, tenantName, key strin
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO control.tenants (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, tenantID, tenantName); err != nil {
+	res, err := tx.ExecContext(ctx, `INSERT INTO control.tenants (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, tenantID, tenantName)
+	if err != nil {
 		return err
+	}
+	if n, _ := res.RowsAffected(); n == 1 { // new tenant: default alert rules, as in Provision
+		for _, r := range alerts.DefaultRules() {
+			if _, err := insertRule(ctx, tx, tenantID, "", r); err != nil {
+				return err
+			}
+		}
 	}
 	id, err := newID("key_")
 	if err != nil {
