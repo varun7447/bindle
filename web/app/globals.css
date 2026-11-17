@@ -3,11 +3,11 @@
   --bg: #0e1116;
   --panel: #161b22;
   --panel-2: #1c222b;
-  --border: #30363d;
+  --border: #232a33;
   --grid: #262c35;
-  --text: #e6edf3;
+  --text: #e6e8eb;
   --text-2: #b1bac4;
-  --muted: #8b949e;
+  --muted: #9aa3ae;
   --accent: #3dd6b0;
   --accent-ink: #0e1116;
   /* Status (never reused for series). Always paired with an icon + label. */
@@ -17,8 +17,8 @@
   --warning-bg: rgba(245, 194, 107, 0.12);
   --good: #3dd6b0;
   --radius: 8px;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: var(--font-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
 * { box-sizing: border-box; }
