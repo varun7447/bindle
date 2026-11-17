@@ -1,8 +1,6 @@
 # Console design mockups
 
-Design source for the Bindle console (sample data only). These are the
-artboards from the Claude design canvas "Agent Observability Console":
-https://claude.ai/artifact/CqY7S9NwRvgXeZEdFJQKyx
+Design source for the Bindle console (sample data only).
 
 | File | Screen |
 |---|---|
