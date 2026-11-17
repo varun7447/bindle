@@ -1,28 +1,42 @@
-# Local Bindle stack: ClickHouse + ingest + query API.
-#   ./deploy/dev-env.sh                      # once: writes deploy/.env with random local credentials
+# Local Bindle stack: PostgreSQL + migrations + ingest + query API.
+#   ./deploy/dev-env.sh                      # creates/updates deploy/.env with random local credentials
 #   docker compose -f deploy/docker-compose.yml up --build
 # Then point any agent at http://localhost:4318 with BINDLE_API_KEY from deploy/.env.
 #
 # Ports are published on 127.0.0.1 only. To reach the stack from another
 # machine, use an SSH tunnel (ssh -L 4318:localhost:4318 host) rather than
 # widening the publish.
+x-db: &db-required
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run deploy/dev-env.sh to create deploy/.env}
+
 services:
-  clickhouse:
-    image: clickhouse/clickhouse-server:24.8
+  postgres:
+    image: postgres:17
     ports:
-      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:5432:5432"
     environment:
-      CLICKHOUSE_USER: bindle
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?run deploy/dev-env.sh to create deploy/.env}
-      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      <<: *db-required
+      POSTGRES_USER: bindle_owner
+      POSTGRES_DB: bindle
     volumes:
-      - ../schema/clickhouse/001_steps.sql:/docker-entrypoint-initdb.d/001_steps.sql:ro
-      - ../schema/clickhouse/002_traces_v2.sql:/docker-entrypoint-initdb.d/002_traces_v2.sql:ro
-      - clickhouse-data:/var/lib/clickhouse
+      - pg-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8123/ping"]
-      interval: 5s
-      retries: 20
+      test: ["CMD", "pg_isready", "-U", "bindle_owner", "-d", "bindle"]
+      interval: 2s
+      retries: 30
+
+  # Creates the app roles and schema, then exits.
+  migrate:
+    build: ../services
+    entrypoint: ["/bindle-migrate"]
+    restart: "no"
+    environment:
+      BINDLE_DB_ADMIN_URL: postgres://bindle_owner:${POSTGRES_PASSWORD:?run deploy/dev-env.sh}@postgres:5432/bindle?sslmode=disable
+      BINDLE_DB_WRITER_PASSWORD: ${BINDLE_DB_WRITER_PASSWORD:?run deploy/dev-env.sh}
+      BINDLE_DB_READER_PASSWORD: ${BINDLE_DB_READER_PASSWORD:?run deploy/dev-env.sh}
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   ingest:
     build: ../services
@@ -30,14 +44,12 @@ services:
       - "127.0.0.1:4318:4318"
     environment:
       BINDLE_API_KEYS: ${BINDLE_API_KEYS:?run deploy/dev-env.sh to create deploy/.env}
-      BINDLE_SINK: clickhouse
-      CLICKHOUSE_URL: http://clickhouse:8123
-      CLICKHOUSE_USER: bindle
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?run deploy/dev-env.sh to create deploy/.env}
+      BINDLE_SINK: postgres
+      BINDLE_DB_URL: postgres://bindle_writer:${BINDLE_DB_WRITER_PASSWORD:?run deploy/dev-env.sh}@postgres:5432/bindle?sslmode=disable
       BINDLE_PRICING_FILE: /etc/bindle/pricing.json
     depends_on:
-      clickhouse:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   api:
     build: ../services
@@ -46,9 +58,7 @@ services:
       - "127.0.0.1:8080:8080"
     environment:
       BINDLE_API_LISTEN: ":8080"
-      CLICKHOUSE_URL: http://clickhouse:8123
-      CLICKHOUSE_USER: bindle
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?run deploy/dev-env.sh to create deploy/.env}
+      BINDLE_DB_URL: postgres://bindle_reader:${BINDLE_DB_READER_PASSWORD:?run deploy/dev-env.sh}@postgres:5432/bindle?sslmode=disable
       # Until real console auth exists (step 3) the API rejects every request.
       # deploy/.env opts into the local-only bypass; it is accepted on the
       # container's wildcard bind only because the port above is published
@@ -56,8 +66,8 @@ services:
       BINDLE_API_DEV_AUTH_BYPASS_TENANT: ${BINDLE_API_DEV_AUTH_BYPASS_TENANT:-}
       BINDLE_API_DEV_AUTH_BYPASS_IN_CONTAINER: "1"
     depends_on:
-      clickhouse:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
-  clickhouse-data:
+  pg-data:

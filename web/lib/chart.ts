@@ -10,7 +10,7 @@ export interface Bucket {
 
 /**
  * Expands the API's sparse series (only buckets with runs) to every bucket in
- * [from, to]. ClickHouse's toStartOfInterval aligns buckets to multiples of the
+ * [from, to]. The API aligns buckets to multiples of the
  * bucket size since the epoch, so the same alignment is used here.
  */
 export function fillSeries(series: SeriesPoint[], fromIso: string, toIso: string, bucketSeconds: number): Bucket[] {

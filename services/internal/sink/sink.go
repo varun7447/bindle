@@ -12,7 +12,7 @@ import (
 	"github.com/bindle-ai/bindle/services/internal/model"
 )
 
-// Row is the JSONEachRow shape of the bindle.steps ClickHouse table.
+// Row is the JSON shape Stdout prints for each step (local debugging).
 type Row struct {
 	TenantID     string            `json:"tenant_id"`
 	TraceID      string            `json:"trace_id"`

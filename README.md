@@ -5,8 +5,8 @@ Observability for AI agents: every step your agent takes, bundled into one trace
 This repo holds the first end-to-end slice:
 
 ```
-agent + bindle-sdk ──OTLP/HTTP──► bindle-ingest (Go) ──► ClickHouse
-   (redact #1)                   auth · decode · normalize
+agent + bindle-sdk ──OTLP/HTTP──► bindle-ingest (Go) ──► PostgreSQL ◄── bindle-api (Go) ◄── console (Next.js)
+   (redact #1)                   auth · decode · normalize      (RLS per tenant)
                                  redact #2 · cost · batch
 ```
 
@@ -33,12 +33,11 @@ The design mockups for these screens are in [`design/console/`](design/console/)
 | Path | What it is |
 |---|---|
 | `sdk/python` | `bindle-sdk`: one-line `bindle.init()`, auto-instrumentation, client-side redaction, `trace_step` / `trace_tool` / `decision` / `handoff` helpers |
-| `services` | `bindle-api`: read API for the console (runs, trace waterfall, step detail, overview, alerts) over ClickHouse. `bindle-ingest`: OTLP/HTTP receiver (protobuf + JSON, gzip), API-key → tenant, framework normalizer, server-side redaction, cost, per-tenant rate limit, backpressure, ClickHouse writer. Go standard library only, no third-party dependencies. |
+| `services` | `bindle-api`: read API for the console (runs, trace waterfall, step detail, overview, alerts) over PostgreSQL. `bindle-migrate`: creates the database roles and schema. `bindle-ingest`: OTLP/HTTP receiver (protobuf + JSON, gzip), API-key → tenant, framework normalizer, server-side redaction, cost, per-tenant rate limit, backpressure, PostgreSQL writer. Go standard library plus one vendored dependency, the PostgreSQL driver `lib/pq`. |
 | `web` | Console (Next.js): overview, runs, trace explorer, connect-an-agent. See `web/README.md` |
 | `design/console` | Console design mockups (visual spec for `web/`) |
 | `docs/images` | README screenshots |
-| `schema/clickhouse` | `steps` table, per-trace rollup, reference queries (runs list, waterfall, KPIs, loop detector) |
-| `deploy` | `docker-compose.yml` for a local stack |
+| `deploy` | `docker-compose.yml` for a local stack (PostgreSQL, migrations, ingest, API) |
 | `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, secrets, S3 payload bucket |
 | `examples/python` | `quickstart.py` (minimal) and `demo_agent.py` (richer run with LLM steps, retries and an optional runaway loop) |
 
@@ -46,13 +45,17 @@ The design mockups for these screens are in [`design/console/`](design/console/)
 
 ```bash
 ./deploy/dev-env.sh                      # once: random local credentials in deploy/.env (git-ignored)
-set -a; . deploy/.env; set +a            # BINDLE_API_KEY, BINDLE_ENDPOINT, CLICKHOUSE_PASSWORD
+set -a; . deploy/.env; set +a            # BINDLE_API_KEY, BINDLE_ENDPOINT, POSTGRES_PASSWORD
 docker compose -f deploy/docker-compose.yml up --build
 pip install -e sdk/python
 python examples/python/quickstart.py
-curl -u "bindle:$CLICKHOUSE_PASSWORD" http://localhost:8123/ \
-  --data "SELECT name, type, status, input FROM bindle.steps ORDER BY start_time FORMAT PrettyCompact"
+docker compose -f deploy/docker-compose.yml exec postgres \
+  psql -U bindle_owner -d bindle -c "SELECT name, type, status, input FROM bindle.steps ORDER BY start_ns"
 ```
+
+### Storage
+
+PostgreSQL holds everything. `bindle.steps` is partitioned by day (30-day retention, enforced hourly by ingest) and `bindle.traces` is a per-trace rollup updated in the same statement that inserts steps. Re-sent batches are ignored, so exporter retries never duplicate data. Tenant isolation is enforced twice: every query filters by tenant, and row-level security limits each transaction to the tenant it sets. The app roles are least-privilege: `bindle_writer` (ingest) can only insert, and `bindle_reader` (API) can only read. Neither can run DDL or delete data.
 
 The query API runs on `http://127.0.0.1:8080`:
 
@@ -74,12 +77,12 @@ export OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer $BINDLE_API_KEY"
 
 ## Tests
 
-Services need Go 1.23 or newer (`go.mod` sets the minimum). The container image builds with Go 1.27.
+Services need Go 1.23 or newer (`go.mod` sets the minimum). The container image builds with Go 1.27. Dependencies are vendored in `services/vendor`.
 
 ```bash
 cd services && go vet ./... && go test ./...
-# optional: query integration test against the local stack
-BINDLE_CLICKHOUSE_TEST_URL=http://localhost:8123 CLICKHOUSE_USER=bindle go test ./internal/query/
+# optional: PostgreSQL integration test (creates and drops its own database and roles)
+BINDLE_POSTGRES_TEST_URL="postgres://bindle_owner:$POSTGRES_PASSWORD@127.0.0.1:5432/postgres?sslmode=disable" go test ./internal/pg/
 cd sdk/python && pip install -e '.[dev]' && pytest
 cd web && npm install && npm run typecheck && npm test && npm run build
 ```
@@ -104,7 +107,7 @@ After deploy: put the ClickHouse Cloud URL and user in the `bindle/clickhouse` s
 
 ## Status and next steps
 
-Verified here: Go vet and tests (decoder, normalizer, redaction, cost, auth, rate limit, backpressure, ClickHouse writer), a local end-to-end run of the ingest binary, and Python SDK unit tests. **Not yet verified:** the SDK's export path against a real `opentelemetry-sdk` install, the ClickHouse schema against a live server, and `cdk synth`. Run all three first.
+Verified locally: Go vet and tests (including the PostgreSQL integration test), the Python SDK against a real `opentelemetry-sdk`, the console build and tests, the docker-compose stack end to end, and `cdk synth`. Not yet run on AWS.
 
 Next:
 - [x] Query API (`bindle-api`)

@@ -5,9 +5,9 @@
     pip install -e sdk/python
     python examples/python/quickstart.py
 
-Then query ClickHouse:
-    curl -u "bindle:$CLICKHOUSE_PASSWORD" http://localhost:8123/ \
-      --data "SELECT name, type, status, input FROM bindle.steps ORDER BY start_time"
+Then open the console (web/) or query PostgreSQL:
+    docker compose -f deploy/docker-compose.yml exec postgres \
+      psql -U bindle_owner -d bindle -c "SELECT name, type, status, input FROM bindle.steps ORDER BY start_ns"
 """
 
 import random
