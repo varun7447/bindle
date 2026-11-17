@@ -20,6 +20,7 @@ import type {
 } from './types';
 import { isStepId, isTraceId } from './ids';
 import type { SDKConfig } from './sdksettings';
+import type { AlertChannel, AlertEvent, AlertRule, ChannelKind, RuleKind } from './alerting';
 
 export class ApiError extends Error {
   constructor(
@@ -51,7 +52,7 @@ export async function apiGet<T>(path: string, params: Params = {}, fetchImpl: ty
   return apiRequest<T>('GET', buildUrl(apiBase(), path, params), undefined, fetchImpl, token);
 }
 
-export async function apiSend<T>(method: 'POST' | 'PUT', path: string, body: object, fetchImpl: typeof fetch = fetch, token?: string | null): Promise<T> {
+export async function apiSend<T>(method: 'POST' | 'PUT' | 'DELETE', path: string, body: object | undefined, fetchImpl: typeof fetch = fetch, token?: string | null): Promise<T> {
   return apiRequest<T>(method, buildUrl(apiBase(), path), body, fetchImpl, token);
 }
 
@@ -87,6 +88,15 @@ const KEY_ID = /^key_[0-9a-f]{20}$/;
 const get = async <T>(path: string, params: Params = {}) => apiGet<T>(path, params, fetch, await sessionToken());
 const post = async <T>(path: string, body: object) => apiSend<T>('POST', path, body, fetch, await sessionToken());
 const put = async <T>(path: string, body: object) => apiSend<T>('PUT', path, body, fetch, await sessionToken());
+const del = async (path: string) => apiSend<void>('DELETE', path, undefined, fetch, await sessionToken());
+
+const RULE_ID = /^ar_[0-9a-f]{20}$/;
+const CHANNEL_ID = /^ch_[0-9a-f]{20}$/;
+
+function checked(id: string, re: RegExp, what: string): string {
+  if (!re.test(id)) throw new ApiError(400, 'bad_request', `Invalid ${what} ID`);
+  return id;
+}
 
 function keyPath(id: string, action: 'rotate' | 'revoke'): string {
   if (!KEY_ID.test(id)) throw new ApiError(400, 'bad_request', 'Invalid key ID');
@@ -113,4 +123,18 @@ export const api = {
   revokeKey: async (id: string) => post<void>(keyPath(id, 'revoke'), {}),
   config: () => get<SDKConfig>('/api/config'),
   saveConfig: (c: Omit<SDKConfig, 'updated_at' | 'poll_interval_seconds'>) => put<SDKConfig>('/api/config', c),
+  alertRules: () => get<{ rules: AlertRule[] }>('/api/alert-rules'),
+  createAlertRule: (r: { kind: RuleKind; threshold: number; window_minutes: number; min_runs: number; enabled: boolean }) =>
+    post<AlertRule>('/api/alert-rules', r),
+  updateAlertRule: async (id: string, r: { threshold: number; window_minutes: number; min_runs: number; enabled: boolean }) =>
+    put<AlertRule>(`/api/alert-rules/${checked(id, RULE_ID, 'rule')}`, r),
+  alertChannels: () => get<{ channels: AlertChannel[] }>('/api/alert-channels'),
+  createAlertChannel: (c: { kind: ChannelKind; name: string; target: string }) =>
+    post<{ channel: AlertChannel; signing_secret?: string }>('/api/alert-channels', c),
+  setAlertChannelEnabled: async (id: string, enabled: boolean) =>
+    put<void>(`/api/alert-channels/${checked(id, CHANNEL_ID, 'channel')}/state`, { enabled }),
+  deleteAlertChannel: async (id: string) => del(`/api/alert-channels/${checked(id, CHANNEL_ID, 'channel')}`),
+  testAlertChannel: async (id: string) =>
+    post<{ ok: boolean; error?: string }>(`/api/alert-channels/${checked(id, CHANNEL_ID, 'channel')}/test`, {}),
+  alertEvents: () => get<{ events: AlertEvent[] }>('/api/alert-events'),
 };
