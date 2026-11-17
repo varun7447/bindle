@@ -1,0 +1,118 @@
+# Runs on every pull request and on pushes to main. Same checks as
+# `make test`, plus the control-plane integration tests (Postgres service),
+# the backend and console container builds and `cdk synth`. No secrets, read-only token.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Go)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: bindle_owner
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: bindle
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U bindle_owner -d bindle"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: backend/go.mod
+          cache: false # dependencies are vendored
+      - name: gofmt
+        run: |
+          out="$(git ls-files -z -- '*.go' ':!:vendor/**' | xargs -0 gofmt -l)"
+          if [ -n "$out" ]; then echo "Not gofmt-formatted:"; echo "$out"; exit 1; fi
+      - run: go vet ./...
+      - name: go test (with control-plane integration tests)
+        env:
+          BINDLE_POSTGRES_TEST_URL: postgres://bindle_owner:ci-only-password@127.0.0.1:5432/bindle?sslmode=disable
+        run: go test ./...
+
+  images:
+    name: Container images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker build --tag bindle-backend:ci backend
+      - run: docker build --tag bindle-console:ci console
+
+  python:
+    name: Python SDK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[dev]'
+      - run: python -m pytest -q
+
+  typescript:
+    name: TypeScript SDK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/typescript
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit
+      - run: npm test
+
+  console:
+    name: Console
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  cdk:
+    name: AWS CDK synth
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/aws
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - run: npm ci --no-audit --no-fund
+      # Synth only, no AWS credentials. The CIDR is a documentation range.
+      - run: npx cdk synth -c insecureDevCidr=203.0.113.0/24 > /dev/null

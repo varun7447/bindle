@@ -1,20 +1,27 @@
+# Python
 __pycache__/
 *.pyc
 .pytest_cache/
 *.egg-info/
+.venv/
+
+# Node / TypeScript
+node_modules/
 dist/
 build/
-.venv/
-node_modules/
-cdk.out/
-infra/cdk/**/*.js
-infra/cdk/**/*.d.ts
-!infra/cdk/jest.config.js
-/services/bindle-ingest
-.DS_Store
+*.tsbuildinfo
+
+# Console (Next.js)
+console/.next/
+console/next-env.d.ts
+
+# AWS CDK
+deploy/aws/cdk.out/
+deploy/aws/**/*.js
+deploy/aws/**/*.d.ts
+!deploy/aws/jest.config.js
+
+# Local secrets (deploy/local/dev-env.sh writes deploy/local/.env)
 .env
 
-# web console (Next.js)
-web/.next/
-web/next-env.d.ts
-web/*.tsbuildinfo
+.DS_Store

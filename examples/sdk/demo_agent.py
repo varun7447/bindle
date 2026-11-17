@@ -1,8 +1,8 @@
 """A richer synthetic agent run for exploring the console locally.
 
-    set -a; . deploy/.env; set +a
-    python examples/python/demo_agent.py            # one run
-    python examples/python/demo_agent.py --loop     # plus a runaway tool loop (shows an alert)
+    set -a; . deploy/local/.env; set +a
+    python examples/sdk/demo_agent.py            # one run
+    python examples/sdk/demo_agent.py --loop     # plus a runaway tool loop (shows an alert)
 
 No real model is called. LLM steps carry made-up token counts for a model
 named "example-model", which has no price in the table, so the console shows

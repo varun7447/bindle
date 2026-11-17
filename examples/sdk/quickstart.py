@@ -1,11 +1,11 @@
 """Send a few agent steps to a local Bindle stack.
 
-    ./deploy/dev-env.sh && set -a && . deploy/.env && set +a
-    docker compose -f deploy/docker-compose.yml up --build
-    pip install -e sdk/python
-    python examples/python/quickstart.py
+    ./deploy/local/dev-env.sh && set -a && . deploy/local/.env && set +a
+    docker compose -f deploy/local/compose.yaml up --build
+    pip install -e sdks/python
+    python examples/sdk/quickstart.py
 
-Then open the console (web/) or query OpenSearch:
+Then open the console (console/) or query OpenSearch:
     curl -s -u "admin:$OPENSEARCH_ADMIN_PASSWORD" 'http://127.0.0.1:9200/bindle-steps-*/_search?sort=start_ns:desc&size=5&_source=name,type,status,input' 
 """
 
@@ -13,7 +13,7 @@ import random
 
 import bindle
 
-# api_key and endpoint come from BINDLE_API_KEY / BINDLE_ENDPOINT (deploy/.env).
+# api_key and endpoint come from BINDLE_API_KEY / BINDLE_ENDPOINT (deploy/local/.env).
 bindle.init(
     agent="support-triage",
     version="v12",

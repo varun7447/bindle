@@ -20,6 +20,8 @@ new BindleStack(app, 'BindleDataPlane', {
   consoleUrl: app.node.tryGetContext('consoleUrl'),
   authDomainPrefix: app.node.tryGetContext('authDomainPrefix'),
   alertsEmailFrom: app.node.tryGetContext('alertsEmailFrom'),
+  consoleCertificateArn: app.node.tryGetContext('consoleCertificateArn'),
+  ingestUrl: app.node.tryGetContext('ingestUrl'),
 });
 
 cdk.Tags.of(app).add('project', 'bindle');

@@ -44,6 +44,14 @@ export interface BindleStackProps extends cdk.StackProps {
    * alert channels are not delivered; Slack and webhooks still are.
    */
   readonly alertsEmailFrom?: string;
+  /**
+   * ACM certificate for the console's public HTTPS listener (consoleUrl's
+   * host). Defaults to certificateArn, e.g. a wildcard certificate. Without
+   * one the console is not deployed: Cognito only accepts https callbacks.
+   */
+  readonly consoleCertificateArn?: string;
+  /** Ingest URL shown on the console's Connect page. Default https://ingest.bindle.ai */
+  readonly ingestUrl?: string;
 }
 
 /**
@@ -230,7 +238,7 @@ export class BindleStack extends cdk.Stack {
       enableTokenRevocation: true,
     });
 
-    const image = ecs.ContainerImage.fromAsset(path.join(__dirname, '../../../services'));
+    const image = ecs.ContainerImage.fromAsset(path.join(__dirname, '../../../backend'));
 
     // Ingest -> processor. On-demand capacity: no shards to size up front.
     const steps = new kinesis.Stream(this, 'Steps', {
@@ -437,6 +445,116 @@ export class BindleStack extends cdk.Stack {
     }
     searchSg.addIngressRule(ec2.Peer.securityGroupId(alertsService.connections.securityGroups[0].securityGroupId), ec2.Port.tcp(443), 'bindle-alerts');
     db.connections.allowDefaultPortFrom(alertsService, 'bindle-alerts');
+
+    // ---- API: private, reachable only from the console ------------------------
+    // No load balancer and no public address: the console calls it from its
+    // own server over the VPC, at api.bindle.internal, and the security group
+    // admits only the console. Every request still carries the user's
+    // Cognito access token, which the API verifies.
+    const namespace = cluster.addDefaultCloudMapNamespace({ name: 'bindle.internal', vpc });
+    const apiTask = new ecs.FargateTaskDefinition(this, 'ApiTask', { cpu: 512, memoryLimitMiB: 1024 });
+    apiTask.addContainer('api', {
+      image,
+      entryPoint: ['/bindle-api'],
+      portMappings: [{ containerPort: 8080 }],
+      environment: {
+        ...dbEnv,
+        PGUSER: 'bindle_api',
+        BINDLE_API_LISTEN: ':8080',
+        BINDLE_SEARCH_URL: searchUrl,
+        BINDLE_SEARCH_USER: 'bindle_reader',
+        BINDLE_PAYLOAD_STORE: `s3://${payloads.bucketName}`,
+        BINDLE_COGNITO_ISSUER: `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
+        BINDLE_COGNITO_CLIENT_ID: consoleClient.userPoolClientId,
+        BINDLE_CONSOLE_URL: consoleUrl,
+        ...(props.alertsEmailFrom ? { BINDLE_ALERTS_EMAIL_FROM: props.alertsEmailFrom } : {}),
+      },
+      secrets: {
+        PGPASSWORD: ecs.Secret.fromSecretsManager(dbApi),
+        BINDLE_SEARCH_PASSWORD: ecs.Secret.fromSecretsManager(searchReader, 'password'),
+      },
+      logging: ecs.LogDrivers.awsLogs({ streamPrefix: 'api', logRetention: logs.RetentionDays.ONE_MONTH }),
+    });
+    const api = new ecs.FargateService(this, 'Api', {
+      cluster,
+      taskDefinition: apiTask,
+      desiredCount: 2,
+      minHealthyPercent: 100,
+      maxHealthyPercent: 200,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      circuitBreaker: { rollback: true },
+      cloudMapOptions: { name: 'api', cloudMapNamespace: namespace },
+    });
+    // Offloaded payloads are read back for the console, under tenants/ only.
+    apiTask.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ['s3:GetObject'], resources: [payloads.arnForObjects('tenants/*')],
+    }));
+    if (props.alertsEmailFrom) {
+      // "Send test" on an email channel.
+      apiTask.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
+        actions: ['ses:SendEmail'],
+        resources: [`arn:aws:ses:${this.region}:${this.account}:identity/${props.alertsEmailFrom.split('@')[1]}`],
+        conditions: { StringEquals: { 'ses:FromAddress': props.alertsEmailFrom } },
+      }));
+    }
+    searchSg.addIngressRule(ec2.Peer.securityGroupId(api.connections.securityGroups[0].securityGroupId), ec2.Port.tcp(443), 'bindle-api');
+    db.connections.allowDefaultPortFrom(api, 'bindle-api');
+
+    // ---- console: public, HTTPS, Cognito sign-in --------------------------------
+    const consoleCertArn = props.consoleCertificateArn ?? props.certificateArn;
+    if (consoleCertArn) {
+      const consoleCert = acm.Certificate.fromCertificateArn(this, 'ConsoleCert', consoleCertArn);
+      // 43 alphanumeric characters decode (as base64) to the 32-byte key the
+      // console seals its session cookie with: about 256 bits of entropy.
+      const sessionKey = new secretsmanager.Secret(this, 'ConsoleSessionKey', {
+        secretName: 'bindle/console-session-key',
+        generateSecretString: { passwordLength: 43, excludePunctuation: true, includeSpace: false },
+      });
+      const clientSecret = new secretsmanager.Secret(this, 'ConsoleClientSecret', {
+        secretName: 'bindle/console-client-secret',
+        secretStringValue: consoleClient.userPoolClientSecret,
+      });
+      const consoleSvc = new ecsPatterns.ApplicationLoadBalancedFargateService(this, 'Console', {
+        cluster,
+        cpu: 512,
+        memoryLimitMiB: 1024,
+        desiredCount: 2,
+        minHealthyPercent: 100,
+        maxHealthyPercent: 200,
+        // People sign in from anywhere; every page requires a Cognito session.
+        publicLoadBalancer: true,
+        certificate: consoleCert,
+        protocol: elbv2.ApplicationProtocol.HTTPS,
+        redirectHTTP: true, // browsers: port 80 only redirects to 443
+        circuitBreaker: { rollback: true },
+        taskImageOptions: {
+          image: ecs.ContainerImage.fromAsset(path.join(__dirname, '../../../console')),
+          containerPort: 3000,
+          environment: {
+            BINDLE_API_URL: 'http://api.bindle.internal:8080',
+            BINDLE_PUBLIC_INGEST_URL: props.ingestUrl ?? 'https://ingest.bindle.ai',
+            BINDLE_COGNITO_DOMAIN: authDomain.baseUrl(),
+            BINDLE_COGNITO_CLIENT_ID: consoleClient.userPoolClientId,
+            BINDLE_CONSOLE_URL: consoleUrl,
+          },
+          secrets: {
+            BINDLE_COGNITO_CLIENT_SECRET: ecs.Secret.fromSecretsManager(clientSecret),
+            BINDLE_SESSION_SECRET: ecs.Secret.fromSecretsManager(sessionKey),
+          },
+          logDriver: ecs.LogDrivers.awsLogs({ streamPrefix: 'console', logRetention: logs.RetentionDays.ONE_MONTH }),
+        },
+      });
+      consoleSvc.targetGroup.configureHealthCheck({ path: '/healthz', healthyHttpCodes: '200' });
+      api.connections.allowFrom(consoleSvc.service, ec2.Port.tcp(8080), 'console -> api');
+      new cdk.CfnOutput(this, 'ConsoleEndpoint', {
+        value: `https://${consoleSvc.loadBalancer.loadBalancerDnsName}`,
+        description: `Point ${consoleUrl.replace(/^https?:\/\//, '')} (a CNAME) here`,
+      });
+    } else {
+      cdk.Annotations.of(this).addWarning(
+        'No certificate (consoleCertificateArn or certificateArn): the console is not deployed. Cognito accepts only https callback URLs.',
+      );
+    }
 
     new cdk.CfnOutput(this, 'PayloadBucket', { value: payloads.bucketName });
     new cdk.CfnOutput(this, 'StepsStream', { value: steps.streamName });

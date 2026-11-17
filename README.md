@@ -1,185 +1,92 @@
+<img src="docs/images/logo.svg" alt="Bindle" height="40">
+
 # Bindle
 
-Observability for AI agents: every step your agent takes, bundled into one trace.
+Observability for AI agents: every step an agent takes (LLM calls, tool calls, retrievals, decisions, handoffs) in one trace, with failures, loops, latency and cost explained in plain language.
 
-This repo holds the first end-to-end slice:
-
-```
-agent + bindle-sdk ──OTLP/HTTP──► bindle-ingest (Go) ──► OpenSearch ◄── bindle-api (Go) ◄── console (Next.js)
-   (redact #1)                   key → tenant · decode           │  Cognito sign-in    │
-                                 normalize · redact #2           ▼                     │
-                                 cost · batch         ──► PostgreSQL (control plane) ◄─┘
-                                                          tenants · users · API keys
-                                 redact #2 · cost · batch
+```python
+import bindle
+bindle.init(agent="support-triage")   # reads BINDLE_API_KEY; a no-op without it
 ```
 
-## Console
+## The console
 
-What a team sees after connecting an agent. Screenshots are from the console in `web/` running locally against synthetic data from `examples/python/demo_agent.py`.
+Three places to look (**Home**, **Runs**, **Alerts**) and one to configure (**Settings**: connect an agent, ingest keys, SDK settings). `⌘K` jumps to any page, a pasted trace ID, or an agent's runs. Light and dark themes follow your OS, with a toggle in the sidebar.
 
-**Overview**: runs, failure rate, latency, cost and tokens, runs over time, runaway-loop alerts, top failing tools, recent runs.
+**Home** answers "is anything wrong?" in one line, then lists what needs attention, most severe first: steps that keep failing (grouped, with the latest error), agents with a high failure rate, runaway loops, and model calls with no known price. Each item links to the exact run or step to open. Key numbers are compared with the previous period, and every metric has a plain-language definition behind its `?`.
 
-![Bindle console overview](docs/images/console-overview.png)
+![Bindle console: Home (light theme)](docs/images/console-home.png)
 
-**Trace explorer**: every step of one run as a waterfall (LLM calls, tool calls, retrieval, decisions, retries, evals), with input, output and reasoning for the selected step. Sensitive values are redacted before storage, and the console says so.
+**Run details** opens with a summary of what the run did: how many LLM and tool calls, what failed and why, whether a retry worked, possible loops, where the time went, and what it cost. Every line links to its step; the waterfall and the selected step's inputs and outputs are below, with the root-cause step selected by default.
 
-![Bindle trace explorer](docs/images/console-trace.png)
+![Bindle console: Run details (dark theme)](docs/images/console-trace.png)
 
-**Connect an agent**: a snippet per framework and a live "waiting for first trace" check, so setup takes minutes.
+**Step inputs and outputs** show as a conversation (system, user, assistant and tool messages, tool calls with their arguments) for every supported framework, with the raw text one click away. Sensitive values are redacted before storage. When content is missing, the console says why: content capture is off for the workspace, off in the agent's code, or the framework doesn't send it by default (with the exact setting to turn on).
 
-![Bindle connect-an-agent page](docs/images/console-connect.png)
+![Bindle console: a step as a conversation](docs/images/console-conversation.png)
 
-The design mockups for these screens are in [`design/console/`](design/console/). They render inside the design canvas, not as standalone pages.
+**Cost** comes from published list prices only (`backend/pricing.json`: Anthropic and OpenAI, with each entry's source and date, including long-prompt tiers). Models without a known price are shown as unknown, never estimated.
 
-Large payloads: an input, output or reasoning field over 32 KB goes to S3 (a local directory in docker-compose) under `tenants/<tenant>/…`, after redaction. The index keeps a 4 KB preview and a reference; the console loads the full text, up to 1 MB per field. Fields are capped at 1 MB on ingest, and a byte budget on ingest's buffer turns floods of large payloads into 503 backpressure rather than memory exhaustion.
-
-### Pipeline on AWS
-
-On AWS, ingest doesn't write to OpenSearch. It authenticates, decodes, normalizes, redacts and applies the tenant's settings, then puts each request's steps on a **Kinesis** stream as one gzipped record, keyed by tenant.
-- **Large batches:** anything over a record's 1 MB limit goes to S3 under `spool/`, and the record carries a pointer.
-- **Backpressure:** if Kinesis throttles, ingest answers 503 so exporters retry.
-
-**`bindle-processor`** reads the stream and writes OpenSearch, including payload offload and run summaries.
-- **Shard sharing:** instances share shards through leases in the control-plane database. After resharding, parent shards are read before their children.
-- **Delivery:** each batch is written before its checkpoint is saved, so delivery is at-least-once. That's safe because writes are idempotent.
-
-Locally, docker-compose keeps the simpler in-process mode (`BINDLE_SINK=opensearch`).
-
-### Accounts and ingest keys
-
-The control plane lives in PostgreSQL:
-- **Tenants, users and memberships.** A user's first sign-in creates their workspace, with them as owner. For now each user belongs to one workspace.
-- **Ingest keys.** Keys look like `bd_live_…` and carry 256 random bits. Only a SHA-256 hash is stored, and the key is shown once.
-  - **Rotate:** issues a replacement; the old key keeps working for a grace period you choose, 24 hours by default.
-  - **Revoke:** takes effect within a minute, the length of ingest's key cache. If the database is briefly unavailable, keys used in the last 10 minutes keep working and unknown keys are rejected.
-- **Least privilege.** Ingest can only resolve a key hash through a database function and has no table access. The API can't delete anything, and sees only its own tenant's keys.
-
-**Console sign-in** uses Amazon Cognito: the console sends people to Cognito's hosted pages, and the API verifies Cognito's tokens itself. Without Cognito configured (local development), the API's dev bypass serves the local tenant, and `deploy/.env`'s `BINDLE_API_KEY` is seeded as that tenant's key.
-
-### Remote SDK settings
-
-From the console's **SDK settings** page, owners and admins can change three things, and agents pick them up within two minutes without a redeploy:
-- the sample rate;
-- whether prompts, outputs and reasoning are captured;
-- extra redaction patterns.
-
-The SDK polls `GET /v1/config` on the ingest endpoint with its ingest key. These settings are a ceiling: code can only be stricter. Ingest enforces the same settings on every batch, including from apps whose OpenTelemetry setup the SDK doesn't control. Extra patterns must compile as RE2 and may not nest repetition, so they can't slow an agent down, and the built-in redaction can't be turned off.
-
-### Alerts
-
-`bindle-alerts` checks every workspace's rules once a minute. Each new workspace starts with two rules: a runaway loop (the same tool called 5+ times with the same input in one run) and a failure rate (20%+ of runs over an hour, at least 20 runs). Owners and admins can add an expensive-run rule (one run costs at least $X, using known prices only) and change thresholds on the console's **Alerts** page.
-
-Alerts go to Slack incoming webhooks, HTTPS webhooks or email (Amazon SES). They carry counts, tool names and a console link, never prompt or output content. Each alert fires once: its fingerprint is unique in the control plane, so repeated or concurrent checks don't send it twice.
-
-- **Webhooks are signed.** Each webhook channel gets a secret, shown once. `X-Bindle-Signature` is `sha256=` plus the HMAC-SHA256 of `X-Bindle-Timestamp + "." + body`.
-- **No requests to internal addresses.** Customer URLs are checked when saved and again at connect time: private, loopback, link-local, carrier-grade NAT and metadata addresses are refused (so DNS tricks don't help), and redirects aren't followed. Slack channels must be `https://hooks.slack.com/services/...`.
-- **Least privilege.** The alerts role can read rules and channels, add events and record delivery, and nothing else. An event's rule must belong to the event's tenant (a composite foreign key).
+Design rationale, colors and accessibility checks: [`docs/design/console.md`](docs/design/console.md).
 
 ## Repository layout
 
 | Path | What it is |
 |---|---|
-| `sdk/typescript` | `@bindle-ai/sdk` for Node.js: `bindle.init()`, client-side redaction, `step` / `traceTool` / `decision` / `handoff`, same sampling rule and remote settings as Python |
-| `sdk/python` | `bindle-sdk`: one-line `bindle.init()`, auto-instrumentation, client-side redaction, `trace_step` / `trace_tool` / `decision` / `handoff` helpers |
-| `services` | `bindle-api`: read API for the console (runs, trace waterfall, step detail, overview, alerts) over OpenSearch, plus account and ingest-key management, with Amazon Cognito sign-in. `bindle-migrate`: sets up OpenSearch (indices, retention, users) and the control-plane database (schema, roles). `bindle-processor`: Kinesis consumer that writes OpenSearch. `bindle-alerts`: alert rule evaluation and delivery. `bindle-ingest`: OTLP/HTTP receiver (protobuf + JSON, gzip), API-key → tenant, framework normalizer, server-side redaction, cost, per-tenant rate limit, backpressure, OpenSearch writer. Go standard library plus one vendored dependency, the PostgreSQL driver `lib/pq` (control plane). |
-| `web` | Console (Next.js): overview, runs, trace explorer, alerts, keys, SDK settings, connect-an-agent. See `web/README.md` |
-| `design/console` | Console design mockups (visual spec for `web/`) |
-| `docs/images` | README screenshots |
-| `docs/plans` | Scoped plans: LLM gateway, evals, step replay, SOC 2 |
-| `deploy` | `collector/config.yaml`: optional OpenTelemetry Collector that drops content and masks secrets inside the customer's network. `docker-compose.yml` for a local stack (OpenSearch, PostgreSQL, setup, ingest, API, alerts) |
-| `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, Kinesis stream, Fargate processor and alerts services, OpenSearch Service domain, RDS PostgreSQL (control plane), Cognito user pool, setup task, secrets, S3 payload bucket |
-| `examples/python` | `quickstart.py` (minimal) and `demo_agent.py` (richer run with LLM steps, retries and an optional runaway loop) |
+| [`backend/`](backend/) | Go services: `bindle-ingest`, `bindle-api`, `bindle-processor`, `bindle-alerts`, `bindle-migrate` |
+| [`console/`](console/) | Next.js console |
+| [`sdks/python/`](sdks/python/) | `bindle-sdk` for Python, plus the `bindle init` CLI and `bindle mcp` server |
+| [`sdks/typescript/`](sdks/typescript/) | `@bindle-ai/sdk` for Node.js |
+| [`deploy/local/`](deploy/local/) | Docker Compose stack for development |
+| [`deploy/aws/`](deploy/aws/) | AWS CDK stack |
+| [`deploy/otel-collector/`](deploy/otel-collector/) | Optional OpenTelemetry Collector config for regulated tenants |
+| [`examples/`](examples/) | `sdk/`: quickstart and demo agent. `frameworks/`: LangGraph, Strands, Google ADK and Microsoft Agent Framework agents with stub models |
+| [`docs/`](docs/) | [Architecture](docs/architecture.md), [console design](docs/design/console.md), [plans](docs/plans/) |
+| [`.github/workflows/`](.github/workflows/) | CI: every test suite, container builds and `cdk synth` on each pull request |
 
 ## Run it locally
 
-```bash
-./deploy/dev-env.sh                      # once: random local credentials in deploy/.env (git-ignored)
-set -a; . deploy/.env; set +a            # BINDLE_API_KEY, BINDLE_ENDPOINT, OPENSEARCH_ADMIN_PASSWORD, POSTGRES_PASSWORD
-docker compose -f deploy/docker-compose.yml up --build
-pip install -e sdk/python
-python examples/python/quickstart.py
-curl -s -u "admin:$OPENSEARCH_ADMIN_PASSWORD" \
-  'http://127.0.0.1:9200/bindle-steps-*/_search?sort=start_ns:desc&size=5&_source=name,type,status,input'
-```
-
-### Storage
-
-OpenSearch holds the traces:
-- **Steps** go to daily indices (`bindle-steps-YYYY.MM.DD`), deleted automatically after 30 days. Re-sent batches are ignored, so exporter retries never duplicate data. Prompts, outputs and reasoning are full-text indexed.
-- **`bindle-traces`** holds one summary per run, recomputed from the steps after each batch.
-- **Tenant isolation:** every query goes through one function that adds the tenant filter, so no query can skip it. OpenSearch enforcing isolation itself (document-level security tied to the user's sign-in token) comes with Cognito in step 3.
-- **Least-privilege users:** `bindle_writer` (ingest) can only add data, and `bindle_reader` (API) can only read. Neither can delete indices or change security settings.
-
-The query API runs on `http://127.0.0.1:8080`:
+Needs Docker, Go 1.23+, Node 20+ and Python 3.9+.
 
 ```bash
-curl 'http://127.0.0.1:8080/api/runs?limit=5'
-curl "http://127.0.0.1:8080/api/traces/<trace_id>"
-curl 'http://127.0.0.1:8080/api/overview?window=24h'
-curl 'http://127.0.0.1:8080/api/alerts?window=1h'
+make up          # local stack: OpenSearch, PostgreSQL, ingest, API, alerts
+make console     # console at http://localhost:3000 (signed in as the local dev workspace)
+make demo        # send demo runs, including one with a runaway loop
 ```
 
-Console auth arrives with the control plane. Until then `bindle-api` rejects every request with 401, unless `BINDLE_API_DEV_AUTH_BYPASS_TENANT` is set (deploy/.env does this locally), and it refuses that bypass on a non-loopback listener.
-
-The stack publishes its ports on `127.0.0.1` only. Any OpenTelemetry-instrumented agent also works without the SDK:
+Then point any agent at it:
 
 ```bash
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-export OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer $BINDLE_API_KEY"
+set -a; . deploy/local/.env; set +a      # BINDLE_API_KEY and BINDLE_ENDPOINT
+pip install -e sdks/python
+python examples/sdk/quickstart.py
 ```
+
+`make help` lists every target. Details: [`deploy/local/`](deploy/local/).
 
 ## Tests
 
-Services need Go 1.23 or newer (`go.mod` sets the minimum) and use only the standard library. The container image builds with Go 1.27.
-
 ```bash
-cd services && go vet ./... && go test ./...
-# optional: integration tests (each creates and removes its own database/indices and users)
-BINDLE_POSTGRES_TEST_URL="postgres://bindle_owner:$POSTGRES_PASSWORD@127.0.0.1:5432/postgres?sslmode=disable" go test ./internal/control/
-BINDLE_OPENSEARCH_TEST_URL=http://127.0.0.1:9200 BINDLE_OPENSEARCH_TEST_USER=admin \
-  BINDLE_OPENSEARCH_TEST_PASSWORD="$OPENSEARCH_ADMIN_PASSWORD" go test ./internal/search/
-cd sdk/python && pip install -e '.[dev]' && pytest
-cd web && npm install && npm run typecheck && npm test && npm run build
+make test        # Go (vet + tests), Python SDK, TypeScript SDK, console (typecheck, tests, build)
 ```
 
-## Deploy to AWS
+CI runs the same checks, plus the control-plane database tests, both container images and `cdk synth`, on every pull request.
 
-```bash
-cd infra/cdk && npm install
-npx cdk deploy -c certificateArn=arn:aws:acm:...   # cert for ingest.bindle.ai
-```
+Each part can also be run alone (`make test-backend`, `test-python`, `test-typescript`, `test-console`). Integration tests against the local stack are described in [`backend/`](backend/).
 
-Synth fails without a certificate: ingest carries API keys and agent payloads, so the public listener is HTTPS on 443 only. For a throwaway dev stack without a certificate, pass `-c insecureDevCidr=<your-ip>/32` instead; it serves plain HTTP reachable only from that range (/24 or narrower).
+## Deploy
 
-The stack creates an Amazon OpenSearch Service domain (OpenSearch 3.7): in subnets with no internet route, HTTPS-only (TLS 1.2 with forward secrecy), encrypted at rest and between nodes, with fine-grained access control. Its master and app-user passwords live in Secrets Manager. Defaults are two `m7g.medium.search` data nodes in two Availability Zones with 20 GiB gp3 each; override with `-c searchInstanceType=... -c searchDataNodes=... -c searchVolumeGiB=...` (`t3.small.search` is fine for a dev stack). These resources cost money once deployed.
+See [`deploy/aws/`](deploy/aws/): ingest, a private API, the console behind HTTPS with Cognito sign-in, and the data stores. Deploying creates paid AWS resources.
 
-After deploy:
-1. Run the `MigrateCommand` stack output (an `aws ecs run-task` command). It sets up OpenSearch (indices, retention policy, `bindle_writer` and `bindle_reader` users) and the control-plane database (schema, `bindle_api` and `bindle_ingest` roles).
-2. Point `ingest.bindle.ai` at the `IngestEndpoint` output.
+## Status
 
-The stack also creates an RDS PostgreSQL 17 instance for the control plane (`db.t4g.micro` by default; private, encrypted, TLS required, deletion protection) and a Cognito user pool with a hosted sign-in domain (`-c authDomainPrefix=...`, which must be globally unique) and a console app client whose callback is `-c consoleUrl=...` (default `https://app.bindle.ai`). Email alerts need `-c alertsEmailFrom=alerts@yourdomain` and that domain verified as an Amazon SES identity (not created by the stack); without it, Slack and webhook alerts still work. The API and console aren't deployed by the stack yet; the `CognitoIssuer`, `CognitoDomain` and `ConsoleClientId` outputs configure them.
+Verified locally: all test suites, the Docker stack end to end, framework agents (LangGraph, Strands, ADK, Agent Framework), and `cdk synth`. Not yet run on AWS.
 
-## Design rules
-
-1. **No host agent.** Apps send directly over OTLP. A collector or sidecar is optional, for regulated tenants only.
-2. **Thin SDK, smart server.** Normalization, cost tables and redaction rules live server-side, so customers never redeploy for them.
-3. **Never break the customer's agent.** The SDK exports asynchronously with a bounded queue, swallows its own errors and becomes a no-op without a key. The edge returns 429 or 503 with `Retry-After` so OTLP exporters back off.
-4. **Tenant comes from the API key only**, never from the payload.
-
-## Status and next steps
-
-Verified locally: Go vet and tests (including the OpenSearch integration test), the Python SDK against a real `opentelemetry-sdk`, the console build and tests, the docker-compose stack end to end, and `cdk synth`. Not yet run on AWS.
-
-Next:
-- [x] Query API (`bindle-api`)
-- [x] Console (`web/`)
-- [x] Payload offload to S3 for large prompts and outputs
-- [x] Split ingest → Kinesis → processor service
-- [x] Alerts: runaway loops, failure rate, run cost → Slack, webhooks, email
-- [x] Control-plane key service (replaces the env-var bootstrap)
+- [x] Ingest, query API, console, alerts, control plane, payload offload, Kinesis pipeline
+- [x] Python and TypeScript SDKs, `bindle init`, MCP server, `llms.txt`
+- [x] Framework support checked end to end: LangGraph, Strands, Google ADK, Microsoft Agent Framework (Foundry Agent Service from source)
+- [x] Console redesign: Home with what needs attention, run summaries, conversations, light and dark themes
+- [x] Published prices for Anthropic and OpenAI models; CI on every pull request
+- [ ] Google Gemini prices (needs effective-dated entries for scheduled price changes)
 - [ ] Contract tests per framework release for the normalizer mappings
-- [x] Onboarding: `bindle init`, `bindle mcp` (MCP server), `llms.txt`
-- [x] TypeScript SDK (`sdk/typescript`)
-- [x] Optional OpenTelemetry Collector config for regulated tenants (`deploy/collector`)
-- [ ] Hosted LLM gateway, evals, step replay, SOC 2: scoped plans in `docs/plans/`
-- [ ] Fill `services/pricing.example.json` with real prices from each provider
+- [ ] Hosted LLM gateway, evals, step replay, SOC 2: scoped plans in [`docs/plans/`](docs/plans/)

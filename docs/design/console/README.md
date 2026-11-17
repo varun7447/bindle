@@ -11,7 +11,7 @@ Design source for the Bindle console (sample data only).
 
 The `.dc.html` files use the canvas's component format (`<x-dc>` markup plus a
 `DCLogic` class), so they render inside the design canvas, not as standalone
-pages. Use them as the visual spec when building `web/` (Next.js):
+pages. Use them as the visual spec when building `console/` (Next.js):
 
 - Background `#0E1116`, panels `#161B22`, borders `#232A33`, text `#E6E8EB`, muted `#9AA3AE`, accent `#3DD6B0`
 - Step colors: llm `#6CA8FF`, tool `#F2A65A`, decision `#B79CFF`, retrieval `#7FD4E8`, eval `#F5C26B`, handoff `#E58AD0`

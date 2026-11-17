@@ -4,7 +4,7 @@
 #
 #   BINDLE_API_KEY=bd_live_... docker run --rm \
 #     -e BINDLE_API_KEY -p 127.0.0.1:4318:4318 \
-#     -v "$PWD/deploy/collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro" \
+#     -v "$PWD/deploy/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro" \
 #     otel/opentelemetry-collector-contrib
 #
 # Agents then export to http://localhost:4318 (the Bindle SDK:
