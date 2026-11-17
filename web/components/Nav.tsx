@@ -8,6 +8,7 @@ const LINKS = [
   { href: '/runs', label: 'Runs' },
   { href: '/connect', label: 'Connect an agent' },
   { href: '/keys', label: 'Ingest keys' },
+  { href: '/settings', label: 'SDK settings' },
 ];
 
 export function Nav({ signOut }: { signOut: boolean }) {

@@ -141,3 +141,25 @@ describe('keys', () => {
     expect(validGrace(undefined)).toBeNull();
   });
 });
+
+import { formatPatterns, parsePatterns, parsePercent } from './sdksettings';
+
+describe('sdk settings form', () => {
+  it('parses NAME=regex lines', () => {
+    const r = parsePatterns('# comment\norder_id = ord_\\d+\n\nACCT=a=b');
+    expect(r.error).toBeUndefined();
+    expect(r.patterns).toEqual([{ name: 'ORDER_ID', pattern: 'ord_\\d+' }, { name: 'ACCT', pattern: 'a=b' }]);
+    expect(formatPatterns(r.patterns)).toBe('ORDER_ID=ord_\\d+\nACCT=a=b');
+  });
+  it('reports the bad line', () => {
+    expect(parsePatterns('OK=x\nnope').error).toContain('Line 2');
+    expect(parsePatterns('9BAD=x').error).toContain('Line 1');
+    expect(parsePatterns('EMPTY=').error).toContain('empty');
+  });
+  it('converts percentages', () => {
+    expect(parsePercent('25')).toBe(0.25);
+    expect(parsePercent('0.5')).toBe(0.005);
+    expect(parsePercent('100')).toBe(1);
+    for (const bad of ['', '101', '-1', 'abc', null]) expect(parsePercent(bad)).toBeNull();
+  });
+});

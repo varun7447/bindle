@@ -19,6 +19,7 @@ import type {
   TraceResponse,
 } from './types';
 import { isStepId, isTraceId } from './ids';
+import type { SDKConfig } from './sdksettings';
 
 export class ApiError extends Error {
   constructor(
@@ -50,7 +51,7 @@ export async function apiGet<T>(path: string, params: Params = {}, fetchImpl: ty
   return apiRequest<T>('GET', buildUrl(apiBase(), path, params), undefined, fetchImpl, token);
 }
 
-export async function apiSend<T>(method: 'POST', path: string, body: object, fetchImpl: typeof fetch = fetch, token?: string | null): Promise<T> {
+export async function apiSend<T>(method: 'POST' | 'PUT', path: string, body: object, fetchImpl: typeof fetch = fetch, token?: string | null): Promise<T> {
   return apiRequest<T>(method, buildUrl(apiBase(), path), body, fetchImpl, token);
 }
 
@@ -85,6 +86,7 @@ const KEY_ID = /^key_[0-9a-f]{20}$/;
 // Every call carries the current user's session token (if any).
 const get = async <T>(path: string, params: Params = {}) => apiGet<T>(path, params, fetch, await sessionToken());
 const post = async <T>(path: string, body: object) => apiSend<T>('POST', path, body, fetch, await sessionToken());
+const put = async <T>(path: string, body: object) => apiSend<T>('PUT', path, body, fetch, await sessionToken());
 
 function keyPath(id: string, action: 'rotate' | 'revoke'): string {
   if (!KEY_ID.test(id)) throw new ApiError(400, 'bad_request', 'Invalid key ID');
@@ -109,4 +111,6 @@ export const api = {
   createKey: (name: string) => post<CreatedKey>('/api/keys', { name }),
   rotateKey: async (id: string, graceHours: number) => post<CreatedKey>(keyPath(id, 'rotate'), { grace_hours: graceHours }),
   revokeKey: async (id: string) => post<void>(keyPath(id, 'revoke'), {}),
+  config: () => get<SDKConfig>('/api/config'),
+  saveConfig: (c: Omit<SDKConfig, 'updated_at' | 'poll_interval_seconds'>) => put<SDKConfig>('/api/config', c),
 };

@@ -11,6 +11,7 @@ directly and no credentials reach it.
 | Trace explorer: waterfall + step detail (input, output, reasoning, attributes, redaction notice) | `/traces/<trace_id>` |
 | Connect an agent: per-framework snippets and a live "waiting for first trace" state | `/connect` |
 | Ingest keys: create (shown once), rotate with a grace period, revoke | `/keys` |
+| SDK settings: sample rate, content capture, extra redaction patterns | `/settings` |
 
 ## Run locally
 

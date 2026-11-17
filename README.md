@@ -42,6 +42,15 @@ The control plane lives in PostgreSQL:
 
 **Console sign-in** uses Amazon Cognito: the console sends people to Cognito's hosted pages, and the API verifies Cognito's tokens itself. Without Cognito configured (local development), the API's dev bypass serves the local tenant, and `deploy/.env`'s `BINDLE_API_KEY` is seeded as that tenant's key.
 
+### Remote SDK settings
+
+From the console's **SDK settings** page, owners and admins can change three things, and agents pick them up within two minutes without a redeploy:
+- the sample rate;
+- whether prompts, outputs and reasoning are captured;
+- extra redaction patterns.
+
+The SDK polls `GET /v1/config` on the ingest endpoint with its ingest key. These settings are a ceiling: code can only be stricter. Ingest enforces the same settings on every batch, including from apps whose OpenTelemetry setup the SDK doesn't control. Extra patterns must compile as RE2 and may not nest repetition, so they can't slow an agent down, and the built-in redaction can't be turned off.
+
 ## Repository layout
 
 | Path | What it is |

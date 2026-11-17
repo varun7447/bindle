@@ -53,7 +53,7 @@ Every option can be passed to `init()` or set as an environment variable. No con
 
 ## Remote settings
 
-The SDK picks up settings changed in the Bindle console (sample rate, content capture, extra redaction patterns) within about a minute, without a redeploy. It polls `/v1/config` on your ingest endpoint in the background.
+The SDK picks up settings changed in the Bindle console (sample rate, content capture, extra redaction patterns) within two minutes, without a redeploy. It polls `/v1/config` on your ingest endpoint in the background.
 
 The console sets a ceiling and your code can only be stricter: the effective sample rate is the lower of the two, prompts and outputs are sent only if both allow it, and console patterns add to the built-in and local ones. Bindle's ingest enforces the same settings for every client, including apps whose OpenTelemetry setup the SDK doesn't control.
 
