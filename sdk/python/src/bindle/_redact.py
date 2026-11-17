@@ -3,6 +3,7 @@ data leaves it. Mirrors the server-side rules in services/internal/redact."""
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Callable, List, Optional, Pattern, Tuple
 
@@ -43,7 +44,11 @@ class Redactor:
     def __init__(self, rules: Optional[List[_Rule]] = None, extra_patterns: Optional[dict] = None):
         self._rules: List[_Rule] = list(rules if rules is not None else _DEFAULT_RULES)
         for label, pattern in (extra_patterns or {}).items():
-            self._rules.append((label.upper(), re.compile(pattern), None))
+            try:
+                self._rules.append((str(label).upper(), re.compile(pattern), None))
+            except (re.error, TypeError) as exc:
+                # A bad pattern must not disable tracing; ingest redacts again.
+                logging.getLogger("bindle").warning("bindle: skipping invalid redaction pattern %r: %s", label, exc)
 
     def apply(self, value: str) -> str:
         if not value:

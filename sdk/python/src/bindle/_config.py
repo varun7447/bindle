@@ -37,10 +37,15 @@ class Config:
     instrument: Union[bool, List[str]]
     debug: bool
     extra_redact_patterns: dict = field(default_factory=dict)
+    remote_config: bool = True
 
     @property
     def traces_url(self) -> str:
         return self.endpoint.rstrip("/") + "/v1/traces"
+
+    @property
+    def config_url(self) -> str:
+        return self.endpoint.rstrip("/") + "/v1/config"
 
 
 def resolve(
@@ -55,6 +60,7 @@ def resolve(
     instrument: Union[bool, List[str], None] = None,
     debug: Optional[bool] = None,
     extra_redact_patterns: Optional[dict] = None,
+    remote_config: Optional[bool] = None,
 ) -> Config:
     rate = sample_rate if sample_rate is not None else _env_float("BINDLE_SAMPLE_RATE", 1.0)
     rate = min(max(rate, 0.0), 1.0)
@@ -70,4 +76,6 @@ def resolve(
         instrument=instrument if instrument is not None else _env_bool("BINDLE_AUTO_INSTRUMENT", True),
         debug=debug if debug is not None else _env_bool("BINDLE_DEBUG", False),
         extra_redact_patterns=extra_redact_patterns or {},
+        remote_config=remote_config if remote_config is not None else _env_bool("BINDLE_REMOTE_CONFIG", True),
     )
+

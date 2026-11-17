@@ -17,21 +17,30 @@ from ._redact import Redactor
 class RedactingSpanExporter(SpanExporter):
     def __init__(self, delegate: SpanExporter, redactor: Redactor, capture_content: bool = True):
         self._delegate = delegate
-        self._redactor = redactor
-        self._capture_content = capture_content
+        # One tuple, replaced atomically by update(), read once per export.
+        self._policy = (capture_content, redactor)
+
+    def update(self, capture_content: bool, redactor: Redactor) -> None:
+        """Switch settings at runtime (remote config)."""
+        self._policy = (capture_content, redactor)
+
+    @property
+    def capture_content(self) -> bool:
+        return self._policy[0]
 
     _CONTENT_KEYS = ("input.value", "output.value", "gen_ai.prompt", "gen_ai.completion",
                      "bindle.input", "bindle.output", "bindle.reasoning")
 
-    def _clean(self, span: ReadableSpan) -> ReadableSpan:
+    def _clean(self, span: ReadableSpan, capture_content: bool, redactor: Redactor) -> ReadableSpan:
         attrs = dict(span.attributes or {})
-        if not self._capture_content:
+        if not capture_content:
             for k in self._CONTENT_KEYS:
                 attrs.pop(k, None)
-        attrs = self._redactor.apply_attributes(attrs)
+        attrs = redactor.apply_attributes(attrs)
         events = [
-            Event(e.name, self._redactor.apply_attributes(dict(e.attributes or {})), e.timestamp)
+            Event(e.name, redactor.apply_attributes(dict(e.attributes or {})), e.timestamp)
             for e in span.events
+            if capture_content or not e.name.startswith("gen_ai.content.")
         ]
         return ReadableSpan(
             name=span.name,
@@ -49,8 +58,9 @@ class RedactingSpanExporter(SpanExporter):
         )
 
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
+        capture_content, redactor = self._policy
         try:
-            cleaned = [self._clean(s) for s in spans]
+            cleaned = [self._clean(s, capture_content, redactor) for s in spans]
         except Exception:  # noqa: BLE001 - never send unredacted data on error
             return SpanExportResult.FAILURE
         return self._delegate.export(cleaned)

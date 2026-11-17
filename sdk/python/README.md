@@ -49,9 +49,17 @@ Every option can be passed to `init()` or set as an environment variable. No con
 | `BINDLE_REDACT` | `true` | Redact PII and secrets before export |
 | `BINDLE_CAPTURE_CONTENT` | `true` | Send prompts and outputs at all |
 | `BINDLE_AUTO_INSTRUMENT` | `true` | Detect and instrument frameworks |
+| `BINDLE_REMOTE_CONFIG` | `true` | Fetch sampling, capture and redaction settings from the Bindle console |
+
+## Remote settings
+
+The SDK picks up settings changed in the Bindle console (sample rate, content capture, extra redaction patterns) within about a minute, without a redeploy. It polls `/v1/config` on your ingest endpoint in the background.
+
+The console sets a ceiling and your code can only be stricter: the effective sample rate is the lower of the two, prompts and outputs are sent only if both allow it, and console patterns add to the built-in and local ones. Bindle's ingest enforces the same settings for every client, including apps whose OpenTelemetry setup the SDK doesn't control.
 
 ## Safety guarantees
 
 * Export runs on a background thread with a bounded queue. If Bindle is slow or down, spans are dropped, never blocking your agent.
+* Remote settings are fetched on a background thread with backoff; if Bindle is unreachable, the last settings stay in effect.
 * Every SDK error is caught and logged. The SDK never raises into your code (except your own exceptions, which pass through unchanged).
 * Redaction runs in your process before anything is sent, and again server-side.

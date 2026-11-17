@@ -40,7 +40,11 @@ _TRACER_NAME = "bindle"
 _MAX_CAPTURE = 16 * 1024
 
 _lock = threading.Lock()
-_state: dict = {"provider": None, "config": None, "session": threading.local()}
+_state: dict = {
+    "provider": None, "config": None, "session": threading.local(),
+    "sampler": None, "exporter": None, "poller": None, "remote": None,
+    "capture": True,  # effective content capture (local AND remote)
+}
 
 
 def init(
@@ -56,16 +60,21 @@ def init(
     instrument: Union[bool, List[str], None] = None,
     redact_patterns: Optional[dict] = None,
     debug: Optional[bool] = None,
+    remote_config: Optional[bool] = None,
 ) -> bool:
     """Start sending traces to Bindle. Returns True if tracing is active.
 
     All arguments are optional and fall back to environment variables:
     BINDLE_API_KEY, BINDLE_ENDPOINT, BINDLE_AGENT, BINDLE_AGENT_VERSION,
     BINDLE_ENVIRONMENT, BINDLE_SAMPLE_RATE, BINDLE_REDACT,
-    BINDLE_CAPTURE_CONTENT, BINDLE_AUTO_INSTRUMENT, BINDLE_DEBUG.
+    BINDLE_CAPTURE_CONTENT, BINDLE_AUTO_INSTRUMENT, BINDLE_DEBUG, BINDLE_REMOTE_CONFIG.
+
+    Settings changed in the Bindle console (sampling, content capture, extra
+    redaction patterns) are fetched in the background and act as a ceiling:
+    code can only be stricter.
     """
     cfg = _config.resolve(api_key, endpoint, agent, version, environment, sample_rate,
-                          redact, capture_content, instrument, debug, redact_patterns)
+                          redact, capture_content, instrument, debug, redact_patterns, remote_config)
     if cfg.debug:
         logging.basicConfig()
         log.setLevel(logging.DEBUG)
@@ -81,9 +90,46 @@ def init(
         except Exception as exc:  # noqa: BLE001 - never break the host app
             log.warning("bindle: init failed, tracing disabled: %s", exc)
             return False
-        _state["provider"], _state["config"] = provider, cfg
+        _state["provider"], _state["config"], _state["capture"] = provider, cfg, cfg.capture_content
+        if cfg.remote_config:
+            _start_remote(cfg)
     atexit.register(shutdown)
     return True
+
+
+def _local_redactor(cfg: _config.Config, remote_patterns: Optional[dict] = None) -> Redactor:
+    rules = None if cfg.redact else []
+    extra = dict(cfg.extra_redact_patterns) if cfg.redact else {}
+    extra.update(remote_patterns or {})  # remote patterns always add, never remove
+    return Redactor(rules=rules, extra_patterns=extra)
+
+
+def _apply_remote(settings) -> None:
+    """Merge remote settings with local ones: the stricter value wins."""
+    cfg = _state["config"]
+    if cfg is None:
+        return
+    rate = min(cfg.sample_rate, settings.sample_rate)
+    capture = cfg.capture_content and settings.capture_content
+    sampler, exporter = _state["sampler"], _state["exporter"]
+    if sampler is not None:
+        sampler.set_rate(rate)
+    if exporter is not None:
+        exporter.update(capture, _local_redactor(cfg, settings.redact_patterns))
+    _state["capture"], _state["remote"] = capture, settings
+    log.debug("bindle: remote config v%s applied (sample_rate=%s, capture_content=%s, patterns=%d)",
+              settings.version, rate, capture, len(settings.redact_patterns))
+
+
+def _start_remote(cfg: _config.Config) -> None:
+    try:
+        from ._remote import Poller
+
+        poller = Poller(cfg.config_url, cfg.api_key, _apply_remote, user_agent=f"bindle-sdk-python/{__version__}")
+        poller.start()
+        _state["poller"] = poller
+    except Exception as exc:  # noqa: BLE001
+        log.debug("bindle: remote config disabled: %s", exc)
 
 
 def _setup(cfg: _config.Config):
@@ -92,9 +138,10 @@ def _setup(cfg: _config.Config):
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
-    from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
+    from opentelemetry.sdk.trace.sampling import ParentBased
 
     from ._export import RedactingSpanExporter
+    from ._sampling import DynamicRatioSampler
 
     attrs = {"bindle.sdk.version": __version__, "telemetry.sdk.language": "python"}
     if cfg.agent:
@@ -111,9 +158,9 @@ def _setup(cfg: _config.Config):
         timeout=5,
         compression=Compression.Gzip,
     )
-    if cfg.redact or not cfg.capture_content:
-        redactor = Redactor(extra_patterns=cfg.extra_redact_patterns) if cfg.redact else Redactor(rules=[])
-        exporter = RedactingSpanExporter(exporter, redactor, cfg.capture_content)
+    # Always wrapped, so remote settings can tighten capture and redaction later.
+    exporter = RedactingSpanExporter(exporter, _local_redactor(cfg), cfg.capture_content)
+    _state["exporter"] = exporter
 
     # Bounded queue: when full, spans are dropped instead of blocking the agent.
     processor = BatchSpanProcessor(
@@ -127,10 +174,11 @@ def _setup(cfg: _config.Config):
         current.add_span_processor(processor)
         provider = current
     else:
-        provider = TracerProvider(
-            resource=Resource.create(attrs),
-            sampler=ParentBased(TraceIdRatioBased(cfg.sample_rate)),
-        )
+        # The app's own provider keeps its sampler; ingest still enforces
+        # the console's sample rate for it.
+        sampler = DynamicRatioSampler(cfg.sample_rate)
+        _state["sampler"] = sampler
+        provider = TracerProvider(resource=Resource.create(attrs), sampler=ParentBased(sampler))
         provider.add_span_processor(processor)
         trace.set_tracer_provider(provider)
 
@@ -151,6 +199,10 @@ def flush(timeout_millis: int = 5000) -> bool:
 
 
 def shutdown() -> None:
+    poller = _state["poller"]
+    if poller is not None:
+        poller.stop()
+        _state["poller"] = None
     provider = _state["provider"]
     if provider is None:
         return
@@ -159,6 +211,7 @@ def shutdown() -> None:
     except Exception:  # noqa: BLE001
         pass
     _state["provider"] = None
+    _state.update(sampler=None, exporter=None, remote=None, capture=True)
 
 
 def set_session(session_id: Optional[str]) -> None:
@@ -179,8 +232,7 @@ def _preview(value: Any) -> str:
 
 
 def _capture() -> bool:
-    cfg = _state["config"]
-    return cfg is None or cfg.capture_content
+    return bool(_state["capture"])
 
 
 @contextmanager
