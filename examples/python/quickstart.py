@@ -5,9 +5,8 @@
     pip install -e sdk/python
     python examples/python/quickstart.py
 
-Then open the console (web/) or query PostgreSQL:
-    docker compose -f deploy/docker-compose.yml exec postgres \
-      psql -U bindle_owner -d bindle -c "SELECT name, type, status, input FROM bindle.steps ORDER BY start_ns"
+Then open the console (web/) or query OpenSearch:
+    curl -s -u "admin:$OPENSEARCH_ADMIN_PASSWORD" 'http://127.0.0.1:9200/bindle-steps-*/_search?sort=start_ns:desc&size=5&_source=name,type,status,input' 
 """
 
 import random

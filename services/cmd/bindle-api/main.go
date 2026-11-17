@@ -1,9 +1,11 @@
-// Command bindle-api is the console's read API over PostgreSQL.
+// Command bindle-api is the console's read API over OpenSearch.
 //
 // Environment:
 //
 //	BINDLE_API_LISTEN                        listen address (default 127.0.0.1:8080; compose sets :8080)
-//	BINDLE_DB_URL                            PostgreSQL URL for the reader role (or PGHOST, PGUSER, ... env vars)
+//	BINDLE_SEARCH_URL                        OpenSearch endpoint (https; http only with BINDLE_SEARCH_ALLOW_HTTP=1)
+//	BINDLE_SEARCH_USER / BINDLE_SEARCH_PASSWORD   the read-only user (default user bindle_reader)
+//	BINDLE_SEARCH_PREFIX                     index name prefix (default bindle)
 //	BINDLE_API_RATE_LIMIT_RPS                per-tenant requests/sec (default 20; 0 disables)
 //	BINDLE_API_LOOP_MIN_REPEATS              runaway-loop threshold (default 5)
 //	BINDLE_API_DEV_AUTH_BYPASS_TENANT        local dev only: map every request to this tenant
@@ -16,7 +18,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -27,8 +28,8 @@ import (
 	"time"
 
 	"github.com/bindle-ai/bindle/services/internal/api"
-	"github.com/bindle-ai/bindle/services/internal/pg"
 	"github.com/bindle-ai/bindle/services/internal/ratelimit"
+	"github.com/bindle-ai/bindle/services/internal/search"
 	"github.com/bindle-ai/bindle/services/internal/session"
 )
 
@@ -54,23 +55,14 @@ func run(log *slog.Logger) error {
 			"tenant", s.TenantID, "addr", addr)
 	}
 
-	// A URL, or libpq-style PGHOST/PGUSER/PGPASSWORD/PGDATABASE/PGSSLMODE
-	// variables (used on AWS, where credentials come from Secrets Manager).
-	dsn := os.Getenv("BINDLE_DB_URL")
-	if dsn == "" && os.Getenv("PGHOST") == "" {
-		return errors.New("BINDLE_DB_URL or PGHOST is required")
-	}
-	db, err := sql.Open("postgres", dsn)
+	client, err := search.FromEnv(os.Getenv, env("BINDLE_SEARCH_USER", search.DefaultUsers.Reader), os.Getenv("BINDLE_SEARCH_PASSWORD"))
 	if err != nil {
 		return err
 	}
-	defer db.Close()
-	db.SetMaxOpenConns(20)
-	db.SetConnMaxIdleTime(5 * time.Minute)
 
 	rps := envInt("BINDLE_API_RATE_LIMIT_RPS", 20)
 	srvAPI := &api.Server{
-		Store:          &pg.Store{DB: db},
+		Store:          &search.Store{Client: client, Names: search.Names{Prefix: os.Getenv("BINDLE_SEARCH_PREFIX")}},
 		Sessions:       sessions,
 		Limiter:        ratelimit.New(float64(rps), float64(rps*2)),
 		Log:            log,

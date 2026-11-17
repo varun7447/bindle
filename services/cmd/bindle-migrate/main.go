@@ -1,62 +1,78 @@
-// Command bindle-migrate creates Bindle's PostgreSQL roles and schema.
-// Run it once per deploy before starting ingest and the API.
+// Command bindle-migrate prepares OpenSearch for Bindle: the retention
+// policy, index template, rollup index, and the least-privilege writer and
+// reader users. Idempotent; run it on every deploy before ingest and the API.
 //
 // Environment:
 //
-//	BINDLE_DB_ADMIN_URL         URL of the schema-owner role, e.g. the RDS master user (or PGHOST, PGUSER, ... env vars)
-//	BINDLE_DB_WRITER_ROLE       default bindle_writer (used by bindle-ingest)
-//	BINDLE_DB_READER_ROLE       default bindle_reader (used by bindle-api)
-//	BINDLE_DB_WRITER_PASSWORD   sets the writer's password (optional)
-//	BINDLE_DB_READER_PASSWORD   sets the reader's password (optional)
+//	BINDLE_SEARCH_URL               OpenSearch endpoint (https; http only with BINDLE_SEARCH_ALLOW_HTTP=1)
+//	BINDLE_SEARCH_ADMIN_USER        admin user (security plugin admin, or the AWS FGAC master user)
+//	BINDLE_SEARCH_ADMIN_PASSWORD
+//	BINDLE_SEARCH_WRITER_PASSWORD   sets the bindle_writer password (used by bindle-ingest)
+//	BINDLE_SEARCH_READER_PASSWORD   sets the bindle_reader password (used by bindle-api)
+//	BINDLE_SEARCH_PREFIX            index name prefix (default bindle)
+//	BINDLE_SEARCH_REPLICAS          replicas per shard (default 1; 0 for a single-node dev cluster)
+//	BINDLE_RETENTION_DAYS           default 30
 package main
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"log/slog"
+	"net/http"
 	"os"
+	"strconv"
 	"time"
 
-	"github.com/bindle-ai/bindle/services/internal/pg"
+	"github.com/bindle-ai/bindle/services/internal/search"
 )
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if err := run(log); err != nil {
-		log.Error("migration failed", "err", err)
+		log.Error("setup failed", "err", err)
 		os.Exit(1)
 	}
 }
 
 func run(log *slog.Logger) error {
-	// A URL, or libpq-style PGHOST/PGUSER/PGPASSWORD/PGDATABASE/PGSSLMODE
-	// variables (used on AWS, where credentials come from Secrets Manager).
-	dsn := os.Getenv("BINDLE_DB_ADMIN_URL")
-	if dsn == "" && os.Getenv("PGHOST") == "" {
-		return errors.New("BINDLE_DB_ADMIN_URL or PGHOST is required")
-	}
-	db, err := sql.Open("postgres", dsn)
+	client, err := search.FromEnv(os.Getenv, os.Getenv("BINDLE_SEARCH_ADMIN_USER"), os.Getenv("BINDLE_SEARCH_ADMIN_PASSWORD"))
 	if err != nil {
 		return err
 	}
-	defer db.Close()
-	roles := pg.DefaultRoles
-	if v := os.Getenv("BINDLE_DB_WRITER_ROLE"); v != "" {
-		roles.Writer = v
-	}
-	if v := os.Getenv("BINDLE_DB_READER_ROLE"); v != "" {
-		roles.Reader = v
-	}
-	roles.WriterPassword = os.Getenv("BINDLE_DB_WRITER_PASSWORD")
-	roles.ReaderPassword = os.Getenv("BINDLE_DB_READER_PASSWORD")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	applied, err := pg.Migrate(ctx, db, roles)
+	// The cluster may still be starting.
+	for {
+		err = client.Do(ctx, http.MethodGet, "/_cluster/health", nil, nil, nil)
+		if err == nil || ctx.Err() != nil {
+			break
+		}
+		log.Info("waiting for OpenSearch", "err", err)
+		time.Sleep(3 * time.Second)
+	}
 	if err != nil {
 		return err
 	}
-	log.Info("migrations complete", "applied", applied, "writer", roles.Writer, "reader", roles.Reader)
+	users := search.DefaultUsers
+	users.WriterPassword = os.Getenv("BINDLE_SEARCH_WRITER_PASSWORD")
+	users.ReaderPassword = os.Getenv("BINDLE_SEARCH_READER_PASSWORD")
+	opts := search.SetupOptions{
+		Names:         search.Names{Prefix: os.Getenv("BINDLE_SEARCH_PREFIX")},
+		Users:         users,
+		RetentionDays: envInt("BINDLE_RETENTION_DAYS", 30),
+		Replicas:      envInt("BINDLE_SEARCH_REPLICAS", 1),
+	}
+	if err := search.Setup(ctx, client, opts); err != nil {
+		return err
+	}
+	log.Info("OpenSearch setup complete", "writer", users.Writer, "reader", users.Reader, "replicas", opts.Replicas)
 	return nil
+}
+
+func envInt(k string, def int) int {
+	if v := os.Getenv(k); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return def
 }

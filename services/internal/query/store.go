@@ -1,5 +1,5 @@
 // Package query defines what the console API reads from storage: the Store
-// interface and its result types. internal/pg implements it.
+// interface and its result types. internal/search implements it.
 package query
 
 import (
