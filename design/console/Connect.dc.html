@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Connect an agent</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1116}
+a{color:#7CC4FF}a:hover{color:#B5DDFF}
+</style>
+</helmet>
+<div style="min-height: 1000px; background: #0E1116; color: #E6E8EB; font-family: Inter, system-ui, sans-serif; font-size: 14px; display: flex; flex-wrap: wrap">
+
+<nav aria-label="Primary" style="flex: 1 1 220px; max-width: 100%; box-sizing: border-box; background: #12161C; border-right: 1px solid #232A33; padding: 20px 14px; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 20px">
+<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#3DD6B0" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="6"></circle><path d="M14.5 14.5 20 20"></path><path d="M7 10h1.5l1-2 1.5 4 1-2H13"></path></svg>
+<span style="font-weight: 700; font-size: 18px; letter-spacing: -0.01em">Bindle</span>
+</div>
+<a href="Main.dc.html" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Overview</a>
+<a href="Trace.dc.html" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Traces</a>
+<a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Agents</a>
+<a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Evaluations</a>
+<a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Cost</a>
+<a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Alerts</a>
+<div style="height: 1px; background: #232A33; margin: 12px 4px"></div>
+<a href="Connect.dc.html" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; background: #1C232C; color: #E6E8EB; text-decoration: none; font-weight: 600">Connect agents</a>
+<a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Privacy &amp; redaction</a>
+<a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Settings</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 24px; max-width: 1180px">
+
+<header style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.01em">Connect an agent</h1>
+<p style="margin: 0; color: #9AA3AE; max-width: 680px; line-height: 1.5">Pick how your agents send traces. Every path lands in the same trace view, so you can start with zero code and add depth later.</p>
+</header>
+
+<section aria-label="Collection method" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px">
+<sc-for list="{{methods}}" as="m" hint-placeholder-count="4">
+<button type="button" onClick="{{m.pick}}" aria-pressed="{{m.selected}}" style="display: flex; flex-direction: column; gap: 8px; padding: 16px; min-height: 150px; background: {{m.bg}}; border: 1px solid {{m.border}}; border-radius: 12px; color: #E6E8EB; font: inherit; text-align: left; cursor: pointer">
+<span style="display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%">
+<span style="font-weight: 600; font-size: 15px">{{m.title}}</span>
+<span style="padding: 2px 8px; border-radius: 999px; background: #1E2631; color: #AEB6C0; font-size: 11px">{{m.effort}}</span>
+</span>
+<span style="color: #AEB6C0; font-size: 13px; line-height: 1.45">{{m.desc}}</span>
+<span style="margin-top: auto; color: {{m.capColor}}; font-size: 12px">{{m.captures}}</span>
+</button>
+</sc-for>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+
+<section aria-label="Setup steps" style="flex: 3 1 520px; min-width: 0; background: #161B22; border: 1px solid #232A33; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Framework</h2>
+<div role="group" aria-label="Framework" style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{fws}}" as="f" hint-placeholder-count="8">
+<button type="button" onClick="{{f.pick}}" aria-pressed="{{f.selected}}" style="min-height: 36px; padding: 0 12px; background: {{f.bg}}; border: 1px solid {{f.border}}; border-radius: 999px; color: {{f.fg}}; font: inherit; font-size: 13px; cursor: pointer">{{f.name}}</button>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">{{snippetTitle}}</h2>
+<button type="button" style="min-height: 36px; padding: 0 12px; background: #1E2631; border: 1px solid #2A313B; border-radius: 8px; color: #E6E8EB; font: inherit; font-size: 13px; cursor: pointer">Copy</button>
+</div>
+<pre style="margin: 0; padding: 16px; background: #0E1116; border: 1px solid #232A33; border-radius: 10px; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; color: #D5DAE0">{{snippet}}</pre>
+<p style="margin: 0; color: #9AA3AE; font-size: 12px">Illustrative snippet; final package names and endpoints to be decided.</p>
+</div>
+</section>
+
+<aside aria-label="Connection status" style="flex: 2 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+<section style="background: #161B22; border: 1px solid #232A33; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Your ingest key</h2>
+<div style="display: flex; gap: 8px; align-items: center">
+<code style="flex: 1 1 auto; min-width: 0; padding: 10px 12px; background: #0E1116; border: 1px solid #232A33; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #AEB6C0">bd_live_••••••••••••3f9a</code>
+<button type="button" style="min-height: 40px; padding: 0 12px; background: #1E2631; border: 1px solid #2A313B; border-radius: 8px; color: #E6E8EB; font: inherit; font-size: 13px; cursor: pointer">Rotate</button>
+</div>
+<p style="margin: 0; color: #9AA3AE; font-size: 12px; line-height: 1.5">The key identifies your workspace at ingest. Tenant IDs sent inside spans are ignored.</p>
+</section>
+<section style="background: #161B22; border: 1px solid #232A33; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Before data leaves your environment</h2>
+<sc-for list="{{guards}}" as="g" hint-placeholder-count="3">
+<div style="display: flex; gap: 10px; align-items: flex-start">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3DD6B0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 1px"><path d="M20 6 9 17l-5-5"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-weight: 500">{{g.t}}</span>
+<span style="color: #9AA3AE; font-size: 12px">{{g.d}}</span>
+</div>
+</div>
+</sc-for>
+</section>
+<section style="background: #12261F; border: 1px solid #1F4A3C; border-radius: 12px; padding: 16px; display: flex; align-items: center; gap: 12px">
+<span style="flex: none; width: 10px; height: 10px; border-radius: 50%; background: #3DD6B0"></span>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-weight: 600">Waiting for first trace…</span>
+<span style="color: #9FC9BA; font-size: 12px">Run your agent once; it appears in Traces within seconds.</span>
+</div>
+</section>
+</aside>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { method: 1, fw: 0 };
+  }
+  renderVals() {
+    var self = this;
+    var M = [
+      { title: 'Framework export', effort: 'Config only', desc: 'Point your framework’s built-in OpenTelemetry exporter at us.', captures: 'Captures: whatever the framework emits', full: false },
+      { title: 'Bindle SDK', effort: '1 line', desc: 'Auto-instruments installed frameworks, adds redaction and agent semantics.', captures: 'Captures: full trace, decisions, reasoning', full: true },
+      { title: 'LLM gateway', effort: 'No code', desc: 'Swap your model base URL. Works on serverless.', captures: 'Captures: LLM calls only', full: false },
+      { title: 'Sidecar', effort: 'Helm / ECS', desc: 'Collector + local LLM/MCP proxy next to each agent pod.', captures: 'Captures: LLM + tool calls, local redaction', full: false }
+    ];
+    var F = ['Strands', 'LangGraph', 'OpenAI Agents SDK', 'CrewAI', 'LlamaIndex', 'Pydantic AI', 'Vercel AI SDK', 'Custom'];
+    var mi = this.state.method, fi = this.state.fw;
+    var fwName = F[fi];
+    var snippets = [
+      '# Environment for your agent process (' + fwName + ')\nOTEL_EXPORTER_OTLP_ENDPOINT=https://ingest.[YOUR-DOMAIN]\nOTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer bd_live_…\nOTEL_SERVICE_NAME=support-triage',
+      '# pip install bindle\nimport bindle\n\nbindle.init(\n    api_key="bd_live_…",\n    agent="support-triage",\n    version="v12",\n    redact="hipaa-default",\n)\n# ' + fwName + ' is detected and instrumented automatically',
+      '# Point your model client at the gateway (' + fwName + ')\nbase_url = "https://gateway.[YOUR-DOMAIN]/v1"\nheaders  = {"x-bindle-key": "bd_live_…"}',
+      '# Kubernetes\nhelm install bindle-sidecar bindle/sidecar \\\n  --set apiKey=bd_live_… \\\n  --set redaction.policy=hipaa-default\n\n# then in your agent (' + fwName + '):\nbase_url = "http://localhost:4319/v1"'
+    ];
+    var titles = ['Set environment variables', 'Install and initialize', 'Route model calls', 'Deploy the sidecar'];
+    return {
+      methods: M.map(function (m, i) {
+        var sel = i === mi;
+        return {
+          title: m.title, effort: m.effort, desc: m.desc, captures: m.captures,
+          capColor: m.full ? '#5FE0B9' : '#AEB6C0',
+          bg: sel ? '#18242A' : '#161B22', border: sel ? '#3DD6B0' : '#232A33',
+          selected: sel ? 'true' : 'false',
+          pick: function () { self.setState({ method: i }); }
+        };
+      }),
+      fws: F.map(function (n, i) {
+        var sel = i === fi;
+        return {
+          name: n, bg: sel ? '#E6E8EB' : '#1A2028', fg: sel ? '#0E1116' : '#D5DAE0',
+          border: sel ? '#E6E8EB' : '#2A313B', selected: sel ? 'true' : 'false',
+          pick: function () { self.setState({ fw: i }); }
+        };
+      }),
+      snippetTitle: titles[mi],
+      snippet: snippets[mi],
+      guards: [
+        { t: 'PII / PHI redaction', d: 'Policy hipaa-default: emails, phone numbers, SSNs, member IDs, names' },
+        { t: 'Secret blocking', d: 'API keys and tokens are dropped, not masked, and you are alerted' },
+        { t: 'Payloads stored separately', d: 'Prompts and outputs go to object storage with their own retention' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

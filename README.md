@@ -10,11 +10,33 @@ agent + bindle-sdk ──OTLP/HTTP──► bindle-ingest (Go) ──► ClickHo
                                  redact #2 · cost · batch
 ```
 
+## Console
+
+What a team sees after connecting an agent. Screenshots are from the console in `web/` running locally against synthetic data from `examples/python/demo_agent.py`.
+
+**Overview**: runs, failure rate, latency, cost and tokens, runs over time, runaway-loop alerts, top failing tools, recent runs.
+
+![Bindle console overview](docs/images/console-overview.png)
+
+**Trace explorer**: every step of one run as a waterfall (LLM calls, tool calls, retrieval, decisions, retries, evals), with input, output and reasoning for the selected step. Sensitive values are redacted before storage, and the console says so.
+
+![Bindle trace explorer](docs/images/console-trace.png)
+
+**Connect an agent**: a snippet per framework and a live "waiting for first trace" check, so setup takes minutes.
+
+![Bindle connect-an-agent page](docs/images/console-connect.png)
+
+The design mockups for these screens are in [`design/console/`](design/console/). They render inside the design canvas, not as standalone pages.
+
+## Repository layout
+
 | Path | What it is |
 |---|---|
 | `sdk/python` | `bindle-sdk`: one-line `bindle.init()`, auto-instrumentation, client-side redaction, `trace_step` / `trace_tool` / `decision` / `handoff` helpers |
 | `services` | `bindle-api`: read API for the console (runs, trace waterfall, step detail, overview, alerts) over ClickHouse. `bindle-ingest`: OTLP/HTTP receiver (protobuf + JSON, gzip), API-key → tenant, framework normalizer, server-side redaction, cost, per-tenant rate limit, backpressure, ClickHouse writer. Go standard library only, no third-party dependencies. |
 | `web` | Console (Next.js): overview, runs, trace explorer, connect-an-agent. See `web/README.md` |
+| `design/console` | Console design mockups (visual spec for `web/`) |
+| `docs/images` | README screenshots |
 | `schema/clickhouse` | `steps` table, per-trace rollup, reference queries (runs list, waterfall, KPIs, loop detector) |
 | `deploy` | `docker-compose.yml` for a local stack |
 | `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, secrets, S3 payload bucket |

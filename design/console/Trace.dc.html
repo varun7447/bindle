@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Trace explorer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1116}
+a{color:#7CC4FF}a:hover{color:#B5DDFF}
+</style>
+</helmet>
+<div style="min-height: 1000px; background: #0E1116; color: #E6E8EB; font-family: Inter, system-ui, sans-serif; font-size: 14px; display: flex; flex-wrap: wrap">
+
+<nav aria-label="Primary" style="flex: 1 1 220px; max-width: 100%; box-sizing: border-box; background: #12161C; border-right: 1px solid #232A33; padding: 20px 14px; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 20px">
+<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#3DD6B0" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="6"></circle><path d="M14.5 14.5 20 20"></path><path d="M7 10h1.5l1-2 1.5 4 1-2H13"></path></svg>
+<span style="font-weight: 700; font-size: 18px; letter-spacing: -0.01em">Bindle</span>
+</div>
+<a href="Main.dc.html" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Overview</a>
+<a href="Trace.dc.html" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; background: #1C232C; color: #E6E8EB; text-decoration: none; font-weight: 600">Traces</a>
+<a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Agents</a>
+<a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Evaluations</a>
+<a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Cost</a>
+<a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Alerts</a>
+<div style="height: 1px; background: #232A33; margin: 12px 4px"></div>
+<a href="Connect.dc.html" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Connect agents</a>
+<a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Privacy &amp; redaction</a>
+<a href="#" style="display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Settings</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 20px">
+
+<header style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center; gap: 8px; color: #9AA3AE; font-size: 13px"><a href="Main.dc.html">Traces</a><span aria-hidden="true">/</span><span style="font-family: 'JetBrains Mono', monospace">tr_8f2c91a4</span></div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+<h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.01em">support-triage v12</h1>
+<span style="padding: 3px 10px; border-radius: 999px; background: #3A1D1D; color: #FF9B8E; font-size: 12px; font-weight: 600">Failed · escalated to human</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<button type="button" style="min-height: 40px; padding: 0 14px; background: #161B22; border: 1px solid #2A313B; border-radius: 8px; color: #E6E8EB; font: inherit; cursor: pointer">Compare with v11</button>
+<button type="button" style="min-height: 40px; padding: 0 14px; background: #3DD6B0; border: 1px solid #3DD6B0; border-radius: 8px; color: #0B1F1A; font: inherit; font-weight: 600; cursor: pointer">Replay from step</button>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px">
+<sc-for list="{{facts}}" as="f" hint-placeholder-count="6">
+<div style="background: #161B22; border: 1px solid #232A33; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px">
+<span style="color: #9AA3AE; font-size: 12px">{{f.k}}</span>
+<span style="font-weight: 600; font-family: 'JetBrains Mono', monospace; font-size: 13px">{{f.v}}</span>
+</div>
+</sc-for>
+</div>
+</header>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+
+<section aria-label="Step waterfall" style="flex: 3 1 560px; min-width: 0; background: #161B22; border: 1px solid #232A33; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 2px">
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 2px 6px 10px">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Steps</h2>
+<div style="display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: #AEB6C0">
+<sc-for list="{{legend}}" as="l" hint-placeholder-count="6">
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: {{l.c}}"></span>{{l.t}}</span>
+</sc-for>
+</div>
+</div>
+<sc-for list="{{steps}}" as="s" hint-placeholder-count="10">
+<button type="button" onClick="{{s.pick}}" aria-pressed="{{s.selected}}" style="display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr) 64px; align-items: center; gap: 12px; min-height: 44px; padding: 4px 8px; background: {{s.rowBg}}; border: 1px solid {{s.rowBorder}}; border-radius: 8px; color: #E6E8EB; font: inherit; text-align: left; cursor: pointer">
+<span style="display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: {{s.indent}}">
+<span style="flex: none; padding: 1px 6px; border-radius: 4px; background: {{s.tagBg}}; color: {{s.color}}; font-family: 'JetBrains Mono', monospace; font-size: 11px">{{s.typeLabel}}</span>
+<span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px">{{s.name}}</span>
+</span>
+<span style="position: relative; height: 14px; background: #1B2129; border-radius: 3px">
+<span style="position: absolute; top: 0; bottom: 0; left: {{s.left}}; width: {{s.width}}; min-width: 3px; background: {{s.color}}; border-radius: 3px"></span>
+</span>
+<span style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{s.durColor}}">{{s.durLabel}}</span>
+</button>
+</sc-for>
+<div style="display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr) 64px; gap: 12px; padding: 8px 8px 0; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9AA3AE">
+<span></span><span style="display: flex; justify-content: space-between"><span>0s</span><span>5s</span><span>10s</span><span>14.2s</span></span><span></span>
+</div>
+</section>
+
+<aside aria-label="Step detail" style="flex: 2 1 380px; min-width: 0; background: #161B22; border: 1px solid #232A33; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="align-self: flex-start; padding: 1px 6px; border-radius: 4px; background: {{sel.tagBg}}; color: {{sel.color}}; font-family: 'JetBrains Mono', monospace; font-size: 11px">{{sel.typeLabel}}</span>
+<h2 style="margin: 0; font-size: 17px; font-weight: 600">{{sel.name}}</h2>
+<span style="color: {{sel.statusColor}}; font-size: 13px; font-weight: 600">{{sel.status}}</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{sel.attrs}}" as="a" hint-placeholder-count="4">
+<div style="background: #1A2028; border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; min-width: 0">
+<span style="color: #9AA3AE; font-size: 11px">{{a.k}}</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; overflow-wrap: anywhere">{{a.v}}</span>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h3 style="margin: 0; font-size: 12px; font-weight: 600; color: #9AA3AE; text-transform: uppercase; letter-spacing: 0.06em">Input</h3>
+<pre style="margin: 0; padding: 12px; background: #0E1116; border: 1px solid #232A33; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: #D5DAE0">{{sel.input}}</pre>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h3 style="margin: 0; font-size: 12px; font-weight: 600; color: #9AA3AE; text-transform: uppercase; letter-spacing: 0.06em">Output</h3>
+<pre style="margin: 0; padding: 12px; background: #0E1116; border: 1px solid #232A33; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: #D5DAE0">{{sel.output}}</pre>
+</div>
+<sc-if value="{{sel.hasReasoning}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+<h3 style="margin: 0; font-size: 12px; font-weight: 600; color: #9AA3AE; text-transform: uppercase; letter-spacing: 0.06em">Reasoning</h3>
+<span style="font-size: 11px; color: #B79CFF; font-family: 'JetBrains Mono', monospace">{{sel.reasoningKind}}</span>
+</div>
+<p style="margin: 0; padding: 12px; background: #17142A; border: 1px solid #2C2550; border-radius: 8px; font-size: 13px; line-height: 1.55; color: #D9D0FF">{{sel.reasoning}}</p>
+</div>
+</sc-if>
+<p style="margin: 0; font-size: 12px; color: #9AA3AE">Values shown as [REDACTED:…] were removed by the tenant-side collector before leaving the customer's environment.</p>
+</aside>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { picked: 4 };
+  }
+  renderVals() {
+    var self = this;
+    var T = {
+      agent: { label: 'agent', c: '#3DD6B0', bg: '#12332B' },
+      llm: { label: 'llm_call', c: '#6CA8FF', bg: '#152640' },
+      decision: { label: 'decision', c: '#B79CFF', bg: '#251F45' },
+      tool: { label: 'tool_call', c: '#F2A65A', bg: '#3A2914' },
+      retrieval: { label: 'retrieval', c: '#7FD4E8', bg: '#14313A' },
+      evalT: { label: 'eval', c: '#F5C26B', bg: '#3A2E15' },
+      handoff: { label: 'handoff', c: '#E58AD0', bg: '#3A1A33' }
+    };
+    var total = 14200;
+    var raw = [
+      { t: T.agent, name: 'support-triage run', d: 0, start: 0, dur: 14200, status: 'Failed · escalated', bad: true,
+        attrs: [['agent.version','v12'],['framework','Strands'],['session','sess_41c0'],['tenant','acme-support']],
+        input: 'user: My refund for order #[REDACTED:ORDER_ID] never arrived. Email me at [REDACTED:EMAIL].',
+        output: 'Handed off to human-escalation queue after tool failures and low groundedness score.' },
+      { t: T.llm, name: 'Classify intent', d: 1, start: 120, dur: 2100, status: 'Success',
+        attrs: [['model','claude (Bedrock)'],['tokens in / out','1,204 / 86'],['cost','$0.006'],['temperature','0']],
+        input: 'system: You are a support triage agent…\nuser: My refund for order #[REDACTED:ORDER_ID] never arrived…',
+        output: '{"intent": "refund_status", "confidence": 0.93}',
+        reasoning: 'Customer references a refund and a missing payment. Intent is refund status, not a new refund request. Need customer record before answering.', rk: 'kind: summary' },
+      { t: T.decision, name: 'Route → crm.lookup_customer', d: 1, start: 2230, dur: 10, status: 'Success',
+        attrs: [['options','crm.lookup, kb.search, handoff'],['chosen','crm.lookup_customer'],['policy','Cedar: allow'],['latency','10 ms']],
+        input: 'intent=refund_status, confidence=0.93', output: 'chosen=crm.lookup_customer' },
+      { t: T.tool, name: 'crm.lookup_customer · attempt 1', d: 1, start: 2260, dur: 3000, status: 'Failed · HTTP 503', bad: true,
+        attrs: [['transport','MCP'],['server','crm-mcp'],['attempt','1 of 2'],['latency','3,000 ms']],
+        input: '{"email": "[REDACTED:EMAIL]"}', output: '503 Service Unavailable (upstream crm-api)' },
+      { t: T.tool, name: 'crm.lookup_customer · attempt 2', d: 1, start: 5300, dur: 3100, status: 'Failed · timeout after retry', bad: true,
+        attrs: [['transport','MCP'],['server','crm-mcp'],['attempt','2 of 2'],['latency','3,100 ms']],
+        input: '{"email": "[REDACTED:EMAIL]"}', output: 'TimeoutError: no response within 3,000 ms' },
+      { t: T.retrieval, name: 'kb.search "refund timelines"', d: 1, start: 8450, dur: 600, status: 'Success',
+        attrs: [['index','support-kb'],['top_k','5'],['hits','3'],['latency','600 ms']],
+        input: 'query: "refund timelines"', output: '3 chunks: refunds-policy.md §2, faq.md §7, billing.md §4' },
+      { t: T.llm, name: 'Draft customer reply', d: 1, start: 9100, dur: 3200, status: 'Success',
+        attrs: [['model','claude (Bedrock)'],['tokens in / out','3,880 / 412'],['cost','$0.031'],['temperature','0.3']],
+        input: 'context: 3 KB chunks · customer record: unavailable',
+        output: 'Your refund was issued on [date] and should arrive within 5–7 business days…',
+        reasoning: 'CRM lookup failed, so the refund date is unknown. Drafting a general timeline from the KB instead.', rk: 'kind: summary' },
+      { t: T.evalT, name: 'Groundedness judge', d: 1, start: 12350, dur: 900, status: 'Score 0.41 · below 0.70', bad: true,
+        attrs: [['scorer','llm-judge/groundedness'],['score','0.41'],['threshold','0.70'],['cost','$0.004']],
+        input: 'draft reply + retrieved chunks', output: 'Claim "refund was issued on [date]" is not supported by any retrieved source.' },
+      { t: T.handoff, name: 'Handoff → human-escalation', d: 1, start: 13300, dur: 200, status: 'Success',
+        attrs: [['from','support-triage'],['to','human-escalation'],['reason','eval_below_threshold'],['queue','tier-2']],
+        input: 'trace summary + draft reply (not sent)', output: 'ticket ESC-[REDACTED:ID] created' }
+    ];
+    var picked = this.state.picked;
+    var steps = raw.map(function (s, i) {
+      var sel = i === picked;
+      return {
+        typeLabel: s.t.label, color: s.t.c, tagBg: s.t.bg, name: s.name,
+        indent: (s.d * 18) + 'px',
+        left: (s.start / total * 100).toFixed(2) + '%',
+        width: (s.dur / total * 100).toFixed(2) + '%',
+        durLabel: s.dur >= 1000 ? (s.dur / 1000).toFixed(1) + 's' : s.dur + 'ms',
+        durColor: s.bad ? '#FF9B8E' : '#AEB6C0',
+        rowBg: sel ? '#1E2631' : 'transparent',
+        rowBorder: sel ? '#3A4656' : 'transparent',
+        selected: sel ? 'true' : 'false',
+        pick: function () { self.setState({ picked: i }); }
+      };
+    });
+    var r = raw[picked];
+    return {
+      facts: [
+        { k: 'Trace ID', v: 'tr_8f2c91a4' }, { k: 'Duration', v: '14.2s' }, { k: 'Steps', v: '9' },
+        { k: 'Tokens', v: '5,582' }, { k: 'Cost', v: '$0.083' }, { k: 'Eval', v: '0.41' }
+      ],
+      legend: [
+        { t: 'LLM', c: T.llm.c }, { t: 'Tool', c: T.tool.c }, { t: 'Decision', c: T.decision.c },
+        { t: 'Retrieval', c: T.retrieval.c }, { t: 'Eval', c: T.evalT.c }, { t: 'Handoff', c: T.handoff.c }
+      ],
+      steps: steps,
+      sel: {
+        typeLabel: r.t.label, color: r.t.c, tagBg: r.t.bg, name: r.name, status: r.status,
+        statusColor: r.bad ? '#FF9B8E' : '#5FE0B9',
+        attrs: r.attrs.map(function (p) { return { k: p[0], v: p[1] }; }),
+        input: r.input, output: r.output,
+        hasReasoning: !!r.reasoning, reasoning: r.reasoning || '', reasoningKind: r.rk || ''
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

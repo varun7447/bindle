@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Overview</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1116}
+a{color:#7CC4FF}a:hover{color:#B5DDFF}
+</style>
+</helmet>
+<div style="min-height: 1000px; background: #0E1116; color: #E6E8EB; font-family: Inter, system-ui, sans-serif; font-size: 14px; display: flex; flex-wrap: wrap">
+
+<nav aria-label="Primary" style="flex: 1 1 220px; max-width: 100%; box-sizing: border-box; background: #12161C; border-right: 1px solid #232A33; padding: 20px 14px; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 20px">
+<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#3DD6B0" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="6"></circle><path d="M14.5 14.5 20 20"></path><path d="M7 10h1.5l1-2 1.5 4 1-2H13"></path></svg>
+<span style="font-weight: 700; font-size: 18px; letter-spacing: -0.01em">Bindle</span>
+</div>
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border-radius: 8px; background: #1C232C; color: #E6E8EB; text-decoration: none; font-weight: 600">Overview</a>
+<a href="Trace.dc.html" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Traces</a>
+<a href="#" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Agents</a>
+<a href="#" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Evaluations</a>
+<a href="#" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Cost</a>
+<a href="#" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Alerts</a>
+<div style="height: 1px; background: #232A33; margin: 12px 4px"></div>
+<a href="Connect.dc.html" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Connect agents</a>
+<a href="#" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Privacy &amp; redaction</a>
+<a href="#" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; border-radius: 8px; color: #AEB6C0; text-decoration: none">Settings</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 24px">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.01em">Overview</h1>
+<p style="margin: 0; color: #9AA3AE">Workspace: acme-support · US region · sample data</p>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<label for="search" style="position: absolute; left: -9999px">Search traces</label>
+<input id="search" type="search" placeholder="Search traces, agents, tools…" style="min-height: 40px; width: 280px; max-width: 100%; box-sizing: border-box; padding: 0 12px; background: #161B22; border: 1px solid #2A313B; border-radius: 8px; color: #E6E8EB; font: inherit">
+<button type="button" style="min-height: 40px; padding: 0 14px; background: #161B22; border: 1px solid #2A313B; border-radius: 8px; color: #E6E8EB; font: inherit; cursor: pointer">Last 24 hours</button>
+<button type="button" style="min-height: 40px; padding: 0 14px; background: #161B22; border: 1px solid #2A313B; border-radius: 8px; color: #E6E8EB; font: inherit; cursor: pointer">All agents</button>
+</div>
+</header>
+
+<section aria-label="Key metrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px">
+<sc-for list="{{kpis}}" as="k" hint-placeholder-count="5">
+<div style="background: #161B22; border: 1px solid #232A33; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 6px">
+<span style="color: #9AA3AE; font-size: 13px">{{k.label}}</span>
+<span style="font-size: 26px; font-weight: 700; letter-spacing: -0.02em">{{k.value}}</span>
+<span style="font-size: 12px; color: {{k.deltaColor}}">{{k.delta}}</span>
+</div>
+</sc-for>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<section aria-label="Runs and cost by hour" style="flex: 2 1 520px; min-width: 0; background: #161B22; border: 1px solid #232A33; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Runs per hour</h2>
+<div style="display: flex; gap: 16px; font-size: 12px; color: #9AA3AE">
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #6CA8FF"></span>Succeeded</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #FF8A7A"></span>Failed</span>
+</div>
+</div>
+<div role="img" aria-label="Bar chart of runs per hour over the last 24 hours, with failures stacked on top" style="height: 180px; display: flex; align-items: flex-end; gap: 4px; border-bottom: 1px solid #2A313B">
+<sc-for list="{{bars}}" as="b" hint-placeholder-count="24">
+<div style="flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100%">
+<div style="height: {{b.fail}}; background: #FF8A7A; border-radius: 3px 3px 0 0"></div>
+<div style="height: {{b.ok}}; background: #6CA8FF"></div>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; justify-content: space-between; font-size: 12px; color: #9AA3AE; font-family: 'JetBrains Mono', monospace"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>now</span></div>
+</section>
+
+<section aria-label="Active alerts" style="flex: 1 1 300px; min-width: 0; background: #161B22; border: 1px solid #232A33; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Active alerts</h2>
+<sc-for list="{{alerts}}" as="a" hint-placeholder-count="3">
+<div style="display: flex; gap: 12px; padding: 12px; border-radius: 10px; background: #1A2028; border: 1px solid #262E38">
+<span style="flex: none; margin-top: 4px; width: 8px; height: 8px; border-radius: 50%; background: {{a.color}}"></span>
+<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+<span style="font-weight: 600">{{a.title}}</span>
+<span style="color: #9AA3AE; font-size: 13px">{{a.detail}}</span>
+</div>
+</div>
+</sc-for>
+</section>
+</div>
+
+<section aria-label="Recent runs" style="background: #161B22; border: 1px solid #232A33; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Recent runs</h2>
+<a href="Trace.dc.html" style="font-size: 13px">Open trace explorer</a>
+</div>
+<div style="overflow-x: auto">
+<table style="width: 100%; min-width: 820px; border-collapse: collapse; font-size: 13px">
+<thead>
+<tr style="text-align: left; color: #9AA3AE">
+<th style="padding: 10px 8px; font-weight: 500; border-bottom: 1px solid #2A313B">Status</th>
+<th style="padding: 10px 8px; font-weight: 500; border-bottom: 1px solid #2A313B">Agent</th>
+<th style="padding: 10px 8px; font-weight: 500; border-bottom: 1px solid #2A313B">Framework</th>
+<th style="padding: 10px 8px; font-weight: 500; border-bottom: 1px solid #2A313B">Trace ID</th>
+<th style="padding: 10px 8px; font-weight: 500; border-bottom: 1px solid #2A313B; text-align: right">Steps</th>
+<th style="padding: 10px 8px; font-weight: 500; border-bottom: 1px solid #2A313B; text-align: right">Duration</th>
+<th style="padding: 10px 8px; font-weight: 500; border-bottom: 1px solid #2A313B; text-align: right">Cost</th>
+<th style="padding: 10px 8px; font-weight: 500; border-bottom: 1px solid #2A313B; text-align: right">Eval</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{runs}}" as="r" hint-placeholder-count="6">
+<tr>
+<td style="padding: 10px 8px; border-bottom: 1px solid #1F252D"><span style="display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; background: {{r.bg}}; color: {{r.fg}}; font-size: 12px; font-weight: 600">{{r.status}}</span></td>
+<td style="padding: 10px 8px; border-bottom: 1px solid #1F252D; font-weight: 500">{{r.agent}}</td>
+<td style="padding: 10px 8px; border-bottom: 1px solid #1F252D; color: #AEB6C0">{{r.fw}}</td>
+<td style="padding: 10px 8px; border-bottom: 1px solid #1F252D"><a href="Trace.dc.html" style="font-family: 'JetBrains Mono', monospace; font-size: 12px">{{r.id}}</a></td>
+<td style="padding: 10px 8px; border-bottom: 1px solid #1F252D; text-align: right; font-family: 'JetBrains Mono', monospace">{{r.steps}}</td>
+<td style="padding: 10px 8px; border-bottom: 1px solid #1F252D; text-align: right; font-family: 'JetBrains Mono', monospace">{{r.dur}}</td>
+<td style="padding: 10px 8px; border-bottom: 1px solid #1F252D; text-align: right; font-family: 'JetBrains Mono', monospace">{{r.cost}}</td>
+<td style="padding: 10px 8px; border-bottom: 1px solid #1F252D; text-align: right; font-family: 'JetBrains Mono', monospace">{{r.eval}}</td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</section>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var ok = [40,32,28,24,22,26,38,55,70,82,88,92,95,90,86,84,80,78,72,66,60,54,48,44];
+    var fail = [2,1,1,1,0,1,2,3,4,5,9,14,6,4,3,3,2,3,2,2,1,2,1,1];
+    var bars = ok.map(function (v, i) { return { ok: (v * 1.8) + 'px', fail: (fail[i] * 1.8) + 'px' }; });
+    var okS = { bg: '#12332B', fg: '#5FE0B9', status: 'Success' };
+    var failS = { bg: '#3A1D1D', fg: '#FF9B8E', status: 'Failed' };
+    var retS = { bg: '#3A2E15', fg: '#F5C26B', status: 'Recovered' };
+    function run(s, agent, fw, id, steps, dur, cost, ev) {
+      return { bg: s.bg, fg: s.fg, status: s.status, agent: agent, fw: fw, id: id, steps: steps, dur: dur, cost: cost, eval: ev };
+    }
+    return {
+      bars: bars,
+      kpis: [
+        { label: 'Agent runs', value: '1,482', delta: '+12% vs. prior 24h', deltaColor: '#9AA3AE' },
+        { label: 'Failure rate', value: '4.6%', delta: '+1.9 pts — above threshold', deltaColor: '#FF9B8E' },
+        { label: 'p95 run latency', value: '18.4s', delta: '−2.1s vs. prior 24h', deltaColor: '#5FE0B9' },
+        { label: 'LLM + tool cost', value: '$212.40', delta: '$0.14 per run', deltaColor: '#9AA3AE' },
+        { label: 'Avg eval score', value: '0.86', delta: '−0.03 drift on triage-agent', deltaColor: '#F5C26B' }
+      ],
+      alerts: [
+        { color: '#FF8A7A', title: 'Tool failure spike: crm.lookup_customer', detail: '14% of calls returned 5xx in the last hour · support-triage v12' },
+        { color: '#F5C26B', title: 'Possible loop detected', detail: 'research-agent repeated web.search with identical args 6×' },
+        { color: '#F5C26B', title: 'PHI redacted in 37 spans', detail: 'Collector policy hipaa-default · no raw values stored' }
+      ],
+      runs: [
+        run(failS, 'support-triage v12', 'Strands', 'tr_8f2c91a4', '11', '14.2s', '$0.083', '0.41'),
+        run(okS, 'research-agent v4', 'LangGraph', 'tr_77d0e3b1', '23', '31.8s', '$0.412', '0.92'),
+        run(retS, 'billing-copilot v7', 'OpenAI Agents SDK', 'tr_1a9be6c0', '9', '8.7s', '$0.051', '0.88'),
+        run(okS, 'support-triage v12', 'Strands', 'tr_c4e5f702', '7', '6.1s', '$0.029', '0.95'),
+        run(okS, 'claims-intake v2', 'CrewAI', 'tr_0b3d8e55', '15', '19.3s', '$0.137', '0.90'),
+        run(okS, 'docs-qa v9', 'LlamaIndex', 'tr_5e61aa29', '5', '3.4s', '$0.012', '0.97')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
