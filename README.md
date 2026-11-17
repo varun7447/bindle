@@ -38,7 +38,7 @@ The design mockups for these screens are in [`design/console/`](design/console/)
 | `design/console` | Console design mockups (visual spec for `web/`) |
 | `docs/images` | README screenshots |
 | `deploy` | `docker-compose.yml` for a local stack (PostgreSQL, migrations, ingest, API) |
-| `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, secrets, S3 payload bucket |
+| `infra/cdk` | AWS CDK (TypeScript): VPC, Fargate ingest behind an HTTPS ALB, RDS PostgreSQL, migrate task, secrets, S3 payload bucket |
 | `examples/python` | `quickstart.py` (minimal) and `demo_agent.py` (richer run with LLM steps, retries and an optional runaway loop) |
 
 ## Run it locally
@@ -96,7 +96,12 @@ npx cdk deploy -c certificateArn=arn:aws:acm:...   # cert for ingest.bindle.ai
 
 Synth fails without a certificate: ingest carries API keys and agent payloads, so the public listener is HTTPS on 443 only. For a throwaway dev stack without a certificate, pass `-c insecureDevCidr=<your-ip>/32` instead; it serves plain HTTP reachable only from that range (/24 or narrower).
 
-After deploy: put the ClickHouse Cloud URL and user in the `bindle/clickhouse` secret, run `schema/clickhouse/001_steps.sql` then `002_traces_v2.sql` against ClickHouse, set `bindle/ingest-api-keys` to `key=tenant` pairs, and point `ingest.bindle.ai` at the `IngestEndpoint` output.
+The stack creates an RDS PostgreSQL 17 instance (encrypted, not public, in subnets with no internet route, TLS required, deletion protection, 7-day backups) with passwords in Secrets Manager. Defaults are `db.t4g.micro` in one Availability Zone; override with `-c dbInstanceClass=m7g.large -c dbMultiAz=true`. These resources cost money once deployed.
+
+After deploy:
+1. Run the `MigrateCommand` stack output (an `aws ecs run-task` command). It creates the `bindle_writer` and `bindle_reader` roles and the schema.
+2. Set `bindle/ingest-api-keys` to `key=tenant` pairs.
+3. Point `ingest.bindle.ai` at the `IngestEndpoint` output.
 
 ## Design rules
 

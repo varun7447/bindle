@@ -13,6 +13,8 @@ new BindleStack(app, 'BindleDataPlane', {
   insecureDevCidr: app.node.tryGetContext('insecureDevCidr'),
   minTasks: Number(app.node.tryGetContext('minTasks') ?? 2),
   maxTasks: Number(app.node.tryGetContext('maxTasks') ?? 20),
+  dbInstanceClass: app.node.tryGetContext('dbInstanceClass'),
+  dbMultiAz: app.node.tryGetContext('dbMultiAz') === 'true',
 });
 
 cdk.Tags.of(app).add('project', 'bindle');

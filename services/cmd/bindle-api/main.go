@@ -3,7 +3,7 @@
 // Environment:
 //
 //	BINDLE_API_LISTEN                        listen address (default 127.0.0.1:8080; compose sets :8080)
-//	BINDLE_DB_URL                            PostgreSQL URL for the read-only reader role
+//	BINDLE_DB_URL                            PostgreSQL URL for the reader role (or PGHOST, PGUSER, ... env vars)
 //	BINDLE_API_RATE_LIMIT_RPS                per-tenant requests/sec (default 20; 0 disables)
 //	BINDLE_API_LOOP_MIN_REPEATS              runaway-loop threshold (default 5)
 //	BINDLE_API_DEV_AUTH_BYPASS_TENANT        local dev only: map every request to this tenant
@@ -54,9 +54,11 @@ func run(log *slog.Logger) error {
 			"tenant", s.TenantID, "addr", addr)
 	}
 
+	// A URL, or libpq-style PGHOST/PGUSER/PGPASSWORD/PGDATABASE/PGSSLMODE
+	// variables (used on AWS, where credentials come from Secrets Manager).
 	dsn := os.Getenv("BINDLE_DB_URL")
-	if dsn == "" {
-		return errors.New("BINDLE_DB_URL is required")
+	if dsn == "" && os.Getenv("PGHOST") == "" {
+		return errors.New("BINDLE_DB_URL or PGHOST is required")
 	}
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {

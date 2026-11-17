@@ -5,7 +5,7 @@
 //	BINDLE_LISTEN                  listen address (default 127.0.0.1:4318; the container image sets :4318)
 //	BINDLE_API_KEYS                "key=tenant,key2=tenant2" (dev; prod reads Secrets Manager)
 //	BINDLE_SINK                    stdout | postgres (default stdout)
-//	BINDLE_DB_URL                  PostgreSQL URL for the writer role (postgres sink)
+//	BINDLE_DB_URL                  PostgreSQL URL for the writer role (or PGHOST, PGUSER, ... env vars)
 //	BINDLE_RETENTION_DAYS          step retention (default 30)
 //	BINDLE_PRICING_FILE            path to a JSON price table (optional)
 //	BINDLE_RATE_LIMIT_SPANS_PER_SEC per-tenant limit (default 2000; 0 disables)
@@ -59,9 +59,10 @@ func run(log *slog.Logger) error {
 	var out pipeline.Sink
 	switch env("BINDLE_SINK", "stdout") {
 	case "postgres":
+		// A URL, or libpq-style PG* variables (used on AWS).
 		dsn := os.Getenv("BINDLE_DB_URL")
-		if dsn == "" {
-			return errors.New("BINDLE_DB_URL is required for the postgres sink")
+		if dsn == "" && os.Getenv("PGHOST") == "" {
+			return errors.New("BINDLE_DB_URL or PGHOST is required for the postgres sink")
 		}
 		db, err := sql.Open("postgres", dsn)
 		if err != nil {

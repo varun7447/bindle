@@ -3,7 +3,7 @@
 //
 // Environment:
 //
-//	BINDLE_DB_ADMIN_URL         URL of the schema-owner role (e.g. the RDS master user)
+//	BINDLE_DB_ADMIN_URL         URL of the schema-owner role, e.g. the RDS master user (or PGHOST, PGUSER, ... env vars)
 //	BINDLE_DB_WRITER_ROLE       default bindle_writer (used by bindle-ingest)
 //	BINDLE_DB_READER_ROLE       default bindle_reader (used by bindle-api)
 //	BINDLE_DB_WRITER_PASSWORD   sets the writer's password (optional)
@@ -30,9 +30,11 @@ func main() {
 }
 
 func run(log *slog.Logger) error {
+	// A URL, or libpq-style PGHOST/PGUSER/PGPASSWORD/PGDATABASE/PGSSLMODE
+	// variables (used on AWS, where credentials come from Secrets Manager).
 	dsn := os.Getenv("BINDLE_DB_ADMIN_URL")
-	if dsn == "" {
-		return errors.New("BINDLE_DB_ADMIN_URL is required")
+	if dsn == "" && os.Getenv("PGHOST") == "" {
+		return errors.New("BINDLE_DB_ADMIN_URL or PGHOST is required")
 	}
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
