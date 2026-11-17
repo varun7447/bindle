@@ -1,10 +1,9 @@
-// Command bindle-api is the console's read API over ClickHouse.
+// Command bindle-api is the console's read API over PostgreSQL.
 //
 // Environment:
 //
 //	BINDLE_API_LISTEN                        listen address (default 127.0.0.1:8080; compose sets :8080)
-//	CLICKHOUSE_URL                           e.g. http://localhost:8123
-//	CLICKHOUSE_USER / CLICKHOUSE_PASSWORD    use a read-only ClickHouse user in production
+//	BINDLE_DB_URL                            PostgreSQL URL for the read-only reader role
 //	BINDLE_API_RATE_LIMIT_RPS                per-tenant requests/sec (default 20; 0 disables)
 //	BINDLE_API_LOOP_MIN_REPEATS              runaway-loop threshold (default 5)
 //	BINDLE_API_DEV_AUTH_BYPASS_TENANT        local dev only: map every request to this tenant
@@ -17,6 +16,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -27,7 +27,7 @@ import (
 	"time"
 
 	"github.com/bindle-ai/bindle/services/internal/api"
-	"github.com/bindle-ai/bindle/services/internal/query"
+	"github.com/bindle-ai/bindle/services/internal/pg"
 	"github.com/bindle-ai/bindle/services/internal/ratelimit"
 	"github.com/bindle-ai/bindle/services/internal/session"
 )
@@ -54,13 +54,21 @@ func run(log *slog.Logger) error {
 			"tenant", s.TenantID, "addr", addr)
 	}
 
+	dsn := os.Getenv("BINDLE_DB_URL")
+	if dsn == "" {
+		return errors.New("BINDLE_DB_URL is required")
+	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(20)
+	db.SetConnMaxIdleTime(5 * time.Minute)
+
 	rps := envInt("BINDLE_API_RATE_LIMIT_RPS", 20)
 	srvAPI := &api.Server{
-		Store: &query.Client{
-			URL:      env("CLICKHOUSE_URL", "http://localhost:8123"),
-			User:     os.Getenv("CLICKHOUSE_USER"),
-			Password: os.Getenv("CLICKHOUSE_PASSWORD"),
-		},
+		Store:          &pg.Store{DB: db},
 		Sessions:       sessions,
 		Limiter:        ratelimit.New(float64(rps), float64(rps*2)),
 		Log:            log,

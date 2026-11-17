@@ -2,13 +2,9 @@
 package sink
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -93,54 +89,6 @@ func (s *Stdout) Write(_ context.Context, steps []model.Step) error {
 		if err := enc.Encode(ToRow(st)); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-// ClickHouse inserts via the HTTP interface with JSONEachRow, so no driver
-// dependency is needed.
-type ClickHouse struct {
-	URL      string // e.g. http://localhost:8123 or https://<host>:8443
-	User     string
-	Password string
-	Table    string // default bindle.steps
-	Client   *http.Client
-}
-
-// Write implements pipeline.Sink.
-func (c *ClickHouse) Write(ctx context.Context, steps []model.Step) error {
-	table := c.Table
-	if table == "" {
-		table = "bindle.steps"
-	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	for _, st := range steps {
-		if err := enc.Encode(ToRow(st)); err != nil {
-			return err
-		}
-	}
-	q := url.QueryEscape(fmt.Sprintf("INSERT INTO %s FORMAT JSONEachRow", table))
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+"/?query="+q, &buf)
-	if err != nil {
-		return err
-	}
-	if c.User != "" {
-		req.Header.Set("X-ClickHouse-User", c.User)
-		req.Header.Set("X-ClickHouse-Key", c.Password)
-	}
-	client := c.Client
-	if client == nil {
-		client = &http.Client{Timeout: 15 * time.Second}
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("clickhouse: %s: %s", resp.Status, bytes.TrimSpace(msg))
 	}
 	return nil
 }

@@ -1,6 +1,6 @@
 // Package pipeline batches normalized steps and writes them to a sink.
 //
-// v0 runs in-process (ingest -> batcher -> ClickHouse). In v0.2 the ingest
+// v0 runs in-process (ingest -> batcher -> PostgreSQL). In v0.2 the ingest
 // edge publishes to Kinesis and a separate processor service runs this same
 // batcher on the consumer side; the Sink interface stays the same.
 package pipeline

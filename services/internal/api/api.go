@@ -152,7 +152,7 @@ func badRequest(w http.ResponseWriter, msg string) {
 	writeError(w, http.StatusBadRequest, "bad_request", msg)
 }
 
-// storeError logs the real error and returns a generic 500: ClickHouse
+// storeError logs the real error and returns a generic 500: database
 // messages can contain SQL and internal names.
 func (s *Server) storeError(w http.ResponseWriter, r *http.Request, err error) {
 	s.logger().Error("store", "path", r.URL.Path, "tenant", tenantFrom(r.Context()), "err", err)

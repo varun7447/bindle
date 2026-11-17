@@ -4,9 +4,9 @@
 //
 //	BINDLE_LISTEN                  listen address (default 127.0.0.1:4318; the container image sets :4318)
 //	BINDLE_API_KEYS                "key=tenant,key2=tenant2" (dev; prod reads Secrets Manager)
-//	BINDLE_SINK                    stdout | clickhouse (default stdout)
-//	CLICKHOUSE_URL                 e.g. http://localhost:8123
-//	CLICKHOUSE_USER / CLICKHOUSE_PASSWORD
+//	BINDLE_SINK                    stdout | postgres (default stdout)
+//	BINDLE_DB_URL                  PostgreSQL URL for the writer role (postgres sink)
+//	BINDLE_RETENTION_DAYS          step retention (default 30)
 //	BINDLE_PRICING_FILE            path to a JSON price table (optional)
 //	BINDLE_RATE_LIMIT_SPANS_PER_SEC per-tenant limit (default 2000; 0 disables)
 //	BINDLE_MAX_BODY_BYTES          default 8 MiB
@@ -14,6 +14,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -27,6 +28,7 @@ import (
 	"github.com/bindle-ai/bindle/services/internal/cost"
 	"github.com/bindle-ai/bindle/services/internal/ingest"
 	"github.com/bindle-ai/bindle/services/internal/normalize"
+	"github.com/bindle-ai/bindle/services/internal/pg"
 	"github.com/bindle-ai/bindle/services/internal/pipeline"
 	"github.com/bindle-ai/bindle/services/internal/ratelimit"
 	"github.com/bindle-ai/bindle/services/internal/redact"
@@ -51,23 +53,33 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	var out pipeline.Sink
 	switch env("BINDLE_SINK", "stdout") {
-	case "clickhouse":
-		out = &sink.ClickHouse{
-			URL:      env("CLICKHOUSE_URL", "http://localhost:8123"),
-			User:     os.Getenv("CLICKHOUSE_USER"),
-			Password: os.Getenv("CLICKHOUSE_PASSWORD"),
+	case "postgres":
+		dsn := os.Getenv("BINDLE_DB_URL")
+		if dsn == "" {
+			return errors.New("BINDLE_DB_URL is required for the postgres sink")
 		}
+		db, err := sql.Open("postgres", dsn)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		db.SetMaxOpenConns(10)
+		db.SetConnMaxIdleTime(5 * time.Minute)
+		w := &pg.Writer{DB: db, Log: log, Retention: time.Duration(envFloat("BINDLE_RETENTION_DAYS", 30)*24) * time.Hour}
+		go w.Maintain(ctx, time.Hour)
+		out = w
 	case "stdout":
 		out = &sink.Stdout{}
 	default:
-		return errors.New("BINDLE_SINK must be stdout or clickhouse")
+		return errors.New("BINDLE_SINK must be stdout or postgres")
 	}
 
 	batcher := pipeline.NewBatcher(out, 50_000, 1_000, time.Second, log)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	go batcher.Run(ctx)
 
 	rate := envFloat("BINDLE_RATE_LIMIT_SPANS_PER_SEC", 2000)

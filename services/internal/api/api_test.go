@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -320,7 +321,7 @@ func TestOverviewAndAlerts(t *testing.T) {
 }
 
 func TestStoreErrorsAreGeneric(t *testing.T) {
-	st := &fakeStore{err: &query.Error{Status: 500, Msg: "Table bindle.secret does not exist: SELECT ..."}}
+	st := &fakeStore{err: errors.New(`pq: relation "bindle.secret" does not exist`)}
 	h := newServer(st)
 	for _, p := range allPaths[:5] {
 		w, body := get(t, h, p, "tok-a")
