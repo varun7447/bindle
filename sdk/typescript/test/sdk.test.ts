@@ -154,8 +154,8 @@ describe('exporter', () => {
     const span = {
       name: 'x', kind: 0, spanContext: () => ({ traceId: 'a'.repeat(32), spanId: 'b'.repeat(16), traceFlags: 1 }),
       startTime: [0, 0], endTime: [0, 1], duration: [0, 1], ended: true, status: { code: 0 },
-      attributes: { 'input.value': 'secret prompt', 'gen_ai.request.model': 'm', note: 'bob@example.com' },
-      links: [], events: [{ name: 'gen_ai.content.prompt', attributes: {}, time: [0, 0] }, { name: 'retry', attributes: { why: 'bob@example.com' }, time: [0, 0] }],
+      attributes: { 'input.value': 'secret prompt', 'gen_ai.input.messages': '[{"content":"secret"}]', 'gen_ai.tool.call.result': 'r', 'gen_ai.request.model': 'm', note: 'bob@example.com' },
+      links: [], events: [{ name: 'gen_ai.content.prompt', attributes: {}, time: [0, 0] }, { name: 'gen_ai.user.message', attributes: { content: 'secret' }, time: [0, 0] }, { name: 'retry', attributes: { why: 'bob@example.com' }, time: [0, 0] }],
       resource: { attributes: {} }, instrumentationScope: { name: 't' }, droppedAttributesCount: 0, droppedEventsCount: 0, droppedLinksCount: 0,
     } as never;
     ex.export([span], () => {});

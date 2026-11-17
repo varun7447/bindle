@@ -39,6 +39,19 @@ processors:
       - { key: bindle.input, action: delete }
       - { key: bindle.output, action: delete }
       - { key: bindle.reasoning, action: delete }
+      - { key: gen_ai.input.messages, action: delete }
+      - { key: gen_ai.output.messages, action: delete }
+      - { key: gen_ai.system_instructions, action: delete }
+      - { key: gen_ai.tool.call.arguments, action: delete }
+      - { key: gen_ai.tool.call.result, action: delete }
+
+  # GenAI span events carry message content too (Strands, Foundry Agent
+  # Service). Remove this block together with the one above.
+  filter/drop_content_events:
+    error_mode: ignore
+    traces:
+      spanevent:
+        - 'IsMatch(name, "^gen_ai\\.")'
 
   # Mask well-known secret and PII shapes in whatever remains. Add your own
   # patterns here; Bindle applies its built-in rules again on ingest.
@@ -73,5 +86,5 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, attributes/drop_content, redaction, batch]
+      processors: [memory_limiter, attributes/drop_content, filter/drop_content_events, redaction, batch]
       exporters: [otlphttp/bindle]

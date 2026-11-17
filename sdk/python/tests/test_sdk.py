@@ -68,3 +68,27 @@ def test_sdk_end_to_end_with_otel_sdk():
         span.set_attribute("input.value", "email a@b.com")
     (out,) = mem.get_finished_spans()
     assert out.attributes["input.value"] == "email [REDACTED:EMAIL]"
+
+
+def test_capture_off_drops_genai_content():
+    """Framework-native content (Agent Framework attributes, Strands events)
+    must not leave the process when content capture is off."""
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    from bindle._export import RedactingSpanExporter
+    from bindle._redact import Redactor
+
+    mem = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(RedactingSpanExporter(mem, Redactor(), capture_content=False)))
+    with provider.get_tracer("t").start_as_current_span("chat") as span:
+        span.set_attribute("gen_ai.input.messages", '[{"content":"secret plan"}]')
+        span.set_attribute("gen_ai.tool.call.arguments", '{"q":"x"}')
+        span.set_attribute("gen_ai.usage.input_tokens", 40)
+        span.add_event("gen_ai.user.message", {"content": "secret plan"})
+        span.add_event("retry", {"n": 1})
+    (s,) = mem.get_finished_spans()
+    assert dict(s.attributes) == {"gen_ai.usage.input_tokens": 40}
+    assert [e.name for e in s.events] == ["retry"]

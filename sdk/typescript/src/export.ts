@@ -13,6 +13,12 @@ export const CONTENT_KEYS = [
   'bindle.input',
   'bindle.output',
   'bindle.reasoning',
+  // OpenTelemetry GenAI conventions (Microsoft Agent Framework, Strands, ADK)
+  'gen_ai.input.messages',
+  'gen_ai.output.messages',
+  'gen_ai.system_instructions',
+  'gen_ai.tool.call.arguments',
+  'gen_ai.tool.call.result',
 ] as const;
 
 export class RedactingSpanExporter implements SpanExporter {
@@ -39,7 +45,7 @@ export class RedactingSpanExporter implements SpanExporter {
     const attrs = { ...span.attributes };
     if (!capture) for (const k of CONTENT_KEYS) delete attrs[k];
     const events = span.events
-      .filter((e) => capture || !e.name.startsWith('gen_ai.content.'))
+      .filter((e) => capture || !e.name.startsWith('gen_ai.')) // GenAI events carry message content
       .map((e) => ({ ...e, attributes: redactor.applyAttributes(e.attributes) }));
     const status = span.status.message ? { ...span.status, message: redactor.apply(span.status.message) } : span.status;
     return {

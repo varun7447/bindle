@@ -36,9 +36,21 @@ type Normalizer struct {
 }
 
 // Keys pulled into first-class fields; everything else lands in Attributes.
+// These are content: they become Input/Output (so the workspace's capture
+// setting and redaction apply) and never stay in Attributes.
 var extracted = map[string]bool{
 	"input.value": true, "output.value": true, "gen_ai.prompt": true, "gen_ai.completion": true,
 	"bindle.input": true, "bindle.output": true, "bindle.reasoning": true,
+	// OpenTelemetry GenAI conventions (Microsoft Agent Framework, Strands
+	// with the latest conventions, others).
+	"gen_ai.input.messages": true, "gen_ai.output.messages": true, "gen_ai.system_instructions": true,
+	"gen_ai.tool.call.arguments": true, "gen_ai.tool.call.result": true,
+}
+
+// Span events that carry message content (GenAI event conventions: Strands,
+// Azure AI Foundry Agent Service). Inputs are joined in order.
+var inputEvents = map[string]bool{
+	"gen_ai.system.message": true, "gen_ai.user.message": true, "gen_ai.assistant.message": true, "gen_ai.tool.message": true,
 }
 
 // Normalize converts one span. tenantID comes from the authenticated API key.
@@ -54,27 +66,53 @@ func (n *Normalizer) Normalize(tenantID string, s model.Span) model.Step {
 		Name:          s.Name,
 		StartUnixNano: s.StartUnixNano,
 		ServiceName:   str(res, "service.name"),
-		AgentName:     first(str(a, "bindle.agent.name", "gen_ai.agent.name"), str(res, "bindle.agent.name")),
-		AgentVersion:  first(str(a, "bindle.agent.version"), str(res, "bindle.agent.version", "service.version")),
-		SessionID:     str(a, "bindle.session.id", "session.id", "gen_ai.conversation.id"),
-		Environment:   str(res, "deployment.environment.name", "deployment.environment"),
-		Provider:      str(a, "gen_ai.provider.name", "gen_ai.system", "llm.provider", "llm.system"),
-		Model:         str(a, "gen_ai.response.model", "gen_ai.request.model", "llm.model_name"),
-		ToolName:      str(a, "gen_ai.tool.name", "tool.name", "bindle.tool.name"),
-		InputTokens:   num(a, "gen_ai.usage.input_tokens", "gen_ai.usage.prompt_tokens", "llm.token_count.prompt"),
-		OutputTokens:  num(a, "gen_ai.usage.output_tokens", "gen_ai.usage.completion_tokens", "llm.token_count.completion"),
-		CachedTokens:  num(a, "gen_ai.usage.cache_read_input_tokens", "llm.token_count.prompt_details.cache_read"),
-		Attempt:       num(a, "bindle.attempt"),
-		Input:         str(a, "bindle.input", "input.value", "gen_ai.prompt"),
-		Output:        str(a, "bindle.output", "output.value", "gen_ai.completion"),
-		Reasoning:     str(a, "bindle.reasoning"),
+		// The name given to bindle.init() wins: frameworks also tag spans with
+		// their own (sub-)agent names, which differ within one run.
+		AgentName:    first(str(a, "bindle.agent.name"), str(res, "bindle.agent.name"), str(a, "gen_ai.agent.name")),
+		AgentVersion: first(str(a, "bindle.agent.version"), str(res, "bindle.agent.version", "service.version")),
+		SessionID:    str(a, "bindle.session.id", "session.id", "gen_ai.conversation.id"),
+		Environment:  str(res, "deployment.environment.name", "deployment.environment"),
+		Provider:     str(a, "gen_ai.provider.name", "gen_ai.system", "llm.provider", "llm.system"),
+		Model:        str(a, "gen_ai.response.model", "gen_ai.request.model", "llm.model_name"),
+		ToolName:     str(a, "gen_ai.tool.name", "tool.name", "bindle.tool.name"),
+		InputTokens:  num(a, "gen_ai.usage.input_tokens", "gen_ai.usage.prompt_tokens", "llm.token_count.prompt"),
+		OutputTokens: num(a, "gen_ai.usage.output_tokens", "gen_ai.usage.completion_tokens", "llm.token_count.completion"),
+		CachedTokens: num(a, "gen_ai.usage.cache_read_input_tokens", "llm.token_count.prompt_details.cache_read"),
+		Attempt:      num(a, "bindle.attempt"),
+		Input:        str(a, "bindle.input", "input.value", "gen_ai.prompt", "gen_ai.input.messages", "gen_ai.tool.call.arguments"),
+		Output:       str(a, "bindle.output", "output.value", "gen_ai.completion", "gen_ai.output.messages", "gen_ai.tool.call.result"),
+		Reasoning:    str(a, "bindle.reasoning"),
 	}
 	if s.EndUnixNano > s.StartUnixNano {
 		st.DurationMs = float64(s.EndUnixNano-s.StartUnixNano) / 1e6
 	}
 
+	if sys := str(a, "gen_ai.system_instructions"); sys != "" {
+		st.Input = joinNonEmpty("system: "+sys, st.Input)
+	}
+
 	// Older GenAI conventions put prompt/completion on events.
+	var evIn []string
 	for _, e := range s.Events {
+		if inputEvents[e.Name] {
+			if c := str(e.Attributes, "content", "gen_ai.event.content"); c != "" {
+				evIn = append(evIn, c)
+			}
+			continue
+		}
+		switch e.Name {
+		case "gen_ai.choice":
+			if st.Output == "" {
+				st.Output = str(e.Attributes, "message", "gen_ai.event.content")
+			}
+			continue
+		}
+		if st.Input == "" {
+			st.Input = str(e.Attributes, "gen_ai.input.messages")
+		}
+		if st.Output == "" {
+			st.Output = str(e.Attributes, "gen_ai.output.messages")
+		}
 		switch e.Name {
 		case "gen_ai.content.prompt":
 			if st.Input == "" {
@@ -91,8 +129,18 @@ func (n *Normalizer) Normalize(tenantID string, s model.Span) model.Step {
 		}
 	}
 
+	if st.Input == "" && len(evIn) > 0 {
+		st.Input = joinNonEmpty(evIn...)
+	}
+
 	st.Framework = detectFramework(s.ScopeName, res, a)
 	st.Type = classify(s, st)
+	if st.Type != model.StepLLM {
+		// Agent spans often repeat their LLM calls' total usage; counting it
+		// again would double the run's tokens. The raw values stay in
+		// Attributes.
+		st.InputTokens, st.OutputTokens, st.CachedTokens = 0, 0, 0
+	}
 	st.Status = status(s)
 	if st.Status == model.StatusFailure && st.ErrorMessage == "" {
 		st.ErrorMessage = s.StatusMessage
@@ -155,6 +203,10 @@ func classify(s model.Span, st model.Step) string {
 		return model.StepTool
 	case "invoke_agent", "create_agent":
 		return model.StepAgent
+	case "invoke_workflow": // Google ADK's top-level span
+		if s.ParentSpanID == "" {
+			return model.StepAgent
+		}
 	}
 	switch {
 	case str(a, "bindle.handoff.to") != "":
@@ -214,6 +266,10 @@ func detectFramework(scope string, res, attrs map[string]any) string {
 		return "AutoGen"
 	case strings.Contains(sc, "google.adk"), strings.Contains(sc, "gcp.vertex.agent"):
 		return "Google ADK"
+	case sc == "agent_framework", strings.HasPrefix(sc, "agent_framework."):
+		return "Microsoft Agent Framework"
+	case str(attrs, "gen_ai.system", "gen_ai.provider.name") == "az.ai.agents":
+		return "Microsoft Foundry Agent Service"
 	case sc == "ai":
 		return "Vercel AI SDK"
 	case strings.HasPrefix(sc, "bindle"):
@@ -296,4 +352,14 @@ func truncate(s string, n int) string {
 		cut--
 	}
 	return s[:cut] + "…[truncated]"
+}
+
+func joinNonEmpty(parts ...string) string {
+	var out []string
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, "\n\n")
 }

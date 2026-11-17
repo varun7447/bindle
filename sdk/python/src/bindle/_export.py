@@ -29,7 +29,10 @@ class RedactingSpanExporter(SpanExporter):
         return self._policy[0]
 
     _CONTENT_KEYS = ("input.value", "output.value", "gen_ai.prompt", "gen_ai.completion",
-                     "bindle.input", "bindle.output", "bindle.reasoning")
+                     "bindle.input", "bindle.output", "bindle.reasoning",
+                     # OpenTelemetry GenAI conventions (Microsoft Agent Framework, Strands, ADK)
+                     "gen_ai.input.messages", "gen_ai.output.messages", "gen_ai.system_instructions",
+                     "gen_ai.tool.call.arguments", "gen_ai.tool.call.result")
 
     def _clean(self, span: ReadableSpan, capture_content: bool, redactor: Redactor) -> ReadableSpan:
         attrs = dict(span.attributes or {})
@@ -40,7 +43,8 @@ class RedactingSpanExporter(SpanExporter):
         events = [
             Event(e.name, redactor.apply_attributes(dict(e.attributes or {})), e.timestamp)
             for e in span.events
-            if capture_content or not e.name.startswith("gen_ai.content.")
+            # GenAI events carry message content (gen_ai.user.message, gen_ai.choice, ...).
+            if capture_content or not e.name.startswith("gen_ai.")
         ]
         return ReadableSpan(
             name=span.name,
