@@ -103,6 +103,21 @@ AIAgentsInstrumentor().instrument()`,
     note: 'For prompts and responses, pass enable_content_recording=True (or set AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true).',
   },
   {
+    id: 'agentcore',
+    label: 'Amazon Bedrock AgentCore',
+    install: 'pip install bindle-sdk bedrock-agentcore',
+    code: `${init('my-agentcore-agent')}
+
+from bedrock_agentcore.runtime import BedrockAgentCoreApp
+
+app = BedrockAgentCoreApp()
+
+@app.entrypoint
+def invoke(payload):
+    ...  # your Strands, LangGraph or other agent`,
+    note: 'Runtime: set BINDLE_API_KEY and BINDLE_ENDPOINT on the agent runtime, plus DISABLE_ADOT_OBSERVABILITY=true unless you also want CloudWatch. Gateway spans arrive through the CloudWatch span connector in deploy/connectors/cloudwatch-spans. Full guide: examples/agentcore.',
+  },
+  {
     id: 'llm-clients',
     label: 'OpenAI / Anthropic / Bedrock clients',
     install: "pip install 'bindle-sdk[openai,anthropic,bedrock]'",

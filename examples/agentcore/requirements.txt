@@ -1,0 +1,7 @@
+bedrock-agentcore
+strands-agents
+boto3
+# The Bindle Python SDK (not on PyPI yet): installed from this repository.
+bindle-sdk @ git+https://github.com/varun7447/bindle#subdirectory=sdks/python
+# Only for the "Bindle and CloudWatch" setup (AWS's OpenTelemetry distribution):
+aws-opentelemetry-distro
