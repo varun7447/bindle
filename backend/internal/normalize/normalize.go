@@ -138,6 +138,9 @@ func (n *Normalizer) Normalize(tenantID string, s model.Span) model.Step {
 	}
 
 	st.Framework = detectFramework(s.ScopeName, res, a)
+	if st.Framework == "unknown" && isAgentCore(s) {
+		st.Framework = "Amazon Bedrock AgentCore"
+	}
 	st.Type = classify(s, st)
 	if st.Type != model.StepLLM {
 		// Agent spans often repeat their LLM calls' total usage; counting it
@@ -178,6 +181,11 @@ func classify(s model.Span, st model.Step) string {
 	a := s.Attributes
 	if t := strings.ToLower(str(a, "bindle.step.type")); t != "" {
 		return t
+	}
+	if isAgentCore(s) {
+		if t, ok := agentCoreType(s); ok {
+			return t
+		}
 	}
 	switch strings.ToUpper(str(a, "openinference.span.kind")) {
 	case "LLM", "EMBEDDING":
@@ -386,4 +394,47 @@ func rawOrString(s string) json.RawMessage {
 	}
 	b, _ := json.Marshal(s)
 	return b
+}
+
+// healthPaths are probe endpoints that platforms call constantly (AgentCore
+// Runtime's GET /ping, Kubernetes and load balancer checks).
+var healthPaths = map[string]bool{"/ping": true, "/health": true, "/healthz": true, "/livez": true, "/readyz": true, "/ready": true}
+
+// IsHealthCheck reports whether a span is a standalone health probe: a root
+// HTTP server span for a health path. Auto-instrumentation records one per
+// probe; as runs they would only be noise.
+func IsHealthCheck(s model.Span) bool {
+	if s.ParentSpanID != "" {
+		return false
+	}
+	a := s.Attributes
+	path := str(a, "http.route", "url.path", "http.target")
+	if i := strings.IndexByte(path, '?'); i >= 0 {
+		path = path[:i]
+	}
+	if !healthPaths[strings.TrimRight(path, "/")] && !healthPaths[path] {
+		return false
+	}
+	m := strings.ToUpper(str(a, "http.request.method", "http.method"))
+	return m == "" || m == "GET" || m == "HEAD"
+}
+
+// AgentCore service spans (Gateway, Policy, Identity, built-in tools) reach
+// Bindle through the CloudWatch span connector. They're named
+// "AgentCore.<Service>.<Operation>"; aws.xray.origin is a fallback.
+func isAgentCore(s model.Span) bool {
+	return strings.HasPrefix(s.Name, "AgentCore.") ||
+		strings.HasPrefix(str(s.Attributes, "aws.xray.origin"), "AWS::BedrockAgentCore")
+}
+
+func agentCoreType(s model.Span) (string, bool) {
+	switch {
+	case strings.HasPrefix(s.Name, "AgentCore.Policy."):
+		return model.StepGuardrail, true
+	case s.Kind == 3 && str(s.Attributes, "tool.name") != "":
+		// A Gateway tool call emits a SERVER span (the call) and a CLIENT
+		// span (the target it reached). Count the call once.
+		return model.StepOther, true
+	}
+	return "", false
 }

@@ -191,3 +191,55 @@ func TestMaxPayloadBytesConfigurable(t *testing.T) {
 		t.Fatalf("raised cap not applied: %d", len(got))
 	}
 }
+
+func TestIsHealthCheck(t *testing.T) {
+	span := func(parent string, a map[string]any) model.Span {
+		return model.Span{ParentSpanID: parent, Attributes: a}
+	}
+	for _, s := range []model.Span{
+		span("", map[string]any{"http.method": "GET", "http.route": "/ping"}),
+		span("", map[string]any{"http.request.method": "GET", "url.path": "/healthz"}),
+		span("", map[string]any{"http.target": "/health?full=1"}),
+	} {
+		if !IsHealthCheck(s) {
+			t.Errorf("not detected: %v", s.Attributes)
+		}
+	}
+	for _, s := range []model.Span{
+		span("", map[string]any{"http.method": "POST", "http.route": "/invocations"}),
+		span("p", map[string]any{"http.method": "GET", "http.route": "/ping"}), // part of a larger trace
+		span("", map[string]any{"http.method": "POST", "http.route": "/ping"}),
+		span("", map[string]any{"gen_ai.operation.name": "chat"}),
+	} {
+		if IsHealthCheck(s) {
+			t.Errorf("wrongly dropped: %v", s.Attributes)
+		}
+	}
+}
+
+func TestAgentCoreServiceSpans(t *testing.T) {
+	n := newN()
+	gw := map[string]any{"tool.name": "lookup_order", "gateway.id": "gw-1", "aws.operation.name": "CallTool"}
+	cases := []struct {
+		name  string
+		kind  int32
+		attrs map[string]any
+		want  string
+	}{
+		{"AgentCore.Gateway.InvokeTool", 2, gw, model.StepTool},
+		{"AgentCore.Gateway.InvokeTool", 3, gw, model.StepOther},
+		{"AgentCore.Policy.AuthorizeAction", 1, map[string]any{}, model.StepGuardrail},
+		{"AgentCore.Identity.GetWorkloadAccessToken", 1, map[string]any{}, model.StepOther},
+	}
+	for _, c := range cases {
+		st := n.Normalize("t1", model.Span{Name: c.name, Kind: c.kind, ParentSpanID: "p", Attributes: c.attrs})
+		if st.Type != c.want || st.Framework != "Amazon Bedrock AgentCore" {
+			t.Errorf("%s kind %d: got %s/%s", c.name, c.kind, st.Type, st.Framework)
+		}
+	}
+	// An agent's own spans aren't relabelled.
+	st := n.Normalize("t1", model.Span{Name: "chat", ScopeName: "strands.telemetry.tracer", Attributes: map[string]any{"gen_ai.operation.name": "chat"}})
+	if st.Framework != "Strands" || st.Type != model.StepLLM {
+		t.Errorf("strands span: got %s/%s", st.Type, st.Framework)
+	}
+}
