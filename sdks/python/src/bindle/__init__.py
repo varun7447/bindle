@@ -160,7 +160,7 @@ def _setup(cfg: _config.Config):
         compression=Compression.Gzip,
     )
     # Always wrapped, so remote settings can tighten capture and redaction later.
-    exporter = RedactingSpanExporter(exporter, _local_redactor(cfg), cfg.capture_content)
+    exporter = RedactingSpanExporter(exporter, _local_redactor(cfg), cfg.capture_content, resource_overlay=attrs)
     _state["exporter"] = exporter
 
     # Bounded queue: when full, spans are dropped instead of blocking the agent.

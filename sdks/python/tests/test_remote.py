@@ -157,3 +157,32 @@ def test_init_polls_remote_config(monkeypatch):
         bindle.shutdown()
         fake.close()
     assert bindle._state["poller"] is None
+
+
+def test_poll_is_not_traced_by_auto_instrumentation():
+    from opentelemetry import context
+
+    from bindle._remote import Poller
+
+    seen = {}
+
+    class Resp:
+        status = 200
+        headers = {}
+
+        def read(self, n):
+            return b'{"sample_rate": 1, "capture_content": true}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def opener(req, timeout):
+        seen["suppressed"] = context.get_value(context._SUPPRESS_INSTRUMENTATION_KEY)
+        return Resp()
+
+    Poller("http://x/v1/config", "k", lambda s: None, "ua", opener=opener).poll_once()
+    assert seen["suppressed"] is True
+    assert context.get_value(context._SUPPRESS_INSTRUMENTATION_KEY) is None  # restored afterwards

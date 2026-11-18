@@ -83,6 +83,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	steps := make([]model.Step, 0, len(spans))
 	for _, s := range spans {
+		if normalize.IsHealthCheck(s) {
+			continue // load balancer and platform probes, not agent work
+		}
 		steps = append(steps, h.Normalizer.Normalize(tenant, s))
 	}
 	if h.Policies != nil {

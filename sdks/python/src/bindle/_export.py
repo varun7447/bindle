@@ -6,8 +6,9 @@ each span with cleaned attributes and handing the copy to the real exporter.
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Optional, Sequence
 
+from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Event, ReadableSpan
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 
@@ -21,8 +22,13 @@ class RedactingSpanExporter(SpanExporter):
     DROPPED_ATTR = "bindle.content_dropped"
 
     def __init__(self, delegate: SpanExporter, redactor: Redactor, capture_content: bool = True,
-                 dropped_by: str = "sdk"):
+                 dropped_by: str = "sdk", resource_overlay: Optional[dict] = None):
         self._delegate = delegate
+        # Bindle's resource attributes (agent name, version, environment),
+        # added to spans from a tracer provider Bindle didn't create (for
+        # example AWS ADOT on AgentCore). Existing attributes win.
+        self._overlay = dict(resource_overlay or {})
+        self._resources: dict = {}
         # One tuple, replaced atomically by update(), read once per export.
         self._policy = (capture_content, redactor, dropped_by)
 
@@ -57,7 +63,7 @@ class RedactingSpanExporter(SpanExporter):
             name=span.name,
             context=span.context,
             parent=span.parent,
-            resource=span.resource,
+            resource=self._with_overlay(span.resource),
             attributes=attrs,
             events=events,
             links=span.links,
@@ -67,6 +73,20 @@ class RedactingSpanExporter(SpanExporter):
             end_time=span.end_time,
             instrumentation_scope=span.instrumentation_scope,
         )
+
+    def _with_overlay(self, resource: Resource) -> Resource:
+        if not self._overlay or resource is None:
+            return resource
+        cached = self._resources.get(id(resource))
+        if cached is not None and cached[0] is resource:
+            return cached[1]
+        attrs = dict(self._overlay)
+        attrs.update(resource.attributes)  # the app's own attributes take precedence
+        merged = Resource(attrs, resource.schema_url)
+        if len(self._resources) > 64:
+            self._resources.clear()
+        self._resources[id(resource)] = (resource, merged)
+        return merged
 
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
         capture_content, redactor, dropped_by = self._policy

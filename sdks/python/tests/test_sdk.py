@@ -92,3 +92,26 @@ def test_capture_off_drops_genai_content():
     (s,) = mem.get_finished_spans()
     assert dict(s.attributes) == {"gen_ai.usage.input_tokens": 40, "bindle.content_dropped": "sdk"}
     assert [e.name for e in s.events] == ["retry"]
+
+
+def test_resource_overlay_names_spans_from_another_provider():
+    """On AgentCore, ADOT owns the tracer provider; Bindle's exporter still
+    labels spans with the agent name, version and environment."""
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    from bindle._export import RedactingSpanExporter
+    from bindle._redact import Redactor
+
+    mem = InMemorySpanExporter()
+    overlay = {"bindle.agent.name": "refunds", "deployment.environment.name": "prod", "service.name": "bindle-default"}
+    provider = TracerProvider(resource=Resource({"service.name": "adot-service"}))
+    provider.add_span_processor(SimpleSpanProcessor(RedactingSpanExporter(mem, Redactor(), resource_overlay=overlay)))
+    with provider.get_tracer("t").start_as_current_span("chat"):
+        pass
+    (s,) = mem.get_finished_spans()
+    assert s.resource.attributes["bindle.agent.name"] == "refunds"
+    assert s.resource.attributes["deployment.environment.name"] == "prod"
+    assert s.resource.attributes["service.name"] == "adot-service"  # the app's own value wins

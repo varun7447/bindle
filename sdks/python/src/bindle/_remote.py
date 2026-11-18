@@ -26,6 +26,19 @@ from typing import Callable, Dict, Optional
 
 log = logging.getLogger("bindle")
 
+try:
+    from opentelemetry import context as _otel_context
+except Exception:  # noqa: BLE001
+    _otel_context = None
+
+
+def _suppress_instrumentation():
+    """Mark the current context so instrumentations skip it; returns a token."""
+    key = getattr(_otel_context, "_SUPPRESS_INSTRUMENTATION_KEY", None) if _otel_context else None
+    if key is None:
+        return None
+    return _otel_context.attach(_otel_context.set_value(key, True))
+
 _MIN_POLL, _MAX_POLL, _MAX_BACKOFF = 30.0, 3600.0, 600.0
 _MAX_BODY = 64 * 1024
 _NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,31}$")
@@ -87,6 +100,16 @@ class Poller(threading.Thread):
         return base * random.uniform(0.9, 1.1)  # jitter: fleets don't poll in lockstep
 
     def poll_once(self) -> None:
+        # Auto-instrumentation (e.g. ADOT's urllib instrumentation) must not
+        # turn Bindle's own settings requests into traces.
+        token = _suppress_instrumentation()
+        try:
+            self._poll()
+        finally:
+            if token is not None:
+                _otel_context.detach(token)
+
+    def _poll(self) -> None:
         try:
             req = urllib.request.Request(self._url, headers={
                 "Authorization": f"Bearer {self._key}", "Accept": "application/json", "User-Agent": self._ua,

@@ -1,3 +1,6 @@
+import { context } from '@opentelemetry/api';
+import { suppressTracing } from '@opentelemetry/core';
+
 // Remote settings from the Bindle console (sample rate, content capture,
 // extra redaction patterns), polled from GET {endpoint}/v1/config. They are
 // a ceiling: code can only be stricter. Never throws, never blocks the event
@@ -85,7 +88,10 @@ export class Poller {
     try {
       const headers: Record<string, string> = { authorization: `Bearer ${this.apiKey}`, accept: 'application/json', 'user-agent': this.userAgent };
       if (this.etag) headers['if-none-match'] = this.etag;
-      const res = await this.fetchImpl(this.url, { headers, signal: AbortSignal.timeout(5000) });
+      // Auto-instrumentation must not trace Bindle's own settings requests.
+      const res = await context.with(suppressTracing(context.active()), () =>
+        this.fetchImpl(this.url, { headers, signal: AbortSignal.timeout(5000) }),
+      );
       if (res.status === 304) {
         this.failures = 0;
         return;
