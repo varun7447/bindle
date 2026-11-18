@@ -20,6 +20,10 @@ deploy/aws/cdk.out/
 deploy/aws/**/*.js
 deploy/aws/**/*.d.ts
 !deploy/aws/jest.config.js
+deploy/connectors/*/cdk.out/
+deploy/connectors/*/bin/*.js
+deploy/connectors/*/lib/*.js
+deploy/connectors/*/**/*.d.ts
 
 # Local secrets (deploy/local/dev-env.sh writes deploy/local/.env)
 .env

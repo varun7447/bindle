@@ -116,3 +116,23 @@ jobs:
       - run: npm ci --no-audit --no-fund
       # Synth only, no AWS credentials. The CIDR is a documentation range.
       - run: npx cdk synth -c insecureDevCidr=203.0.113.0/24 > /dev/null
+
+  connector:
+    name: CloudWatch span connector
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/connectors/cloudwatch-spans
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m unittest -v test_handler
+        working-directory: deploy/connectors/cloudwatch-spans/forwarder
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - run: npm ci --no-audit --no-fund
+      # Synth only, no AWS credentials. Placeholder endpoint and secret ARN.
+      - run: npx cdk synth -c bindleEndpoint=https://ingest.example.com -c apiKeySecretArn=arn:aws:secretsmanager:us-west-2:111111111111:secret:bindle/ingest-key-AbCdEf > /dev/null

@@ -39,8 +39,9 @@ Design rationale, colors and accessibility checks: [`docs/design/console.md`](do
 | [`sdks/typescript/`](sdks/typescript/) | `@bindle-ai/sdk` for Node.js |
 | [`deploy/local/`](deploy/local/) | Docker Compose stack for development |
 | [`deploy/aws/`](deploy/aws/) | AWS CDK stack |
+| [`deploy/connectors/cloudwatch-spans/`](deploy/connectors/cloudwatch-spans/) | Customer-deployed forwarder for AWS service spans (AgentCore Gateway, Policy, Identity) from CloudWatch to Bindle |
 | [`deploy/otel-collector/`](deploy/otel-collector/) | Optional OpenTelemetry Collector config for regulated tenants |
-| [`examples/`](examples/) | `sdk/`: quickstart and demo agent. `frameworks/`: LangGraph, Strands, Google ADK and Microsoft Agent Framework agents with stub models |
+| [`examples/`](examples/) | `sdk/`: quickstart and demo agent. `frameworks/`: LangGraph, Strands, Google ADK and Microsoft Agent Framework agents with stub models. `agentcore/`: a Strands agent for Amazon Bedrock AgentCore Runtime |
 | [`docs/`](docs/) | [Architecture](docs/architecture.md), [console design](docs/design/console.md), [plans](docs/plans/) |
 | [`.github/workflows/`](.github/workflows/) | CI: every test suite, container builds and `cdk synth` on each pull request |
 
