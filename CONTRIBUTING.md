@@ -4,7 +4,7 @@ Thanks for helping. Bug reports, fixes and new framework support are all welcome
 
 ## Getting set up
 
-You need Docker, Go 1.23+, Node 20+ and Python 3.9+.
+You need Docker, Go 1.25+, Node 20+ and Python 3.9+.
 
 ```bash
 make up        # local stack: OpenSearch, PostgreSQL, ingest, API, alerts

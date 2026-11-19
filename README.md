@@ -53,13 +53,13 @@ Design rationale, colors and accessibility checks: [`docs/design/console.md`](do
 | [`deploy/aws/`](deploy/aws/) | AWS CDK stack |
 | [`deploy/connectors/cloudwatch-spans/`](deploy/connectors/cloudwatch-spans/) | Customer-deployed forwarder for AWS service spans (AgentCore Gateway, Policy, Identity) from CloudWatch to Bindle |
 | [`deploy/otel-collector/`](deploy/otel-collector/) | Optional OpenTelemetry Collector config for regulated tenants |
-| [`examples/`](examples/) | `sdk/`: quickstart and demo agent. `frameworks/`: LangGraph, Strands, Google ADK and Microsoft Agent Framework agents with stub models. `agentcore/`: a Strands agent for Amazon Bedrock AgentCore Runtime |
-| [`docs/`](docs/) | [Architecture](docs/architecture.md), [console design](docs/design/console.md), [plans](docs/plans/) |
-| [`.github/workflows/`](.github/workflows/) | CI: every test suite, container builds and `cdk synth` on each pull request |
+| [`examples/`](examples/) | `sdk/`: quickstart and demo agent. `frameworks/`: LangGraph, Strands, Google ADK and Microsoft Agent Framework agents with stub models. `agentcore/`: a Strands agent for Amazon Bedrock AgentCore Runtime. `ci/`: a GitHub workflow that runs `bindle eval` on pull requests |
+| [`docs/`](docs/) | [Architecture](docs/architecture.md), [console design](docs/design/console.md), [evaluation integrations](docs/integrations/evaluations.md) (Azure AI Foundry, Vertex AI, AgentCore), [plans](docs/plans/) |
+| [`.github/workflows/`](.github/workflows/) | CI: every test suite, container builds and `cdk synth` on each pull request; a weekly check of the model pricing pages |
 
 ## Run it locally
 
-Needs Docker, Go 1.23+, Node 20+ and Python 3.9+.
+Needs Docker, Go 1.25+, Node 20+ and Python 3.9+. Go dependencies are downloaded at build time (not committed); on networks that block `proxy.golang.org`, set `GOPROXY=direct` (the local Docker stack already does).
 
 ```bash
 make up          # local stack: OpenSearch, PostgreSQL, ingest, API, alerts
@@ -89,7 +89,7 @@ Each part can also be run alone (`make test-backend`, `test-python`, `test-types
 
 ## Deploy
 
-See [`deploy/aws/`](deploy/aws/): ingest, a private API, the console behind HTTPS with Cognito sign-in, and the data stores. Deploying creates paid AWS resources.
+See [`deploy/aws/`](deploy/aws/): ingest, a private API, the console behind HTTPS with Cognito sign-in, and the data stores, all on ARM (Graviton) Fargate tasks. `cdk deploy` builds the images locally, so Docker must be running; pass `-c goproxy=direct` on networks that block `proxy.golang.org`. Deploying creates paid AWS resources.
 
 ## Status
 
