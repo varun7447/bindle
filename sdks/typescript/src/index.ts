@@ -11,7 +11,7 @@
 //  - Redaction is on by default and runs before data leaves the process.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { context, SpanStatusCode, trace, type Attributes, type Span } from '@opentelemetry/api';
+import { context, ROOT_CONTEXT, SpanStatusCode, trace, type Attributes, type Link, type Span } from '@opentelemetry/api';
 import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
 import { CompressionAlgorithm } from '@opentelemetry/otlp-exporter-base';
@@ -23,9 +23,11 @@ import { Poller, type RemoteSettings } from './remote.js';
 import { DynamicRatioSampler } from './sampling.js';
 
 import { Guard, LimitExceededError, type LimitsStatus, RunCounter } from './limits.js';
+import { extractMeta, injectMeta, LINK_KINDS, type LinkKind, makeToken, parseToken } from './links.js';
 export { Redactor } from './redact.js';
 export { LimitExceededError, type LimitReason, type LimitsStatus } from './limits.js';
 export { sampled } from './sampling.js';
+export { type LinkKind, parseToken } from './links.js';
 
 export const VERSION = '0.1.0';
 export const DEFAULT_ENDPOINT = 'https://ingest.bindle.ai';
@@ -342,34 +344,39 @@ export function step<T>(name: string, opts: { type?: StepType; attributes?: Reco
       const key = k.includes('.') ? k : `bindle.${k}`;
       span.setAttribute(key, typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? v : preview(v));
     }
-    const fail = (e: unknown) => {
-      span.recordException(e as Error);
-      span.setStatus({ code: SpanStatusCode.ERROR, message: e instanceof Error ? e.message : String(e) });
-    };
-    let result: T;
-    try {
-      result = fn(span);
-    } catch (e) {
-      fail(e);
-      span.end();
-      throw e;
-    }
-    if (result instanceof Promise) {
-      return result.then(
-        (v) => {
-          span.end();
-          return v;
-        },
-        (e) => {
-          fail(e);
-          span.end();
-          throw e;
-        },
-      ) as T;
-    }
-    span.end();
-    return result;
+    return runInSpan(span, fn);
   });
+}
+
+/** Run fn in span, ending it when fn returns or its promise settles; errors are recorded and rethrown. */
+function runInSpan<T>(span: Span, fn: (span: Span) => T): T {
+  const fail = (e: unknown) => {
+    span.recordException(e as Error);
+    span.setStatus({ code: SpanStatusCode.ERROR, message: e instanceof Error ? e.message : String(e) });
+  };
+  let result: T;
+  try {
+    result = fn(span);
+  } catch (e) {
+    fail(e);
+    span.end();
+    throw e;
+  }
+  if (result instanceof Promise) {
+    return result.then(
+      (v) => {
+        span.end();
+        return v;
+      },
+      (e) => {
+        fail(e);
+        span.end();
+        throw e;
+      },
+    ) as T;
+  }
+  span.end();
+  return result;
 }
 
 function wrap<A extends unknown[], R>(fn: (...args: A) => R, name: string, type: StepType, attributes: Record<string, unknown>) {
@@ -468,6 +475,75 @@ export function currentTraceId(): string | undefined {
 }
 
 /** Record a handoff to another agent or a human. */
+/**
+ * A short string that identifies where the current run is (trace context,
+ * agent and session). Store it with work that continues later or elsewhere
+ * (a queue message, a job row, a human-approval request) and pass it to
+ * resume() there. Undefined outside a run.
+ */
+export function contextToken(): string | undefined {
+  try {
+    return makeToken(trace.getActiveSpan()?.spanContext(), state.cfg?.agent, session.getStore());
+  } catch {
+    return undefined;
+  }
+}
+
+export interface ResumeOptions {
+  name?: string;
+  /** resumed (default), handoff (another agent takes over) or called (serves another run's request). */
+  kind?: LinkKind;
+  /** Join the original run instead of starting a new, linked one (for short hops). */
+  sameTrace?: boolean;
+}
+
+/**
+ * Run fn as a run that continues the one `token` came from (contextToken()),
+ * in any process and any time later:
+ *   await bindle.resume(job.bindleToken, { name: 'process refund' }, async () => { ... })
+ * The new run links to the original (Bindle shows "continued from" and
+ * "continued in") and keeps its session. An invalid or missing token starts
+ * an unlinked run; it never throws on its own.
+ */
+export function resume<T>(token: string | undefined, opts: ResumeOptions, fn: (span: Span) => T): T {
+  const parsed = parseToken(token);
+  if (token !== undefined && !parsed) debug('bindle: resume() got an invalid context token; starting an unlinked run');
+  const kind: LinkKind = opts.kind && LINK_KINDS.includes(opts.kind) ? opts.kind : 'resumed';
+  const attributes: Attributes = { 'bindle.step.type': 'agent', 'bindle.link.kind': kind };
+  const links: Link[] = [];
+  let ctx = ROOT_CONTEXT;
+  if (parsed) {
+    attributes['bindle.link.trace_id'] = parsed.spanContext.traceId;
+    if (parsed.agent) attributes['bindle.link.from_agent'] = parsed.agent;
+    links.push({ context: parsed.spanContext, attributes: { 'bindle.link.kind': kind } });
+    if (opts.sameTrace) ctx = trace.setSpanContext(ROOT_CONTEXT, parsed.spanContext);
+  }
+  const inherited = parsed?.session && !session.getStore() ? parsed.session : undefined;
+  if (inherited) attributes['bindle.session.id'] = inherited;
+  const start = () =>
+    trace.getTracer(TRACER, VERSION).startActiveSpan(opts.name ?? 'resume', { attributes, links, root: !opts.sameTrace }, ctx, (span) => runInSpan(span, fn));
+  return inherited ? session.run(inherited, start) : start();
+}
+
+/**
+ * A copy of an MCP request's params with the current trace context in
+ * params._meta (traceparent, tracestate), so the MCP server's spans join this
+ * run. Existing _meta keys are kept; outside a run params are returned as is.
+ */
+export function injectMcpMeta<P extends Record<string, unknown>>(params?: P): P {
+  try {
+    return injectMeta(params, trace.getActiveSpan()?.spanContext());
+  } catch {
+    return { ...(params ?? {}) } as P;
+  }
+}
+
+/** In an MCP server's request handler: run fn so its spans continue the caller's trace from params._meta. */
+export function withMcpContext<T>(params: unknown, fn: () => T): T {
+  const sc = extractMeta(params);
+  return sc ? context.with(trace.setSpanContext(context.active(), sc), fn) : fn();
+}
+
 export function handoff(toAgent: string, opts: { reason?: string; fromAgent?: string } = {}): void {
   step(`handoff -> ${toAgent}`, { type: 'handoff' }, (span) => {
     span.setAttribute('bindle.handoff.to', toAgent);

@@ -88,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/runs", s.listRuns)
 	api.HandleFunc("GET /api/traces/{id}", s.getTrace)
 	api.HandleFunc("GET /api/traces/{id}/steps/{step}", s.getStep)
+	api.HandleFunc("GET /api/traces/{id}/links", s.traceLinks)
 	api.HandleFunc("GET /api/overview", s.overview)
 	api.HandleFunc("GET /api/alerts", s.alerts)
 	api.HandleFunc("GET /api/insights", s.insights)

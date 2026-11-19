@@ -31,11 +31,12 @@ from . import _config, _instrument
 from ._redact import Redactor
 
 from ._limits import LimitExceeded
+from ._links import inject_mcp_meta, mcp_server_context
 
 __all__ = [
     "init", "flush", "shutdown", "step", "trace_step", "trace_tool",
     "decision", "handoff", "score", "feedback", "current_trace_id", "set_session", "check_limits", "limits_status",
-    "LimitExceeded", "Redactor",
+    "LimitExceeded", "Redactor", "context_token", "resume", "inject_mcp_meta", "mcp_server_context",
 ]
 __version__ = "0.1.0"
 
@@ -476,6 +477,45 @@ def current_trace_id() -> Optional[str]:
         return format(ctx.trace_id, "032x") if ctx.is_valid else None
     except Exception:  # noqa: BLE001
         return None
+
+
+def context_token() -> Optional[str]:
+    """A short string that identifies where the current run is (its trace
+    context, agent and session). Store it with work that continues later or
+    elsewhere (a queue message, a job row, a human-approval request) and
+    pass it to ``bindle.resume()`` there. None outside a run."""
+    try:
+        from ._links import make_token
+
+        cfg = _state["config"]
+        return make_token(trace.get_current_span().get_span_context(),
+                          agent=getattr(cfg, "agent", None), session=_current_session())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+@contextmanager
+def resume(token: Optional[str], name: str = "resume", *, kind: str = "resumed",
+           same_trace: bool = False) -> Iterator[trace.Span]:
+    """Start a run that continues the one ``token`` came from
+    (``bindle.context_token()``), in any process and any time later:
+
+        with bindle.resume(job["bindle_token"], name="process refund"):
+            ...
+
+    The new run links to the original, so Bindle shows "continued from" and
+    "continued in" on the two runs, and it keeps the original's session.
+    ``kind`` is "resumed" (default), "handoff" (another agent takes over) or
+    "called" (the run serves another run's request). With ``same_trace``
+    the work joins the original run instead of starting a new one (for
+    short hops; long waits read better as separate runs). An invalid or
+    missing token starts an unlinked run; it never raises.
+    """
+    from ._links import resume_span
+
+    tracer = trace.get_tracer(_TRACER_NAME, __version__)
+    with resume_span(tracer, token, name, kind, same_trace, _session_var, _current_session) as span:
+        yield span
 
 
 def handoff(to_agent: str, reason: Optional[str] = None, from_agent: Optional[str] = None) -> None:

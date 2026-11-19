@@ -15,6 +15,7 @@ import type { ReplayMessage, ReplayResponse } from './replay';
 import type { AgentChecks, Dataset, DatasetItem, EvalRun, Scorer } from './evals';
 import type { Session, SessionDetail } from './sessions';
 import type { SearchHit } from './search';
+import type { TraceLink } from './links';
 import type {
   APIKey,
   AlertsResponse,
@@ -119,6 +120,10 @@ export const api = {
   trace: async (id: string) => {
     if (!isTraceId(id)) throw new ApiError(400, 'bad_request', 'Invalid trace ID');
     return get<TraceResponse>(`/api/traces/${id}`);
+  },
+  traceLinks: async (id: string) => {
+    if (!isTraceId(id)) throw new ApiError(400, 'bad_request', 'Invalid trace ID');
+    return get<{ links: TraceLink[] }>(`/api/traces/${id}/links`);
   },
   step: async (traceId: string, stepId: string) => {
     if (!isTraceId(traceId) || !isStepId(stepId)) throw new ApiError(400, 'bad_request', 'Invalid step ID');
