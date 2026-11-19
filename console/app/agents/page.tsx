@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { requireSession } from '@/lib/auth';
 import { toolFlags, verdict, versionRows } from '@/lib/agents';
 import { checkMatrix, passRate } from '@/lib/evals';
+import { definitionLabel, problemHref } from '@/lib/outcomes';
 import { fmtBytes } from '@/lib/context';
 import { formatCost, formatCount, formatDuration, formatPercent, formatRelative } from '@/lib/format';
 import { WINDOWS, asWindow, one } from '@/lib/ids';
@@ -24,7 +25,7 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
   await requireSession('/agents');
   const sp = await searchParams;
   const window = asWindow(one(sp.window) ?? '7d');
-  const [ins, tools] = await Promise.all([settle(api.insights(window)), settle(api.tools(window))]);
+  const [ins, tools, econ] = await Promise.all([settle(api.insights(window)), settle(api.tools(window)), settle(api.economics(window))]);
   const agents = ins.ok ? ins.data.agents : [];
   const requested = one(sp.agent);
   const agent = requested !== undefined && agents.some((a) => a.agent === requested) ? requested : agents[0]?.agent;
@@ -34,6 +35,7 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
   const scoreVersions = checks?.ok ? [...new Set(checks.data.scores.map((s) => s.version))] : [];
   const scoreNames = checks?.ok ? [...new Set(checks.data.scores.map((s) => s.name))] : [];
   const rows = versions?.ok ? versionRows(versions.data.versions) : [];
+  const econRows = econ.ok ? econ.data.agents.filter((e) => e.agent === agent) : [];
   const summary = verdict(rows);
   const now = Date.now();
   const q = (o: Record<string, string | undefined>) => {
@@ -156,6 +158,75 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
           </>
         )}
       </section>
+
+      {agent !== undefined ? (
+        <section className="panel panel-flush" style={{ marginBottom: 16 }} aria-labelledby="economics-h">
+          <div className="section-title">
+            <h2 id="economics-h" className="h-icon">
+              <CheckCircleIcon />
+              Cost per successful outcome
+            </h2>
+            <Link href={problemHref({ kind: 'failed_runs', agent, window })}>Turn failed runs into eval cases →</Link>
+          </div>
+          {!econ.ok ? (
+            <div style={{ padding: 18 }}>
+              <ApiErrorPanel error={econ.error} />
+            </div>
+          ) : econRows.length === 0 ? (
+            <div className="empty">No runs in this period.</div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ marginTop: 8 }}>
+                <thead>
+                  <tr>
+                    <th style={{ paddingLeft: 18 }}>Version</th>
+                    <th className="num">Runs</th>
+                    <th className="num">
+                      Successful <Help>Runs with a good outcome: from bindle.outcome() when the agent sends outcomes, otherwise runs with no failed step and no thumbs down.</Help>
+                    </th>
+                    <th className="num">Spend</th>
+                    <th className="num">
+                      Per success <Help>All priced spend of the version divided by its successful outcomes: what one good result costs, failures included.</Help>
+                    </th>
+                    <th className="num" style={{ paddingRight: 18 }}>
+                      Wasted <Help>Spend on failed runs, runs whose outcome failed, and (without outcomes) runs users disliked.</Help>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {econRows.map((e) => {
+                    const partial = e.unknown_cost_runs > 0;
+                    return (
+                      <tr key={e.version || '(none)'}>
+                        <td style={{ paddingLeft: 18 }}>
+                          <b>{e.version || 'unversioned'}</b>
+                          <div className="sub">{definitionLabel(e.definition)}</div>
+                        </td>
+                        <td className="num">{formatCount(e.runs)}</td>
+                        <td className="num">
+                          {formatCount(e.successes)}
+                          {e.runs ? <div className="sub">{formatPercent(e.successes / e.runs)}</div> : null}
+                        </td>
+                        <td className="num" title={partial ? `${e.unknown_cost_runs} runs had model calls with no known price` : undefined}>
+                          {formatCost(e.cost_usd, partial)}
+                        </td>
+                        <td className="num">{e.cost_per_success_usd === null ? '–' : formatCost(e.cost_per_success_usd, partial)}</td>
+                        <td className="num" style={{ paddingRight: 18 }}>
+                          {formatCost(e.wasted_usd, partial)}
+                          {e.cost_usd > 0 ? <div className="sub">{formatPercent(e.wasted_usd / e.cost_usd)} of spend</div> : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="sub" style={{ padding: '8px 18px 14px', margin: 0 }}>
+            Send <code>bindle.outcome(&quot;ticket_resolved&quot;)</code> when a run does its job (or <code>success=False</code> when it doesn&apos;t) to measure real outcomes. Unpriced model calls are never estimated: amounts marked as partial are a lower bound.
+          </p>
+        </section>
+      ) : null}
 
       {agent !== undefined ? (
         <section className="panel panel-flush" style={{ marginBottom: 16 }} aria-labelledby="checks-h">

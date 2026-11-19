@@ -131,6 +131,30 @@ describe('limits', () => {
     expect(fb.spanContext().traceId).toBe(tid);
   });
 
+  it('records outcomes', async () => {
+    const mem = new InMemorySpanExporter();
+    expect(bindle.init({ apiKey: 'bd_test_' + 'a'.repeat(40), endpoint: 'http://localhost:4318', agent: 'support', remoteConfig: false }, { exporter: () => mem })).toBe(true);
+    let tid = '';
+    trace.getTracer('t').startActiveSpan('run', (s: Span) => {
+      expect(bindle.outcome('ticket_resolved')).toBe(true);
+      tid = bindle.currentTraceId()!;
+      s.end();
+    });
+    expect(bindle.outcome('refund_issued', { success: false, value: 42.5, traceId: tid })).toBe(true);
+    expect(bindle.outcome('bad', { success: 'yes' as unknown as boolean })).toBe(false);
+    expect(bindle.outcome('', { traceId: tid })).toBe(false);
+    await bindle.flush();
+    const byName = Object.fromEntries(mem.getFinishedSpans().map((s) => [s.name, s]));
+    const ok = byName['score ticket_resolved']!;
+    const bad = byName['score refund_issued']!;
+    expect(ok.attributes['bindle.score.source']).toBe('outcome');
+    expect(ok.attributes['bindle.score.passed']).toBe(true);
+    expect(ok.attributes['bindle.score.external']).toBeUndefined();
+    expect(bad.attributes['bindle.score.passed']).toBe(false);
+    expect(bad.attributes['bindle.score.value']).toBe(42.5);
+    expect(bad.spanContext().traceId).toBe(tid);
+  });
+
   it('records scores inside a run and by trace ID', async () => {
     expect(bindle.score('x', { value: 1 })).toBe(false); // not initialized
     const mem = new InMemorySpanExporter();

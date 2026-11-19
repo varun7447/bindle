@@ -20,6 +20,7 @@ const (
 	MaxDatasetItems = 500
 	maxItemText     = 64 << 10
 	maxFailures     = 500
+	maxSourceLen    = 200
 )
 
 const scorerCols = `id, name, kind, agent, value, number, case_sensitive, enabled, created_at`
@@ -229,7 +230,7 @@ func (s *Store) GetDataset(ctx context.Context, tenant, id string) (d Dataset, i
 			return err
 		}
 		d.CreatedAt = d.CreatedAt.UTC()
-		rows, err := tx.QueryContext(ctx, `SELECT trace_id, agent, version, input, output, tools, steps, cost_usd, cost_known, duration_ms, failed
+		rows, err := tx.QueryContext(ctx, `SELECT trace_id, agent, version, input, output, tools, steps, cost_usd, cost_known, duration_ms, failed, source
 			FROM control.dataset_items WHERE dataset_id = $1 ORDER BY added_at, trace_id`, id)
 		if err != nil {
 			return err
@@ -238,7 +239,7 @@ func (s *Store) GetDataset(ctx context.Context, tenant, id string) (d Dataset, i
 		for rows.Next() {
 			var r evals.Run
 			var tools []byte
-			if err := rows.Scan(&r.TraceID, &r.Agent, &r.Version, &r.Input, &r.Output, &tools, &r.Steps, &r.CostUSD, &r.CostKnown, &r.DurationMs, &r.Failed); err != nil {
+			if err := rows.Scan(&r.TraceID, &r.Agent, &r.Version, &r.Input, &r.Output, &tools, &r.Steps, &r.CostUSD, &r.CostKnown, &r.DurationMs, &r.Failed, &r.Source); err != nil {
 				return err
 			}
 			if err := json.Unmarshal(tools, &r.Tools); err != nil {
@@ -257,6 +258,19 @@ func clip(s string) string {
 		return s
 	}
 	cut := maxItemText
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
+// clipSource keeps an item's source label short and on one line.
+func clipSource(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) <= maxSourceLen {
+		return s
+	}
+	cut := maxSourceLen
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
@@ -284,9 +298,9 @@ func (s *Store) AddDatasetItems(ctx context.Context, tenant, id string, runs []e
 			if r.Tools == nil {
 				tools = []byte("[]")
 			}
-			res, err := tx.ExecContext(ctx, `INSERT INTO control.dataset_items (dataset_id, tenant_id, trace_id, agent, version, input, output, tools, steps, cost_usd, cost_known, duration_ms, failed)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT DO NOTHING`,
-				id, tenant, r.TraceID, r.Agent, r.Version, clip(r.Input), clip(r.Output), tools, r.Steps, r.CostUSD, r.CostKnown, r.DurationMs, r.Failed)
+			res, err := tx.ExecContext(ctx, `INSERT INTO control.dataset_items (dataset_id, tenant_id, trace_id, agent, version, input, output, tools, steps, cost_usd, cost_known, duration_ms, failed, source)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) ON CONFLICT DO NOTHING`,
+				id, tenant, r.TraceID, r.Agent, r.Version, clip(r.Input), clip(r.Output), tools, r.Steps, r.CostUSD, r.CostKnown, r.DurationMs, r.Failed, clipSource(r.Source))
 			if err != nil {
 				return err
 			}

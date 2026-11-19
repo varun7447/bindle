@@ -120,6 +120,7 @@ export default async function DatasetPage({ params }: { params: Promise<{ id: st
                               {it.version ? ` · ${it.version}` : ''}
                               {it.failed ? ' · failed' : ''}
                             </div>
+                            {it.source ? <div className="sub" title="Where this item came from">From {it.source}</div> : null}
                           </td>
                           <td style={{ maxWidth: 480 }}>
                             <div className="clamp-2" style={{ overflowWrap: 'anywhere' }}>

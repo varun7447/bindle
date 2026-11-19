@@ -94,7 +94,7 @@ type Step struct {
 	ScoreName   string
 	ScoreValue  *float64
 	ScorePass   string // "pass", "fail" or ""
-	ScoreSource string // "user" for bindle.feedback(), else ""
+	ScoreSource string // "user" for bindle.feedback(), "outcome" for bindle.outcome(), else ""
 	Input       string
 	Output      string
 	Reasoning   string

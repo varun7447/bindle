@@ -181,6 +181,32 @@ def test_feedback_and_current_trace_id():
         bindle._state["provider"] = None
 
 
+def test_outcome():
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    mem = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(mem))
+    bindle._state["provider"] = provider
+    try:
+        with provider.get_tracer("t").start_as_current_span("run"):
+            assert bindle.outcome("ticket_resolved")
+            tid = bindle.current_trace_id()
+        assert bindle.outcome("refund_issued", success=False, value=42.5, trace_id=tid)
+        assert bindle.outcome("bad", success="yes") is False  # type: ignore[arg-type]
+        assert bindle.outcome("") is False
+        spans = {s.name: s for s in mem.get_finished_spans()}
+        ok, bad = spans["score ticket_resolved"], spans["score refund_issued"]
+        assert ok.attributes["bindle.score.source"] == "outcome" and ok.attributes["bindle.score.passed"] is True
+        assert "bindle.score.external" not in ok.attributes
+        assert bad.attributes["bindle.score.passed"] is False and bad.attributes["bindle.score.value"] == 42.5
+        assert bad.attributes["bindle.score.external"] is True and format(bad.context.trace_id, "032x") == tid
+    finally:
+        bindle._state["provider"] = None
+
+
 def test_session_tags_every_span():
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor

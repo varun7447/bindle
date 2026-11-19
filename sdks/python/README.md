@@ -91,6 +91,17 @@ trace_id = bindle.current_trace_id()            # hand this to your UI with the 
 bindle.feedback(trace_id=trace_id, thumbs_up=False, comment="wrong order")
 ```
 
+## Outcomes
+
+Tell Bindle when a run did its job, so it can show cost per successful outcome (and the spend on runs that didn't):
+
+```python
+bindle.outcome("ticket_resolved")                                  # inside a run
+bindle.outcome("refund_issued", success=False, trace_id=trace_id)   # later, from elsewhere
+```
+
+Without outcomes, a run counts as successful when no step failed and no user gave it a thumbs down.
+
 ## CI: `bindle eval`
 
 ```bash

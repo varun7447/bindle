@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { requireSession } from '@/lib/auth';
 import { formatCost, formatCount, formatDuration, formatRelative, formatTime } from '@/lib/format';
 import { WINDOWS, asWindow, one } from '@/lib/ids';
+import { problemHref } from '@/lib/outcomes';
 import { feedbackLabel, outcome } from '@/lib/sessions';
 
 export const dynamic = 'force-dynamic';
@@ -58,6 +59,12 @@ export default async function SessionsPage({ searchParams }: { searchParams: Pro
         </section>
       ) : (
         <section className="panel panel-flush">
+          {res.data.sessions.some((s) => (s.feedback?.negative ?? 0) > 0) ? (
+            <div className="banner-detail" style={{ padding: '12px 18px 0' }}>
+              {formatCount(res.data.sessions.filter((s) => (s.feedback?.negative ?? 0) > 0).length)} conversation(s) got a thumbs down.{' '}
+              <Link href={problemHref({ kind: 'negative_feedback', ...(agent ? { agent } : {}), window })}>Add the disliked runs to a dataset →</Link>
+            </div>
+          ) : null}
           <table>
             <thead>
               <tr>

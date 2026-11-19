@@ -39,6 +39,11 @@ type fakeStore struct {
 	bucket   time.Duration
 	minRep   int
 	err      error
+
+	problem    query.ProblemFilter
+	problemIDs []string
+	economics  []query.Economics
+	evalRuns   []evals.Run
 }
 
 func (f *fakeStore) rec(t string) {
@@ -96,6 +101,16 @@ func (f *fakeStore) AgentVersions(_ context.Context, t, agent string, from, to t
 func (f *fakeStore) RunsForEval(_ context.Context, t string, ids []string) ([]evals.Run, error) {
 	f.rec(t)
 	out := []evals.Run{}
+	if f.evalRuns != nil {
+		for _, id := range ids {
+			for _, r := range f.evalRuns {
+				if r.TraceID == id {
+					out = append(out, r)
+				}
+			}
+		}
+		return out, f.err
+	}
 	for _, id := range ids {
 		out = append(out, evals.Run{TraceID: id, Agent: "refunds", Version: "v2", Output: "refund issued for " + id, Tools: []string{"lookup_order"}, Steps: 4})
 	}
@@ -125,6 +140,18 @@ func (f *fakeStore) Search(_ context.Context, t string, sf query.SearchFilter) (
 	f.rec(t)
 	f.search = sf
 	return []query.SearchHit{{TraceID: strings.Repeat("a", 32), Snippet: "\ue000timeout\ue001 after 30s", Field: "error"}}, f.err
+}
+func (f *fakeStore) ProblemRuns(_ context.Context, t string, pf query.ProblemFilter) ([]string, error) {
+	f.rec(t)
+	f.mu.Lock()
+	f.problem = pf
+	f.mu.Unlock()
+	return f.problemIDs, f.err
+}
+func (f *fakeStore) Economics(_ context.Context, t string, from, to time.Time) ([]query.Economics, error) {
+	f.rec(t)
+	f.from, f.to = from, to
+	return f.economics, f.err
 }
 func (f *fakeStore) Loops(_ context.Context, t string, from, to time.Time, n int) ([]query.Loop, error) {
 	f.rec(t)

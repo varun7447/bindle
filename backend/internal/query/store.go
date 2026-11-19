@@ -38,6 +38,11 @@ type Store interface {
 	// RunsByIDs returns run summaries for trace IDs (at most 1000).
 	RunsByIDs(ctx context.Context, tenant string, traceIDs []string) ([]Run, error)
 	AgentVersions(ctx context.Context, tenant, agent string, from, to time.Time) ([]VersionStats, error)
+	// ProblemRuns returns trace IDs of problem runs, most recent first.
+	ProblemRuns(ctx context.Context, tenant string, f ProblemFilter) ([]string, error)
+	// Economics returns cost per successful outcome per agent version for
+	// runs started in [from, to).
+	Economics(ctx context.Context, tenant string, from, to time.Time) ([]Economics, error)
 }
 
 // ---- insights (the console's home page) ------------------------------------

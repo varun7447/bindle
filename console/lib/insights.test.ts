@@ -30,6 +30,13 @@ describe('attention', () => {
     expect(items[0]!.href).toBe('/traces/t1?step=b');
     expect(items[0]!.detail).toContain('payments API timed out');
     expect(items[1]!.href).toBe('/runs?range=7d&agent=refund-agent&status=failed');
+    expect(items[0]!.secondary).toEqual({ href: '/evals/from-problems?kind=failure&step_name=refund_payment&window=7d', label: 'Add these runs to a dataset' });
+  });
+  it('adds wasted-spend items and ranks them with the rest', () => {
+    const waste = { agent: 'refund-agent', version: 'v1', definition: 'outcome' as const, runs: 20, successes: 5, wasted_runs: 15, outcome_runs: 20,
+      cost_usd: 2, wasted_usd: 1.5, cost_per_success_usd: 0.4, unknown_cost_runs: 0 };
+    const items = attentionItems(ov(), ins(), [], '24h', [waste]);
+    expect(items.map((i) => i.key)).toEqual(['issue:refund_payment', 'agent:refund-agent', 'waste:refund-agent']);
   });
   it('says all clear, or how many things need attention', () => {
     expect(headline(ov({ failed_runs: 0 }), ins({ issues: [], agents: [] }), [], 'Last 24 hours').title).toBe('All clear');
@@ -141,5 +148,6 @@ describe('attention: unhappy sessions', () => {
     const items = attentionItems(ov(), ins({ issues: [], agents: [], unhappy_sessions: [{ session_id: 'conv/1', feedback: { positive: 0, negative: 2, count: 2 } }] }), [], '24h');
     expect(items[0]).toMatchObject({ severity: 'warning', href: '/sessions/conv%2F1', cta: 'Open conversation' });
     expect(items[0]!.detail).toContain('2 thumbs down');
+    expect(items[0]!.secondary?.href).toBe('/evals/from-problems?kind=negative_feedback&window=24h');
   });
 });

@@ -19,7 +19,12 @@ const EMPTY_INSIGHTS: Insights = { agents: [], issues: [], previous: { runs: 0, 
 export default async function HomePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requireSession('/');
   const window = asWindow(one((await searchParams).window));
-  const [ov, ins, loops] = await Promise.all([settle(api.overview(window)), settle(api.insights(window)), settle(api.alerts('1h'))]);
+  const [ov, ins, loops, econ] = await Promise.all([
+    settle(api.overview(window)),
+    settle(api.insights(window)),
+    settle(api.alerts('1h')),
+    settle(api.economics(window)),
+  ]);
   const now = Date.now();
 
   if (!ov.ok) {
@@ -32,7 +37,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   }
   const o = ov.data;
   const insights = ins.ok ? ins.data : EMPTY_INSIGHTS;
-  const items = attentionItems(o, insights, loops.ok ? loops.data.alerts : [], window);
+  const items = attentionItems(o, insights, loops.ok ? loops.data.alerts : [], window, econ.ok ? econ.data.agents : []);
   const head = headline(o, insights, items, WINDOW_LABEL[window]);
   const prev = insights.previous;
   const prevRate = prev.runs ? prev.failed_runs / prev.runs : 0;
@@ -93,9 +98,14 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
                         </ul>
                       ) : null}
                     </div>
-                    <Link href={it.href} className="a-cta">
-                      {it.cta} →
-                    </Link>
+                    <div className="a-cta" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                      <Link href={it.href}>{it.cta} →</Link>
+                      {it.secondary ? (
+                        <Link href={it.secondary.href} className="sub">
+                          {it.secondary.label}
+                        </Link>
+                      ) : null}
+                    </div>
                   </li>
                 ))}
               </ul>

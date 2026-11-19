@@ -56,6 +56,17 @@ bindle.withSession('conversation-42', async () => {
 bindle.feedback({ traceId, thumbsUp: false, comment: 'wrong order' });
 ```
 
+## Outcomes
+
+Tell Bindle when a run did its job, so it can show cost per successful outcome (and the spend on runs that didn't):
+
+```ts
+bindle.outcome('ticket_resolved');                                 // inside a run
+bindle.outcome('refund_issued', { success: false, traceId });      // later, from elsewhere
+```
+
+Without outcomes, a run counts as successful when no step failed and no user gave it a thumbs down.
+
 ## Agent limits
 
 Limits set in the console (pause, max steps or tokens per run, daily budget) apply where your code calls `bindle.checkLimits()`:

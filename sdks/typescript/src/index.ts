@@ -418,7 +418,7 @@ export interface ScoreOptions {
  * score joins the current trace; elsewhere pass the run's traceId (32 hex
  * characters). Returns true if recorded. Never throws.
  */
-export function score(name: string, opts: ScoreOptions & { source?: 'user' } = {}): boolean {
+export function score(name: string, opts: ScoreOptions & { source?: 'user' | 'outcome' } = {}): boolean {
   try {
     if (!state.cfg || typeof name !== 'string' || !name.trim() || name.length > 80) return false;
     const { value, passed, comment, traceId } = opts;
@@ -430,7 +430,7 @@ export function score(name: string, opts: ScoreOptions & { source?: 'user' } = {
     }
     if (passed !== undefined) attrs['bindle.score.passed'] = Boolean(passed);
     if (comment && state.capture) attrs['output.value'] = String(comment).slice(0, MAX_CAPTURE);
-    if (opts.source === 'user') attrs['bindle.score.source'] = 'user';
+    if (opts.source === 'user' || opts.source === 'outcome') attrs['bindle.score.source'] = opts.source;
     let ctx = context.active();
     if (traceId !== undefined) {
       const tid = String(traceId).toLowerCase();
@@ -459,6 +459,22 @@ export function score(name: string, opts: ScoreOptions & { source?: 'user' } = {
 export function feedback(opts: { traceId?: string; thumbsUp?: boolean; rating?: number; comment?: string }): boolean {
   const value = opts.rating ?? (opts.thumbsUp === undefined ? undefined : opts.thumbsUp ? 1 : 0);
   return score('feedback', { value, passed: opts.thumbsUp, comment: opts.comment, traceId: opts.traceId, source: 'user' });
+}
+
+/**
+ * Record a run's business outcome: did it do the job? For example
+ * `outcome('ticket_resolved')` when a support ticket closes, or
+ * `outcome('refund_issued', { success: false })` when it didn't. Bindle
+ * divides each agent version's spend by its successful outcomes (cost per
+ * resolved ticket) and counts spend on failed runs and failed outcomes as
+ * wasted. Agents that never send outcomes fall back to "no step failed and no
+ * negative feedback". Inside a run the outcome joins it; from elsewhere pass
+ * the run's traceId. Returns true if recorded; never throws.
+ */
+export function outcome(name: string, opts: { success?: boolean; value?: number; traceId?: string; comment?: string } = {}): boolean {
+  const success = opts.success ?? true;
+  if (typeof success !== 'boolean') return false;
+  return score(name, { value: opts.value, passed: success, comment: opts.comment, traceId: opts.traceId, source: 'outcome' });
 }
 
 /** The current run's trace ID, to hand to your UI for feedback later; undefined outside a run. */
