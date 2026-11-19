@@ -39,6 +39,9 @@ type Config struct {
 	// Set by Bindle; read-only. Their limit's PauseOverBudget decides
 	// whether they are paused.
 	OverBudget []string `json:"over_budget"`
+	// StoppedRuns lists trace IDs stopped from the console in the last
+	// hour. Set by Bindle; read-only. bindle.check_limits() raises in them.
+	StoppedRuns []string `json:"stopped_runs"`
 	// Prices are the workspace's model price overrides. Used by ingest;
 	// never sent to the SDK.
 	Prices    []PriceOverride `json:"-"`
@@ -47,7 +50,7 @@ type Config struct {
 
 // Default applies to tenants that never changed their settings.
 func Default() Config {
-	return Config{SampleRate: 1, CaptureContent: true, RedactPatterns: []Pattern{}, Limits: []Limit{}, OverBudget: []string{}}
+	return Config{SampleRate: 1, CaptureContent: true, RedactPatterns: []Pattern{}, Limits: []Limit{}, OverBudget: []string{}, StoppedRuns: []string{}}
 }
 
 const (

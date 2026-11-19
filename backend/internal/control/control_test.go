@@ -525,6 +525,48 @@ func TestIntegrationLimitsAndBudgets(t *testing.T) {
 	}
 }
 
+func TestIntegrationRunStops(t *testing.T) {
+	ctx := context.Background()
+	_, apiDB, ingestDB := newTestDB(t)
+	store := &Store{DB: apiDB}
+	alice, _ := store.EnsureUser(ctx, "sub-a", "")
+	ma, _ := store.Provision(ctx, alice, "A")
+	bob, _ := store.EnsureUser(ctx, "sub-b", "")
+	mb, _ := store.Provision(ctx, bob, "B")
+	trace := "0af7651916cd43dd8448eb211c80319c"
+
+	if _, ok, err := store.GetRunStop(ctx, ma.TenantID, trace); err != nil || ok {
+		t.Fatalf("not stopped yet: %v %v", ok, err)
+	}
+	first, err := store.StopRun(ctx, ma.TenantID, alice.ID, trace)
+	if err != nil || first.TraceID != trace || first.StoppedAt.IsZero() {
+		t.Fatalf("stop: %+v %v", first, err)
+	}
+	again, err := store.StopRun(ctx, ma.TenantID, alice.ID, trace)
+	if err != nil || !again.StoppedAt.Equal(first.StoppedAt) {
+		t.Fatalf("second stop must keep the first time: %+v %v", again, err)
+	}
+	if _, err := store.StopRun(ctx, ma.TenantID, alice.ID, "not-a-trace"); err == nil {
+		t.Fatal("invalid trace ID accepted")
+	}
+	if _, ok, _ := store.GetRunStop(ctx, mb.TenantID, trace); ok {
+		t.Fatal("tenant B sees A's stop")
+	}
+	// Tenant A never saved settings: ingest still gets the stop, with defaults.
+	r := &ConfigResolver{DB: ingestDB}
+	res, err := r.Policy(ctx, ma.TenantID)
+	if err != nil || len(res.Config.StoppedRuns) != 1 || res.Config.StoppedRuns[0] != trace ||
+		res.Config.Version != 0 || res.Config.SampleRate != 1 || !res.Config.CaptureContent {
+		t.Fatalf("resolver: %+v %v", res.Config, err)
+	}
+	if res, _ := r.Policy(ctx, mb.TenantID); len(res.Config.StoppedRuns) != 0 {
+		t.Fatalf("tenant B got A's stops: %v", res.Config.StoppedRuns)
+	}
+	if _, err := ingestDB.ExecContext(ctx, "SELECT 1 FROM control.run_stops"); err == nil {
+		t.Fatal("ingest role can read run_stops directly")
+	}
+}
+
 func TestIntegrationEvals(t *testing.T) {
 	ctx := context.Background()
 	_, apiDB, _ := newTestDB(t)

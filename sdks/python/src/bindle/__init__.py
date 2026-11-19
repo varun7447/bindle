@@ -30,12 +30,13 @@ from opentelemetry.trace import Status, StatusCode
 from . import _config, _instrument
 from ._redact import Redactor
 
+from ._cassette import Cassette, RecordedToolError, UnrecordedCall
 from ._limits import LimitExceeded
 
 __all__ = [
     "init", "flush", "shutdown", "step", "trace_step", "trace_tool",
     "decision", "handoff", "score", "feedback", "current_trace_id", "set_session", "check_limits", "limits_status",
-    "LimitExceeded", "Redactor",
+    "LimitExceeded", "Redactor", "Cassette", "UnrecordedCall", "RecordedToolError",
 ]
 __version__ = "0.1.0"
 
@@ -125,7 +126,7 @@ def _apply_remote(settings) -> None:
     _state["capture"], _state["remote"] = capture, settings
     guard = _state["guard"]
     if guard is not None:
-        guard.update(settings.limits, settings.over_budget)
+        guard.update(settings.limits, settings.over_budget, settings.stopped_runs)
     log.debug("bindle: remote config v%s applied (sample_rate=%s, capture_content=%s, patterns=%d)",
               settings.version, rate, capture, len(settings.redact_patterns))
 

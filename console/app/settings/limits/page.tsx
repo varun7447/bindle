@@ -14,7 +14,8 @@ export default async function LimitsPage() {
     <>
       <div className="section-intro">
         <div className="sub">
-          Pause an agent, cap each run&apos;s steps or tokens, or set a daily budget. Limits take effect where your agent calls{' '}
+          Pause an agent, cap each run&apos;s steps or tokens, stop a run that keeps calling the same tool with the same arguments, or set
+          a daily budget. Limits take effect where your agent calls{' '}
           <code>bindle.check_limits()</code> (Python) or <code>checkLimits()</code> (TypeScript), which raises an error your code can
           handle. Bindle never stops an agent anywhere else. Budgets use priced spend since 00:00 UTC; when one is exceeded, your alert
           channels are notified once that day.
@@ -42,7 +43,8 @@ while not done:
     step()`}</pre>
             <p className="sub" style={{ marginBottom: 0 }}>
               A row for <code>*</code> applies to every agent without a row of its own. Steps are counted per run in the SDK, tokens
-              from LLM calls. Unpriced models don&apos;t count toward budgets.
+              from LLM calls, and repeated calls from tool calls with the same tool name and the same arguments (key order ignored).
+              Unpriced models don&apos;t count toward budgets. To stop one run, open it and choose <b>Stop run</b>.
             </p>
           </section>
         </>

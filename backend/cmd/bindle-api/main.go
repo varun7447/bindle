@@ -109,6 +109,7 @@ func run(log *slog.Logger) error {
 		Config:   configStore(store),
 		Alerting: alertingStore(store),
 		Evals:    evalStore(store),
+		Stops:    stopStore(store),
 		Prices:   prices,
 		// Public AWS price list (no credentials), for Settings → Model prices.
 		AWSPrices: &api.AWSPriceList{},
@@ -183,6 +184,13 @@ func alertingStore(s *control.Store) api.AlertingStore {
 func evalStore(s *control.Store) api.EvalStore {
 	if s == nil {
 		return nil // a nil *control.Store must not become a non-nil interface
+	}
+	return s
+}
+
+func stopStore(s *control.Store) api.RunStopStore {
+	if s == nil {
+		return nil
 	}
 	return s
 }

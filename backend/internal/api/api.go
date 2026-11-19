@@ -54,6 +54,7 @@ type Server struct {
 	Config   ConfigStore    // nil disables the /api/config endpoints (503)
 	Alerting AlertingStore  // nil disables the alert rule/channel endpoints (503)
 	Evals    EvalStore      // nil disables the checks and datasets endpoints (503)
+	Stops    RunStopStore   // nil disables stopping runs (503)
 	Replay   *replay.Runner // nil disables step replay (503)
 	Prices   *cost.Table    // list prices, for replay cost
 	// AWSPrices serves Bedrock list prices; nil disables (503).
@@ -111,6 +112,9 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/agents/versions", s.agentVersions)
 	s.evalRoutes(api)
 	api.HandleFunc("POST /api/traces/{id}/steps/{step}/replay", s.replayStep)
+	api.HandleFunc("GET /api/traces/{id}/stop", s.getRunStop)
+	api.HandleFunc("POST /api/traces/{id}/stop", s.stopRun)
+	api.HandleFunc("GET /api/traces/{id}/cassette", s.getCassette)
 	api.HandleFunc("GET /api/alert-rules", s.listAlertRules)
 	api.HandleFunc("POST /api/alert-rules", s.createAlertRule)
 	api.HandleFunc("PUT /api/alert-rules/{id}", s.updateAlertRule)

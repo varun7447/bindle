@@ -15,6 +15,8 @@ export interface RemoteSettings {
   pollIntervalSeconds: number;
   limits: Limit[];
   overBudget: string[];
+  /** Runs stopped from the console in the last hour. */
+  stoppedRuns?: string[];
 }
 
 const MIN_POLL = 30;
@@ -45,6 +47,9 @@ export function parseSettings(body: string): RemoteSettings | undefined {
       pollIntervalSeconds: Math.min(Math.max(Number.isFinite(poll) ? poll : 60, MIN_POLL), MAX_POLL),
       limits: parseLimits(d.limits),
       overBudget: Array.isArray(d.over_budget) ? d.over_budget.filter((a): a is string => typeof a === 'string') : [],
+      stoppedRuns: Array.isArray(d.stopped_runs)
+        ? d.stopped_runs.filter((t): t is string => typeof t === 'string' && /^[0-9a-f]{32}$/.test(t)).slice(0, 1000)
+        : [],
     };
   } catch {
     return undefined;

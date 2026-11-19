@@ -26,6 +26,7 @@ import { Guard, LimitExceededError, type LimitsStatus, RunCounter } from './limi
 export { Redactor } from './redact.js';
 export { LimitExceededError, type LimitReason, type LimitsStatus } from './limits.js';
 export { sampled } from './sampling.js';
+export { Cassette, RecordedToolError, UnrecordedCallError, type CassetteOptions, type CassetteReport, type RecordedCall } from './cassette.js';
 
 export const VERSION = '0.1.0';
 export const DEFAULT_ENDPOINT = 'https://ingest.bindle.ai';
@@ -158,7 +159,7 @@ function applyRemote(s: RemoteSettings): void {
   state.exporter?.update(capture, localRedactor(cfg, s.redactPatterns), cfg.captureContent ? 'workspace' : 'sdk');
   state.capture = capture;
   state.remote = s;
-  state.guard?.update(s.limits, s.overBudget);
+  state.guard?.update(s.limits, s.overBudget, s.stoppedRuns ?? []);
   debug(`bindle: remote config v${s.version} applied`);
 }
 

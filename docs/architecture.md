@@ -55,7 +55,7 @@ Owners and admins can change, from **Settings → SDK settings**, without a rede
 
 **Settings → Agent limits** stores a list of limits with the SDK settings (same version, separate API: `PUT /api/limits`). Each limit names an agent, or `*` for every agent without its own row, and sets any of: paused, max steps per run, max tokens per run, daily budget in USD, pause when over budget.
 
-- **Enforcement is in the agent, at a call the agent makes.** The SDKs count steps (spans started in the trace) and LLM tokens per run in-process, and `bindle.check_limits()` / `checkLimits()` raises when a limit applies. Nothing else in the SDK raises, so an agent is never stopped halfway through something it didn't expect.
+- **Enforcement is in the agent, at a call the agent makes.** The SDKs count steps (spans started in the trace), LLM tokens and repeated tool calls (same tool and arguments) per run in-process, read runs stopped from the console from their polled settings (`stopped_runs`, the last hour's stops), and `bindle.check_limits()` / `checkLimits()` raises when a limit applies. Nothing else in the SDK raises, so an agent is never stopped halfway through something it didn't expect.
 - **Budgets are evaluated by `bindle-alerts`** every minute from priced spend since 00:00 UTC. The first time an agent goes over on a day, the worker records it in `control.budget_state` (insert-once) and notifies the workspace's alert channels. Ingest serves the day's over-budget agents with the config (`over_budget`), and the config's ETag changes with that list so polling SDKs see it.
 - Unpriced models don't count toward a budget.
 

@@ -16,6 +16,7 @@ import { TimeBreakdown } from '@/components/TimeBreakdown';
 import { ContextChart } from '@/components/ContextChart';
 import { contextProfile, fmtBytes } from '@/lib/context';
 import { AddToDataset } from '@/app/evals/Forms';
+import { RunActions } from './RunActions';
 
 export default async function TracePage({
   params,
@@ -40,7 +41,7 @@ export default async function TracePage({
   const wf = buildWaterfall(steps);
   const story = buildStory(trace, steps);
   const ctx = contextProfile(steps);
-  const datasets = await settle(api.datasets());
+  const [datasets, stop, me] = await Promise.all([settle(api.datasets()), settle(api.runStop(id)), settle(api.me())]);
   const requested = one((await searchParams).step)?.toLowerCase();
   const selectedId =
     isStepId(requested) && steps.some((s) => s.step_id === requested) ? requested : (story.firstFailureId ?? defaultStepId(wf.rows));
@@ -56,7 +57,13 @@ export default async function TracePage({
         <div className="story-head">
           <StatusBadge status={trace.status} />
           <h2 id="story-h">{story.headline}</h2>
-          <span style={{ marginLeft: 'auto' }}>
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <RunActions
+              traceId={id}
+              stoppedAt={stop.ok && stop.data.stopped ? stop.data.stopped_at : undefined}
+              pollSeconds={stop.ok ? stop.data.poll_seconds : 60}
+              canStop={me.ok && me.data.can_manage_keys}
+            />
             <AddToDataset traceId={id} datasets={datasets.ok ? datasets.data.datasets.map((d) => ({ id: d.id, name: d.name })) : []} />
           </span>
           {story.firstFailureId && story.firstFailureId !== selectedId ? (

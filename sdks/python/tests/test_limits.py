@@ -117,6 +117,68 @@ def test_remote_parse_carries_limits():
     assert old.limits == () and old.over_budget == ()
 
 
+def test_stopped_run_raises_only_in_that_run():
+    tracer, guard = make()
+    with tracer.start_as_current_span("run") as span:
+        stopped = format(span.get_span_context().trace_id, "032x")
+        guard.update((), (), ("0" * 32,))
+        guard.check()
+        guard.update((), (), (stopped,))
+        with pytest.raises(LimitExceeded) as e:
+            guard.check()
+        assert e.value.reason == "stopped"
+        assert guard.status()["stopped"] is True
+    with tracer.start_as_current_span("another run"):
+        guard.check()
+    guard.check()  # outside any run: nothing to stop
+
+
+def tool_span(tracer, name, args, key="gen_ai.tool.call.arguments"):
+    with tracer.start_as_current_span("execute_tool " + name, attributes={
+            "gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": name, key: args}):
+        pass
+
+
+def test_repeat_calls_guard_counts_same_tool_and_arguments():
+    tracer, guard = make()
+    guard.update((Limit("refunds", max_repeat_calls=2),), ())
+    with tracer.start_as_current_span("run"):
+        tool_span(tracer, "search", '{"q": "refund", "page": 1}')
+        tool_span(tracer, "search", '{"page": 1, "q": "refund"}')  # same call, keys reordered
+        tool_span(tracer, "search", '{"q": "refund", "page": 2}')  # different arguments
+        tool_span(tracer, "lookup", '{"q": "refund", "page": 1}')  # different tool
+        guard.check()  # at most 2 identical calls
+        tool_span(tracer, "search", '{"q":"refund","page":1}')
+        with pytest.raises(LimitExceeded) as e:
+            guard.check()
+    assert e.value.reason == "max_repeat_calls" and e.value.value == 3 and e.value.limit == 2
+    assert "search" in str(e.value)
+    with tracer.start_as_current_span("next run"):
+        guard.check()
+
+
+def test_repeat_calls_reads_openinference_tool_spans():
+    tracer, guard = make()
+    guard.update((Limit("*", max_repeat_calls=1),), ())
+    with tracer.start_as_current_span("run"):
+        for _ in range(2):
+            with tracer.start_as_current_span("tool", attributes={
+                    "openinference.span.kind": "TOOL", "tool.name": "fetch", "input.value": "not json"}):
+                pass
+        with pytest.raises(LimitExceeded) as e:
+            guard.check()
+    assert e.value.reason == "max_repeat_calls"
+
+
+def test_remote_parse_carries_stopped_runs_and_repeat_limit():
+    good = "0af7651916cd43dd8448eb211c80319c"
+    body = json.dumps({"version": 2, "sample_rate": 1, "capture_content": True,
+                       "limits": [{"agent": "*", "max_repeat_calls": 4}],
+                       "stopped_runs": [good, "NOT-HEX", 5]}).encode()
+    s = _remote.parse(body)
+    assert s.stopped_runs == (good,) and s.limits[0].max_repeat_calls == 4
+
+
 def test_public_api_without_init_is_a_no_op():
     bindle.shutdown()
     bindle.check_limits()

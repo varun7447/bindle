@@ -7,21 +7,23 @@ import (
 )
 
 func TestValidateLimits(t *testing.T) {
-	ok := []Limit{{Agent: "*", MaxStepsPerRun: 100}, {Agent: "refunds", Paused: true, DailyBudgetUSD: 5, PauseOverBudget: true}}
+	ok := []Limit{{Agent: "*", MaxStepsPerRun: 100, MaxRepeatCalls: 3}, {Agent: "refunds", Paused: true, DailyBudgetUSD: 5, PauseOverBudget: true}}
 	if err := ValidateLimits(ok); err != nil {
 		t.Fatal(err)
 	}
 	bad := map[string][]Limit{
-		"empty agent":     {{Agent: ""}},
-		"spaces":          {{Agent: " a"}},
-		"control char":    {{Agent: "a\nb"}},
-		"long":            {{Agent: strings.Repeat("a", 129)}},
-		"duplicate":       {{Agent: "a"}, {Agent: "a"}},
-		"negative steps":  {{Agent: "a", MaxStepsPerRun: -1}},
-		"negative tokens": {{Agent: "a", MaxTokensPerRun: -1}},
-		"nan budget":      {{Agent: "a", DailyBudgetUSD: math.NaN()}},
-		"huge budget":     {{Agent: "a", DailyBudgetUSD: 2e6}},
-		"pause no budget": {{Agent: "a", PauseOverBudget: true}},
+		"empty agent":           {{Agent: ""}},
+		"spaces":                {{Agent: " a"}},
+		"control char":          {{Agent: "a\nb"}},
+		"long":                  {{Agent: strings.Repeat("a", 129)}},
+		"duplicate":             {{Agent: "a"}, {Agent: "a"}},
+		"negative steps":        {{Agent: "a", MaxStepsPerRun: -1}},
+		"negative repeat calls": {{Agent: "a", MaxRepeatCalls: -1}},
+		"huge repeat calls":     {{Agent: "a", MaxRepeatCalls: 10_001}},
+		"negative tokens":       {{Agent: "a", MaxTokensPerRun: -1}},
+		"nan budget":            {{Agent: "a", DailyBudgetUSD: math.NaN()}},
+		"huge budget":           {{Agent: "a", DailyBudgetUSD: 2e6}},
+		"pause no budget":       {{Agent: "a", PauseOverBudget: true}},
 	}
 	for name, ls := range bad {
 		if ValidateLimits(ls) == nil {

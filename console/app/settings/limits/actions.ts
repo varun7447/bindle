@@ -22,6 +22,7 @@ export async function saveLimitsAction(_: SaveState, form: FormData): Promise<Sa
     const parsed = parseRows(rows.map((r) => ({
       agent: String(r.agent ?? ''), paused: r.paused === true, maxSteps: String(r.maxSteps ?? ''),
       maxTokens: String(r.maxTokens ?? ''), budget: String(r.budget ?? ''), pauseOverBudget: r.pauseOverBudget === true,
+      maxRepeats: String(r.maxRepeats ?? ''),
     })));
     if (parsed.error) return { kind: 'error', message: parsed.error };
     const saved = await api.saveLimits(version, parsed.limits);
