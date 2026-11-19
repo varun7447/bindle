@@ -2,6 +2,7 @@
 // the time went. Deterministic (no model call); unit-tested.
 
 import { formatCost, formatDuration, formatPercent } from './format';
+import { securityLines } from './security';
 import { stepKind } from './steps';
 import type { Run, StepSummary } from './types';
 
@@ -85,6 +86,9 @@ export function buildStory(run: Run, steps: StepSummary[]): RunStory {
     const others = new Set(failures.filter((s) => s.type !== 'agent' && s.name !== rootCause.name).map((s) => s.name));
     if (others.size) lines.push({ tone: 'critical', text: `Also failed: ${joinList([...others].slice(0, 4))}.` });
   }
+
+  // Security signals on steps: leads to review, not verdicts.
+  lines.push(...securityLines(steps));
 
   // 3. Possible loops: the same tool called many times.
   const tools = new Map<string, StepSummary[]>();

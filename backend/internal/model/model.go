@@ -98,6 +98,14 @@ type Step struct {
 	Input       string
 	Output      string
 	Reasoning   string
+	// UserInput is what the end user asked (the last user message of an
+	// LLM call, or an agent span's plain-text input), redacted and capped.
+	UserInput string
+	// SecurityFlags are security signals found in the step's content
+	// (security.PromptInjection, ...): leads to review, not verdicts.
+	SecurityFlags []string
+	// SecurityReasons say why each flag was raised ("flag:reason").
+	SecurityReasons []string
 
 	Attributes map[string]string
 	Links      []string // "traceid:spanid"

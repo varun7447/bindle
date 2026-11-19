@@ -10,7 +10,22 @@ import (
 	"time"
 
 	"github.com/bindle-ai/bindle/backend/internal/query"
+	"github.com/bindle-ai/bindle/backend/internal/security"
 )
+
+// SignalDetector is the optional part of the Detector behind security
+// signals and topics (search.Store implements it).
+type SignalDetector interface {
+	SecuritySignals(ctx context.Context, tenant string, from, to time.Time) ([]query.SecuritySignal, error)
+	Topics(ctx context.Context, tenant, agent string, from, to time.Time) (*query.Topics, error)
+}
+
+// flagNames are the security flags in alert text.
+var flagNames = map[string]string{
+	security.PromptInjection: "possible prompt injection",
+	security.SecretExposed:   "an exposed credential",
+	security.Exfiltration:    "possible data exfiltration",
+}
 
 type eventFn func(fp, summary, traceID string, details map[string]any) Event
 
@@ -105,6 +120,40 @@ func (e *Evaluator) detectMore(ctx context.Context, tenant string, r Rule, now, 
 		}
 		return out, nil
 
+	case KindSecuritySignal:
+		sd, ok := e.Detect.(SignalDetector)
+		if !ok {
+			return nil, fmt.Errorf("security signals are not available")
+		}
+		sigs, err := sd.SecuritySignals(ctx, tenant, from, now)
+		if err != nil {
+			return nil, err
+		}
+		window := time.Duration(r.WindowMinutes) * time.Minute
+		slot := now.Truncate(window).Unix()
+		var out []Event
+		for _, s := range sigs {
+			if len(out) >= limit {
+				break
+			}
+			if float64(s.Steps) < r.Threshold {
+				continue
+			}
+			why := topReason(s.Reasons)
+			trace := ""
+			if len(s.Examples) > 0 {
+				trace = s.Examples[0].TraceID
+			}
+			summary := fmt.Sprintf("%s: %d step%s flagged for %s in the last %d minutes (%d run%s)",
+				orDash(s.Agent), s.Steps, plural(s.Steps), flagNames[s.Flag], r.WindowMinutes, s.Runs, plural(s.Runs))
+			if text := security.Explain[why]; text != "" {
+				summary += ": " + text
+			}
+			out = append(out, ev(fmt.Sprintf("security:%s:%s:%d", s.Flag, s.Agent, slot), summary, trace,
+				map[string]any{"flag": s.Flag, "agent": s.Agent, "steps": s.Steps, "runs": s.Runs, "reasons": s.Reasons}))
+		}
+		return out, nil
+
 	case KindWeeklyDigest:
 		// Mondays from 09:00 UTC, once per ISO week.
 		if now.Weekday() != time.Monday || now.Hour() < 9 {
@@ -120,8 +169,18 @@ func (e *Evaluator) detectMore(ctx context.Context, tenant string, r Rule, now, 
 		if err != nil {
 			return nil, err
 		}
-		return []Event{ev(fmt.Sprintf("digest:%d-W%02d", year, week), digest(ov.Runs, ov.FailedRuns, ov.CostUSD, ov.CostUnknownSteps > 0, ins.Previous.Runs, ins.Previous.FailedRuns, ins.Previous.CostUSD, ins.Issues), "",
-			map[string]any{"runs": ov.Runs, "failed_runs": ov.FailedRuns, "cost_usd": ov.CostUSD, "week": fmt.Sprintf("%d-W%02d", year, week)})}, nil
+		text := digest(ov.Runs, ov.FailedRuns, ov.CostUSD, ov.CostUnknownSteps > 0, ins.Previous.Runs, ins.Previous.FailedRuns, ins.Previous.CostUSD, ins.Issues)
+		details := map[string]any{"runs": ov.Runs, "failed_runs": ov.FailedRuns, "cost_usd": ov.CostUSD, "week": fmt.Sprintf("%d-W%02d", year, week)}
+		// What users asked about: topic names only, never their messages.
+		if sd, ok := e.Detect.(SignalDetector); ok {
+			if t, err := sd.Topics(ctx, tenant, "", weekFrom, now); err == nil && t != nil {
+				text += topicsDigest(t)
+				details["rising_topics"], details["new_topics"] = topicTerms(t.Rising), topicTerms(t.New)
+			} else if err != nil && e.Log != nil {
+				e.Log.Warn("weekly digest: topics unavailable", "tenant", tenant, "err", err)
+			}
+		}
+		return []Event{ev(fmt.Sprintf("digest:%d-W%02d", year, week), text, "", details)}, nil
 	}
 	return nil, fmt.Errorf("unknown rule kind %q", r.Kind)
 }
@@ -175,4 +234,54 @@ func digest(runs, failed uint64, cost float64, costPartial bool, prevRuns, prevF
 		b.WriteString(".")
 	}
 	return b.String()
+}
+
+// topReason is the most frequent reason (ties: alphabetical).
+func topReason(reasons map[string]uint64) string {
+	best, n := "", uint64(0)
+	for r, c := range reasons {
+		if c > n || (c == n && r < best) {
+			best, n = r, c
+		}
+	}
+	return best
+}
+
+func topicTerms(ts []query.Topic) []string {
+	out := []string{}
+	for _, t := range ts {
+		out = append(out, t.Term)
+	}
+	return out
+}
+
+// topicsDigest is the digest's "what users asked about" sentence.
+func topicsDigest(t *query.Topics) string {
+	var b strings.Builder
+	if len(t.Rising) > 0 {
+		b.WriteString(" Users asked more about: " + strings.Join(firstN(topicTerms(t.Rising), 5), ", ") + ".")
+	}
+	if len(t.New) > 0 {
+		b.WriteString(" New this week: " + strings.Join(firstN(topicTerms(t.New), 5), ", ") + ".")
+	}
+	if t.PreviousRuns > 0 && t.Runs > 0 {
+		if change := float64(t.Runs)/float64(t.PreviousRuns) - 1; change >= 0.5 || change <= -0.33 {
+			fmt.Fprintf(&b, " User requests %s %.0f%%.", map[bool]string{true: "rose", false: "fell"}[change > 0], 100*abs(change))
+		}
+	}
+	return b.String()
+}
+
+func firstN(s []string, n int) []string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
+}
+
+func abs(f float64) float64 {
+	if f < 0 {
+		return -f
+	}
+	return f
 }

@@ -45,6 +45,8 @@ describe('quality and digest rules', () => {
     expect(parseRule('negative_feedback', '30', '60', '10')).toEqual({ threshold: 0.3, window_minutes: 60, min_runs: 10 });
     expect(parseRule('cost_regression', '25%', '1440', '')).toEqual({ threshold: 0.25, window_minutes: 1440, min_runs: 0 });
     expect(parseRule('new_error', '1.5', '60', '')).toEqual({ error: 'Failures must be a whole number, at least 1.' });
+    expect(parseRule('security_signal', '2', '60', '')).toEqual({ threshold: 2, window_minutes: 60, min_runs: 0 });
+    expect(parseRule('security_signal', '0', '60', '')).toEqual({ error: 'Flagged steps must be a whole number, at least 1.' });
     expect(parseRule('weekly_digest', '1', '1440', '')).toEqual({ threshold: 1, window_minutes: 1440, min_runs: 0 });
     expect(describeRule({ kind: 'cost_regression', threshold: 0.25, window_minutes: 1440, min_runs: 0 })).toContain('25%+ more per run');
     expect(describeRule({ kind: 'weekly_digest', threshold: 1, window_minutes: 1440, min_runs: 0 })).toBe('Every Monday at 09:00 UTC');

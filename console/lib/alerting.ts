@@ -1,7 +1,15 @@
 // Alert rules and channels: types and form parsing. Pure; unit-tested.
 // The API validates authoritatively; this shapes input and display.
 
-export type RuleKind = 'error_rate' | 'runaway_loop' | 'run_cost' | 'negative_feedback' | 'cost_regression' | 'new_error' | 'weekly_digest';
+export type RuleKind =
+  | 'error_rate'
+  | 'runaway_loop'
+  | 'run_cost'
+  | 'negative_feedback'
+  | 'cost_regression'
+  | 'new_error'
+  | 'weekly_digest'
+  | 'security_signal';
 
 /** Kinds whose threshold is a percentage in the form (stored as a fraction). */
 const PERCENT: RuleKind[] = ['error_rate', 'negative_feedback', 'cost_regression'];
@@ -46,7 +54,8 @@ export const RULE_KINDS: { kind: RuleKind; label: string; unit: string; help: st
   { kind: 'negative_feedback', label: 'Unhappy users', unit: '% negative', help: 'This share of user feedback (bindle.feedback) was negative in the window. Minimum: feedback needed (default 5).' },
   { kind: 'cost_regression', label: 'Cost regression', unit: '% more per run', help: "An agent's newest version costs this much more per run than the previous one. Minimum: runs per version (default 5)." },
   { kind: 'new_error', label: 'New error', unit: 'failures', help: "An error that didn't occur in the 7 days before appeared this many times." },
-  { kind: 'weekly_digest', label: 'Weekly digest', unit: '', help: 'A summary every Monday at 09:00 UTC: runs, failure rate and spend against the week before, and what failed most.' },
+  { kind: 'security_signal', label: 'Security signal', unit: 'flagged steps', help: "An agent's steps were flagged this many times in the window for possible prompt injection, an exposed credential or possible data exfiltration." },
+  { kind: 'weekly_digest', label: 'Weekly digest', unit: '', help: 'A summary every Monday at 09:00 UTC: runs, failure rate and spend against the week before, what failed most, and what users asked about more.' },
 ];
 
 export const WINDOWS = [
@@ -94,6 +103,8 @@ export function describeRule(r: Pick<AlertRule, 'kind' | 'threshold' | 'window_m
       return `A new agent version costs ${thresholdInput('cost_regression', r.threshold)}%+ more per run than the previous one (runs over ${win})`;
     case 'new_error':
       return `A new error appears ${r.threshold}+ times over ${win}`;
+    case 'security_signal':
+      return `An agent has ${r.threshold}+ step${r.threshold === 1 ? '' : 's'} flagged for the same security signal over ${win}`;
     case 'weekly_digest':
       return 'Every Monday at 09:00 UTC';
   }
@@ -126,6 +137,9 @@ export function parseRule(kind: RuleKind, threshold: unknown, window: unknown, m
       return { threshold: Math.round(t * 10) / 1000, window_minutes: w, min_runs: m };
     case 'new_error':
       if (!Number.isInteger(t) || t < 1) return { error: 'Failures must be a whole number, at least 1.' };
+      return { threshold: t, window_minutes: w, min_runs: 0 };
+    case 'security_signal':
+      if (!Number.isInteger(t) || t < 1) return { error: 'Flagged steps must be a whole number, at least 1.' };
       return { threshold: t, window_minutes: w, min_runs: 0 };
     case 'weekly_digest':
       return { threshold: 1, window_minutes: 1440, min_runs: 0 };

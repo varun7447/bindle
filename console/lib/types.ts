@@ -53,6 +53,10 @@ export interface StepSummary {
   output_bytes: number;
   reasoning_bytes: number;
   redacted: boolean;
+  /** Security signals on the step (prompt_injection, secret_exposed, possible_exfiltration). */
+  security_flags?: string[];
+  /** Why each flag was raised: "flag:reason". */
+  security_reasons?: string[];
 }
 
 export interface TraceResponse {

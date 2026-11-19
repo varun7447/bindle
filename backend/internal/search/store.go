@@ -159,7 +159,7 @@ func (s *Store) ListRuns(ctx context.Context, tenant string, f query.RunFilter) 
 
 // ---- trace ---------------------------------------------------------------
 
-var summaryExcludes = []string{"input", "output", "reasoning", "attributes", "links"}
+var summaryExcludes = []string{"input", "output", "reasoning", "attributes", "links", "user_input"}
 
 func (d stepDoc) summary() query.StepSummary {
 	return query.StepSummary{
@@ -168,6 +168,7 @@ func (d stepDoc) summary() query.StepSummary {
 		InputTokens: d.InputTokens, OutputTokens: d.OutputTokens, CachedTokens: d.CachedTokens, CostUSD: d.CostUSD,
 		CostKnown: d.CostKnown, ErrorMessage: d.ErrorMessage, InputBytes: uint64(d.InputBytes),
 		OutputBytes: uint64(d.OutputBytes), ReasoningBytes: uint64(d.ReasoningBytes), Redacted: d.Redacted,
+		SecurityFlags: d.SecurityFlags, SecurityReasons: d.SecurityReasons,
 	}
 }
 

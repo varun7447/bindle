@@ -22,6 +22,7 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/model"
 	"github.com/bindle-ai/bindle/backend/internal/otlp"
 	"github.com/bindle-ai/bindle/backend/internal/redact"
+	"github.com/bindle-ai/bindle/backend/internal/security"
 )
 
 const (
@@ -91,6 +92,7 @@ func (n *Normalizer) Normalize(tenantID string, s model.Span) model.Step {
 		st.DurationMs = float64(s.EndUnixNano-s.StartUnixNano) / 1e6
 	}
 
+	rawInput := st.Input
 	if sys := str(a, "gen_ai.system_instructions"); sys != "" {
 		st.Input = joinNonEmpty("system: "+sys, st.Input)
 	}
@@ -141,6 +143,10 @@ func (n *Normalizer) Normalize(tenantID string, s model.Span) model.Step {
 		}
 	}
 
+	if rawInput == "" && !strings.HasPrefix(st.Input, "system: ") {
+		rawInput = st.Input // from events
+	}
+
 	st.Framework = detectFramework(s.ScopeName, res, a)
 	if st.Framework == "unknown" && isAgentCore(s) {
 		st.Framework = "Amazon Bedrock AgentCore"
@@ -172,16 +178,39 @@ func (n *Normalizer) Normalize(tenantID string, s model.Span) model.Step {
 	if maxPayload <= 0 {
 		maxPayload = defaultMaxPayload
 	}
-	st.Input = truncate(r.Apply(st.Input), maxPayload)
-	st.Output = truncate(r.Apply(st.Output), maxPayload)
+	st.UserInput = truncate(r.Apply(userInput(st.Type, rawInput, evIn, a)), maxUserInput)
+	in, out := r.Apply(st.Input), r.Apply(st.Output)
+	sec := security.Detect(st.Type, st.ToolName, in, out)
+	st.Input = truncate(in, maxPayload)
+	st.Output = truncate(out, maxPayload)
 	st.Reasoning = truncate(r.Apply(st.Reasoning), maxPayload)
 	st.ErrorMessage = truncate(r.Apply(st.ErrorMessage), maxAttrValue)
 	st.ErrorPattern = ErrorPattern(st.ErrorMessage)
 	for k, v := range st.Attributes {
+		if strings.HasPrefix(k, securityAttrPrefix) {
+			delete(st.Attributes, k) // set by Bindle only, never by the payload
+			continue
+		}
 		st.Attributes[k] = r.Apply(v)
+	}
+	if !sec.Empty() {
+		st.SecurityFlags, st.SecurityReasons = sec.Flags, sec.Reasons
+		st.Attributes[SecurityReasonsAttr] = strings.Join(sec.Reasons, ",")
+		if sec.Secrets > 0 {
+			st.Attributes[SecuritySecretsAttr] = strconv.Itoa(sec.Secrets)
+		}
 	}
 	return st
 }
+
+// Attributes Bindle sets on flagged steps: why each flag was raised
+// ("flag:reason,...") and how many credentials were redacted from the
+// output. They carry no content.
+const (
+	securityAttrPrefix  = "bindle.security."
+	SecurityReasonsAttr = "bindle.security.reasons"
+	SecuritySecretsAttr = "bindle.security.secrets"
+)
 
 func classify(s model.Span, st model.Step) string {
 	a := s.Attributes

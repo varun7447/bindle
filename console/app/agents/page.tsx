@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { BotIcon, CheckCircleIcon, LayersIcon } from '@/components/Icons';
+import { BotIcon, ChartIcon, CheckCircleIcon, LayersIcon } from '@/components/Icons';
 import { ApiErrorPanel, Help, settle } from '@/components/ui';
 import { type Delta } from '@/lib/insights';
 import { api } from '@/lib/api';
@@ -9,10 +9,12 @@ import { checkMatrix, passRate } from '@/lib/evals';
 import { fmtBytes } from '@/lib/context';
 import { formatCost, formatCount, formatDuration, formatPercent, formatRelative } from '@/lib/format';
 import { WINDOWS, asWindow, one } from '@/lib/ids';
+import { topicRows, topicsSummary } from '@/lib/topics';
 
 export const dynamic = 'force-dynamic';
 
 const WINDOW_LABEL = { '24h': 'Last 24 hours', '7d': 'Last 7 days', '30d': 'Last 30 days' } as const;
+const PREVIOUS = { '24h': 'previous 24 hours', '7d': 'previous 7 days', '30d': 'previous 30 days' } as const;
 
 function Change({ d }: { d?: Delta }) {
   if (!d || d.direction === 'flat' || d.direction === 'new') return null;
@@ -28,8 +30,12 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
   const agents = ins.ok ? ins.data.agents : [];
   const requested = one(sp.agent);
   const agent = requested !== undefined && agents.some((a) => a.agent === requested) ? requested : agents[0]?.agent;
-  const [versions, checks] =
-    agent !== undefined ? await Promise.all([settle(api.agentVersions(agent, window)), settle(api.agentChecks(agent, window))]) : [undefined, undefined];
+  const [versions, checks, topics] =
+    agent !== undefined
+      ? await Promise.all([settle(api.agentVersions(agent, window)), settle(api.agentChecks(agent, window)), settle(api.agentTopics(agent, window))])
+      : [undefined, undefined, undefined];
+  const topicList = topics?.ok ? topicRows(topics.data.topics) : [];
+  const topicLine = topics?.ok ? topicsSummary(topics.data.topics, PREVIOUS[window]) : null;
   const matrix = checks?.ok ? checkMatrix(checks.data) : null;
   const scoreVersions = checks?.ok ? [...new Set(checks.data.scores.map((s) => s.version))] : [];
   const scoreNames = checks?.ok ? [...new Set(checks.data.scores.map((s) => s.name))] : [];
@@ -223,6 +229,78 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
           )}
           <p className="sub" style={{ padding: '8px 18px 14px', margin: 0 }}>
             Checks run on up to 100 recent runs per version. Scores come from <code>bindle.score()</code>: pass rate when they pass or fail, else the average value.
+          </p>
+        </section>
+      ) : null}
+
+      {agent !== undefined ? (
+        <section className="panel panel-flush" style={{ marginBottom: 16 }} aria-labelledby="topics-h">
+          <div className="section-title">
+            <h2 id="topics-h" className="h-icon">
+              <ChartIcon />
+              What users ask about
+            </h2>
+            <span className="sub">
+              {agent || 'Unnamed agent'} · compared with the {PREVIOUS[window]}{' '}
+              <Help>
+                Words in users&apos; messages (the last user message sent to the model, or the agent&apos;s input) that appear in a clearly larger share of runs
+                than in the period before, or that are new. Each run counts once. Needs content capture on.
+              </Help>
+            </span>
+          </div>
+          {!topics?.ok ? (
+            <div style={{ padding: 18 }}>{topics ? <ApiErrorPanel error={topics.error} /> : null}</div>
+          ) : topicList.length === 0 ? (
+            <div className="empty">{topicLine ? `${topicLine} No new or rising topics.` : 'No user messages in this period.'}</div>
+          ) : (
+            <>
+              {topicLine ? (
+                <p className="sub" style={{ padding: '8px 18px 0', margin: 0 }}>
+                  {topicLine}
+                </p>
+              ) : null}
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ marginTop: 8 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ paddingLeft: 18 }}>Topic</th>
+                      <th>Change</th>
+                      <th style={{ paddingRight: 18 }}>Example runs</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topicList.map((t) => (
+                      <tr key={t.term}>
+                        <td style={{ paddingLeft: 18 }}>
+                          <b>{t.term}</b>{' '}
+                          <span className={`badge${t.kind === 'new' ? ' badge-warn' : ''}`} style={{ marginLeft: 6 }}>
+                            {t.kind === 'new' ? 'New' : 'Rising'}
+                          </span>
+                        </td>
+                        <td>{t.detail}</td>
+                        <td style={{ paddingRight: 18 }}>
+                          {t.examples.length === 0 ? (
+                            <span className="sub">–</span>
+                          ) : (
+                            t.examples.map((id, i) => (
+                              <span key={id}>
+                                {i > 0 ? ', ' : ''}
+                                <Link href={`/traces/${id}`} className="mono">
+                                  {id.slice(0, 8)}
+                                </Link>
+                              </span>
+                            ))
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+          <p className="sub" style={{ padding: '8px 18px 14px', margin: 0 }}>
+            Topics come from word statistics, not a model: no message leaves Bindle. <Link href={`/search?q=${encodeURIComponent(topicList[0]?.term ?? '')}&range=${window}`}>Search runs</Link> to read what users wrote.
           </p>
         </section>
       ) : null}

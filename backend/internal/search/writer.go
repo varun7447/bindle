@@ -45,50 +45,54 @@ const maxFutureSkew = 24 * time.Hour
 
 // stepDoc is the indexed form of a step.
 type stepDoc struct {
-	TenantID       string                 `json:"tenant_id"`
-	TraceID        string                 `json:"trace_id"`
-	StepID         string                 `json:"step_id"`
-	ParentStepID   string                 `json:"parent_step_id"`
-	Name           string                 `json:"name"`
-	Type           string                 `json:"type"`
-	Status         string                 `json:"status"`
-	Attempt        int64                  `json:"attempt"`
-	Framework      string                 `json:"framework"`
-	ServiceName    string                 `json:"service_name"`
-	AgentName      string                 `json:"agent_name"`
-	AgentVersion   string                 `json:"agent_version"`
-	SessionID      string                 `json:"session_id"`
-	Environment    string                 `json:"environment"`
-	Provider       string                 `json:"provider"`
-	Model          string                 `json:"model"`
-	ToolName       string                 `json:"tool_name"`
-	InputTokens    int64                  `json:"input_tokens"`
-	OutputTokens   int64                  `json:"output_tokens"`
-	CachedTokens   int64                  `json:"cached_tokens"`
-	CostUSD        float64                `json:"cost_usd"`
-	CostKnown      bool                   `json:"cost_known"`
-	StartTime      string                 `json:"start_time"`
-	StartNs        int64                  `json:"start_ns"`
-	DurationMs     float64                `json:"duration_ms"`
-	ErrorMessage   string                 `json:"error_message"`
-	ErrorPattern   string                 `json:"error_pattern"`
-	ScoreName      string                 `json:"score_name,omitempty"`
-	ScoreValue     *float64               `json:"score_value,omitempty"`
-	ScorePass      string                 `json:"score_pass,omitempty"`
-	ScoreSource    string                 `json:"score_source,omitempty"`
-	Input          string                 `json:"input"`
-	Output         string                 `json:"output"`
-	Reasoning      string                 `json:"reasoning"`
-	Attributes     map[string]string      `json:"attributes"`
-	Links          []string               `json:"links"`
-	InputHash      string                 `json:"input_hash"`
-	InputBytes     int                    `json:"input_bytes"`
-	OutputBytes    int                    `json:"output_bytes"`
-	ReasoningBytes int                    `json:"reasoning_bytes"`
-	Redacted       bool                   `json:"redacted"`
-	RedactedKinds  []string               `json:"redacted_kinds"`
-	IngestedAt     string                 `json:"ingested_at"`
-	PayloadRefs    map[string]payload.Ref `json:"payload_refs,omitempty"`
+	TenantID        string                 `json:"tenant_id"`
+	TraceID         string                 `json:"trace_id"`
+	StepID          string                 `json:"step_id"`
+	ParentStepID    string                 `json:"parent_step_id"`
+	Name            string                 `json:"name"`
+	Type            string                 `json:"type"`
+	Status          string                 `json:"status"`
+	Attempt         int64                  `json:"attempt"`
+	Framework       string                 `json:"framework"`
+	ServiceName     string                 `json:"service_name"`
+	AgentName       string                 `json:"agent_name"`
+	AgentVersion    string                 `json:"agent_version"`
+	SessionID       string                 `json:"session_id"`
+	Environment     string                 `json:"environment"`
+	Provider        string                 `json:"provider"`
+	Model           string                 `json:"model"`
+	ToolName        string                 `json:"tool_name"`
+	InputTokens     int64                  `json:"input_tokens"`
+	OutputTokens    int64                  `json:"output_tokens"`
+	CachedTokens    int64                  `json:"cached_tokens"`
+	CostUSD         float64                `json:"cost_usd"`
+	CostKnown       bool                   `json:"cost_known"`
+	StartTime       string                 `json:"start_time"`
+	StartNs         int64                  `json:"start_ns"`
+	DurationMs      float64                `json:"duration_ms"`
+	ErrorMessage    string                 `json:"error_message"`
+	ErrorPattern    string                 `json:"error_pattern"`
+	ScoreName       string                 `json:"score_name,omitempty"`
+	ScoreValue      *float64               `json:"score_value,omitempty"`
+	ScorePass       string                 `json:"score_pass,omitempty"`
+	ScoreSource     string                 `json:"score_source,omitempty"`
+	Input           string                 `json:"input"`
+	Output          string                 `json:"output"`
+	Reasoning       string                 `json:"reasoning"`
+	UserInput       string                 `json:"user_input,omitempty"`
+	UserInputBytes  int                    `json:"user_input_bytes,omitempty"`
+	SecurityFlags   []string               `json:"security_flags,omitempty"`
+	SecurityReasons []string               `json:"security_reasons,omitempty"`
+	Attributes      map[string]string      `json:"attributes"`
+	Links           []string               `json:"links"`
+	InputHash       string                 `json:"input_hash"`
+	InputBytes      int                    `json:"input_bytes"`
+	OutputBytes     int                    `json:"output_bytes"`
+	ReasoningBytes  int                    `json:"reasoning_bytes"`
+	Redacted        bool                   `json:"redacted"`
+	RedactedKinds   []string               `json:"redacted_kinds"`
+	IngestedAt      string                 `json:"ingested_at"`
+	PayloadRefs     map[string]payload.Ref `json:"payload_refs,omitempty"`
 }
 
 // traceDoc is the per-trace rollup.
@@ -149,6 +153,7 @@ func toDoc(s model.Step, ingested string) stepDoc {
 		StartTime: nanoTime(int64(s.StartUnixNano)), StartNs: int64(s.StartUnixNano), DurationMs: s.DurationMs,
 		ErrorMessage: s.ErrorMessage, ErrorPattern: s.ErrorPattern,
 		ScoreName: s.ScoreName, ScoreValue: s.ScoreValue, ScorePass: s.ScorePass, ScoreSource: s.ScoreSource, Input: s.Input, Output: s.Output, Reasoning: s.Reasoning,
+		UserInput: s.UserInput, UserInputBytes: len(s.UserInput), SecurityFlags: s.SecurityFlags, SecurityReasons: s.SecurityReasons,
 		Attributes: attrs, Links: links, InputHash: hex.EncodeToString(ih[:16]),
 		InputBytes: len(s.Input), OutputBytes: len(s.Output), ReasoningBytes: len(s.Reasoning),
 		Redacted: len(kinds) > 0, RedactedKinds: kinds, IngestedAt: ingested,

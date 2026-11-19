@@ -109,6 +109,8 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/search", s.search)
 	api.HandleFunc("GET /api/sessions/{id}", s.getSession)
 	api.HandleFunc("GET /api/agents/versions", s.agentVersions)
+	api.HandleFunc("GET /api/agents/topics", s.agentTopics)
+	api.HandleFunc("GET /api/security", s.securitySignals)
 	s.evalRoutes(api)
 	api.HandleFunc("POST /api/traces/{id}/steps/{step}/replay", s.replayStep)
 	api.HandleFunc("GET /api/alert-rules", s.listAlertRules)
