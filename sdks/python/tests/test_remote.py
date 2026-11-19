@@ -186,3 +186,23 @@ def test_poll_is_not_traced_by_auto_instrumentation():
     Poller("http://x/v1/config", "k", lambda s: None, "ua", opener=opener).poll_once()
     assert seen["suppressed"] is True
     assert context.get_value(context._SUPPRESS_INSTRUMENTATION_KEY) is None  # restored afterwards
+
+
+def test_console_pause_stops_the_agent_at_check_limits(monkeypatch):
+    fake = FakeIngest({**CONFIG, "limits": [{"agent": "refunds", "paused": True}], "over_budget": []})
+    try:
+        monkeypatch.setenv("BINDLE_REMOTE_CONFIG", "true")
+        endpoint = fake.url.rsplit("/v1/config", 1)[0]
+        assert bindle.init(api_key="bd_test_k", endpoint=endpoint, agent="refunds", instrument=False)
+        for _ in range(50):
+            if bindle._state["remote"] is not None:
+                break
+            threading.Event().wait(0.05)
+        with pytest.raises(bindle.LimitExceeded) as e:
+            bindle.check_limits()
+        assert e.value.reason == "paused"
+        assert bindle.limits_status()["paused"] is True
+    finally:
+        bindle.shutdown()
+        fake.close()
+    bindle.check_limits()  # after shutdown: a no-op

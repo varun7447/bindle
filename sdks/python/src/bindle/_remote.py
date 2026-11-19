@@ -51,6 +51,8 @@ class RemoteSettings:
     capture_content: bool = True
     redact_patterns: Dict[str, str] = field(default_factory=dict)
     poll_interval: float = 60.0
+    limits: tuple = ()
+    over_budget: tuple = ()
 
 
 def parse(body: bytes) -> Optional[RemoteSettings]:
@@ -68,7 +70,11 @@ def parse(body: bytes) -> Optional[RemoteSettings]:
             if isinstance(name, str) and isinstance(expr, str) and _NAME_RE.match(name) and 0 < len(expr) <= 200:
                 patterns[name] = expr
         poll = float(d.get("poll_interval_seconds", 60))
-        return RemoteSettings(version, rate, capture, patterns, min(max(poll, _MIN_POLL), _MAX_POLL))
+        from ._limits import parse_limits
+
+        over = tuple(a for a in (d.get("over_budget") or []) if isinstance(a, str))
+        return RemoteSettings(version, rate, capture, patterns, min(max(poll, _MIN_POLL), _MAX_POLL),
+                              parse_limits(d.get("limits")), over)
     except Exception:  # noqa: BLE001 - malformed config is ignored, never fatal
         return None
 

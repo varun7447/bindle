@@ -22,7 +22,9 @@ import { Redactor } from './redact.js';
 import { Poller, type RemoteSettings } from './remote.js';
 import { DynamicRatioSampler } from './sampling.js';
 
+import { Guard, LimitExceededError, type LimitsStatus, RunCounter } from './limits.js';
 export { Redactor } from './redact.js';
+export { LimitExceededError, type LimitReason, type LimitsStatus } from './limits.js';
 export { sampled } from './sampling.js';
 
 export const VERSION = '0.1.0';
@@ -99,10 +101,26 @@ interface State {
   poller?: Poller;
   capture: boolean;
   remote?: RemoteSettings;
+  guard?: Guard;
 }
 
 const state: State = { capture: true };
 const session = new AsyncLocalStorage<string | undefined>();
+
+/** Adds bindle.session.id to every span started inside withSession(), framework spans included. */
+const sessionTagger: SpanProcessor = {
+  onStart(span) {
+    try {
+      const sid = session.getStore();
+      if (sid && span.attributes?.['bindle.session.id'] === undefined) span.setAttribute('bindle.session.id', sid.slice(0, 256));
+    } catch {
+      /* never break the host app */
+    }
+  },
+  onEnd() {},
+  forceFlush: () => Promise.resolve(),
+  shutdown: () => Promise.resolve(),
+};
 
 function debug(msg: string): void {
   if (state.cfg?.debug) console.debug(msg);
@@ -140,6 +158,7 @@ function applyRemote(s: RemoteSettings): void {
   state.exporter?.update(capture, localRedactor(cfg, s.redactPatterns), cfg.captureContent ? 'workspace' : 'sdk');
   state.capture = capture;
   state.remote = s;
+  state.guard?.update(s.limits, s.overBudget);
   debug(`bindle: remote config v${s.version} applied`);
 }
 
@@ -178,10 +197,11 @@ export function init(options: InitOptions = {}, internal: { exporter?: () => imp
     state.capture = cfg.captureContent;
     const exporter = buildExporter(cfg, internal.exporter);
     const sampler = new DynamicRatioSampler(cfg.sampleRate);
+    const counter = new RunCounter();
     const provider = new TracerProvider({
       resource: resourceFromAttributes(attrs),
       sampler: new ParentBasedSampler({ root: sampler }),
-      spanProcessors: [buildProcessor(exporter)],
+      spanProcessors: [sessionTagger, buildProcessor(exporter), counter],
     });
     // Only if the app hasn't set its own context manager.
     context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
@@ -191,7 +211,7 @@ export function init(options: InitOptions = {}, internal: { exporter?: () => imp
       state.cfg = undefined;
       return false;
     }
-    Object.assign(state, { provider, sampler, exporter });
+    Object.assign(state, { provider, sampler, exporter, guard: new Guard(cfg.agent ?? '', counter) });
     startRemote(cfg);
     process.once('beforeExit', () => void shutdown());
     debug(`bindle: initialized (endpoint=${cfg.endpoint})`);
@@ -217,8 +237,51 @@ export function spanProcessor(options: InitOptions = {}): SpanProcessor | undefi
   state.cfg ??= cfg;
   const exporter = buildExporter(cfg);
   state.exporter ??= exporter;
+  const counter = new RunCounter();
+  state.guard ??= new Guard(cfg.agent ?? '', counter);
   if (!state.poller) startRemote(cfg);
-  return buildProcessor(exporter);
+  const batch = buildProcessor(exporter);
+  // One processor for the app's provider: export plus run counting.
+  return {
+    onStart: (span, ctx) => {
+      sessionTagger.onStart(span, ctx);
+      counter.onStart(span, ctx);
+      batch.onStart(span, ctx);
+    },
+    onEnd: (span) => {
+      counter.onEnd(span);
+      batch.onEnd(span);
+    },
+    forceFlush: () => batch.forceFlush(),
+    shutdown: () => batch.shutdown(),
+  };
+}
+
+/**
+ * Throw LimitExceededError if this agent is paused in the Bindle console,
+ * over its daily budget (when its limit pauses it), or the current run has
+ * more steps or tokens than its limit allows. Call it where stopping is
+ * safe: at the top of a loop iteration, before a tool or LLM call. Does
+ * nothing if Bindle isn't initialized or no limits are set.
+ */
+export function checkLimits(): void {
+  const g = state.guard;
+  if (!g) return;
+  try {
+    g.check();
+  } catch (e) {
+    if (e instanceof LimitExceededError) throw e;
+    debug(`bindle: limit check failed: ${(e as Error).message}`); // a bug here must not stop the agent
+  }
+}
+
+/** The limits that apply to this agent and the current run's usage. */
+export function limitsStatus(): LimitsStatus | undefined {
+  try {
+    return state.guard?.status();
+  } catch {
+    return undefined;
+  }
 }
 
 /** Send buffered spans now. Await it at the end of serverless handlers. */
@@ -234,7 +297,7 @@ export async function flush(): Promise<boolean> {
 export async function shutdown(): Promise<void> {
   state.poller?.stop();
   const provider = state.provider;
-  Object.assign(state, { poller: undefined, provider: undefined, sampler: undefined, exporter: undefined, remote: undefined, cfg: undefined, capture: true });
+  Object.assign(state, { poller: undefined, provider: undefined, sampler: undefined, exporter: undefined, remote: undefined, cfg: undefined, capture: true, guard: undefined });
   if (!provider) return;
   try {
     await provider.shutdown();
@@ -340,6 +403,68 @@ export function decision(name: string, options: string[], chosen: string, ration
     span.setAttribute('bindle.decision.chosen', chosen);
     if (rationale && state.capture) span.setAttribute('bindle.reasoning', rationale.slice(0, MAX_CAPTURE));
   });
+}
+
+export interface ScoreOptions {
+  value?: number;
+  passed?: boolean;
+  comment?: string;
+  /** The run to score, from outside it (CI, a judge over an exported dataset). */
+  traceId?: string;
+}
+
+/**
+ * Record a score for a run: a number, pass/fail, or both. Inside a run the
+ * score joins the current trace; elsewhere pass the run's traceId (32 hex
+ * characters). Returns true if recorded. Never throws.
+ */
+export function score(name: string, opts: ScoreOptions & { source?: 'user' } = {}): boolean {
+  try {
+    if (!state.cfg || typeof name !== 'string' || !name.trim() || name.length > 80) return false;
+    const { value, passed, comment, traceId } = opts;
+    if (value === undefined && passed === undefined) return false;
+    const attrs: Attributes = { 'bindle.step.type': 'eval', 'bindle.score.name': name.trim() };
+    if (value !== undefined) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return false;
+      attrs['bindle.score.value'] = value;
+    }
+    if (passed !== undefined) attrs['bindle.score.passed'] = Boolean(passed);
+    if (comment && state.capture) attrs['output.value'] = String(comment).slice(0, MAX_CAPTURE);
+    if (opts.source === 'user') attrs['bindle.score.source'] = 'user';
+    let ctx = context.active();
+    if (traceId !== undefined) {
+      const tid = String(traceId).toLowerCase();
+      if (!/^[0-9a-f]{32}$/.test(tid) || /^0+$/.test(tid)) return false;
+      const spanId = Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join('').replace(/^0{16}$/, '0000000000000001');
+      ctx = trace.setSpanContext(ctx, { traceId: tid, spanId, traceFlags: 1, isRemote: true });
+      attrs['bindle.score.external'] = true;
+    } else if (!trace.getSpan(ctx)?.spanContext() || !trace.isSpanContextValid(trace.getSpan(ctx)!.spanContext())) {
+      debug('bindle: score() outside a run needs traceId');
+      return false;
+    }
+    const tracer = (state.provider ?? trace.getTracerProvider()).getTracer('bindle', VERSION);
+    tracer.startSpan(`score ${name.trim()}`, { attributes: attrs }, ctx).end();
+    return true;
+  } catch (e) {
+    debug(`bindle: score failed: ${(e as Error).message}`);
+    return false;
+  }
+}
+
+/**
+ * Record a user's feedback on a run (thumbs up/down, a rating, or both, with
+ * an optional comment), usually from your app's feedback handler with the
+ * trace ID the run returned (see currentTraceId()). Returns true if recorded.
+ */
+export function feedback(opts: { traceId?: string; thumbsUp?: boolean; rating?: number; comment?: string }): boolean {
+  const value = opts.rating ?? (opts.thumbsUp === undefined ? undefined : opts.thumbsUp ? 1 : 0);
+  return score('feedback', { value, passed: opts.thumbsUp, comment: opts.comment, traceId: opts.traceId, source: 'user' });
+}
+
+/** The current run's trace ID, to hand to your UI for feedback later; undefined outside a run. */
+export function currentTraceId(): string | undefined {
+  const sc = trace.getSpan(context.active())?.spanContext();
+  return sc && trace.isSpanContextValid(sc) ? sc.traceId : undefined;
 }
 
 /** Record a handoff to another agent or a human. */

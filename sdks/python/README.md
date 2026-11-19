@@ -72,6 +72,46 @@ The SDK picks up settings changed in the Bindle console (sample rate, content ca
 
 The console sets a ceiling and your code can only be stricter: the effective sample rate is the lower of the two, prompts and outputs are sent only if both allow it, and console patterns add to the built-in and local ones. Bindle's ingest enforces the same settings for every client, including apps whose OpenTelemetry setup the SDK doesn't control.
 
+## Scores
+
+Record how well a run went, from inside it or later (CI, or an LLM judge grading an exported dataset):
+
+```python
+bindle.score("helpful", 0.8)                                  # inside a run
+bindle.score("resolved", passed=True, trace_id=line["trace_id"])  # from elsewhere
+```
+
+Scores show per agent version on the Agents page. `score()` returns False instead of raising if it can't record.
+
+## Sessions and user feedback
+
+```python
+bindle.set_session("conversation-42")          # every span from here on joins the conversation
+trace_id = bindle.current_trace_id()            # hand this to your UI with the answer
+bindle.feedback(trace_id=trace_id, thumbs_up=False, comment="wrong order")
+```
+
+## CI: `bindle eval`
+
+```bash
+bindle eval --dataset evals/refunds.jsonl --checks evals/bindle-checks.json \
+  --agent my_app.agent:answer --judge my_app.judge:grade --max-drop 0.05 --report eval-report.md
+```
+
+Runs the agent on a dataset exported from Bindle, applies Bindle's checks (and your own judge, with your own keys), compares with the dataset's original answers, and exits 1 on a drop. Example workflow: `examples/ci/bindle-eval.yml`.
+
+## Agent limits
+
+Limits set in the console (pause, max steps or tokens per run, daily budget) apply where your code calls `bindle.check_limits()`:
+
+```python
+while not done:
+    bindle.check_limits()   # raises bindle.LimitExceeded when paused or over a limit
+    step()
+```
+
+`LimitExceeded.reason` is `paused`, `over_budget`, `max_steps_per_run` or `max_tokens_per_run`. Steps are counted per run in-process (every span in the trace); tokens come from LLM spans. `bindle.limits_status()` returns the current limits and the run's usage. Without `bindle.init()` or without limits, `check_limits()` does nothing. This is the only place the SDK raises on purpose.
+
 ## Safety guarantees
 
 * Export runs on a background thread with a bounded queue. If Bindle is slow or down, spans are dropped, never blocking your agent.

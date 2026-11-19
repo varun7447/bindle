@@ -1,5 +1,6 @@
 import { context } from '@opentelemetry/api';
 import { suppressTracing } from '@opentelemetry/core';
+import { type Limit, parseLimits } from './limits.js';
 
 // Remote settings from the Bindle console (sample rate, content capture,
 // extra redaction patterns), polled from GET {endpoint}/v1/config. They are
@@ -12,6 +13,8 @@ export interface RemoteSettings {
   captureContent: boolean;
   redactPatterns: Record<string, string>;
   pollIntervalSeconds: number;
+  limits: Limit[];
+  overBudget: string[];
 }
 
 const MIN_POLL = 30;
@@ -40,6 +43,8 @@ export function parseSettings(body: string): RemoteSettings | undefined {
       captureContent: d.capture_content,
       redactPatterns: patterns,
       pollIntervalSeconds: Math.min(Math.max(Number.isFinite(poll) ? poll : 60, MIN_POLL), MAX_POLL),
+      limits: parseLimits(d.limits),
+      overBudget: Array.isArray(d.over_budget) ? d.over_budget.filter((a): a is string => typeof a === 'string') : [],
     };
   } catch {
     return undefined;

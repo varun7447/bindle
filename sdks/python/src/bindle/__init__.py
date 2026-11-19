@@ -15,6 +15,7 @@ traced with OpenTelemetry and sent to Bindle. Design rules:
 from __future__ import annotations
 
 import atexit
+import contextvars
 import functools
 import inspect
 import json
@@ -29,9 +30,12 @@ from opentelemetry.trace import Status, StatusCode
 from . import _config, _instrument
 from ._redact import Redactor
 
+from ._limits import LimitExceeded
+
 __all__ = [
     "init", "flush", "shutdown", "step", "trace_step", "trace_tool",
-    "decision", "handoff", "set_session", "Redactor",
+    "decision", "handoff", "score", "feedback", "current_trace_id", "set_session", "check_limits", "limits_status",
+    "LimitExceeded", "Redactor",
 ]
 __version__ = "0.1.0"
 
@@ -40,9 +44,10 @@ _TRACER_NAME = "bindle"
 _MAX_CAPTURE = 16 * 1024
 
 _lock = threading.Lock()
+_session_var: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar("bindle_session", default=None)
 _state: dict = {
     "provider": None, "config": None, "session": threading.local(),
-    "sampler": None, "exporter": None, "poller": None, "remote": None,
+    "sampler": None, "exporter": None, "poller": None, "remote": None, "guard": None,
     "capture": True,  # effective content capture (local AND remote)
 }
 
@@ -118,6 +123,9 @@ def _apply_remote(settings) -> None:
         exporter.update(capture, _local_redactor(cfg, settings.redact_patterns),
                         "sdk" if not cfg.capture_content else "workspace")
     _state["capture"], _state["remote"] = capture, settings
+    guard = _state["guard"]
+    if guard is not None:
+        guard.update(settings.limits, settings.over_budget)
     log.debug("bindle: remote config v%s applied (sample_rate=%s, capture_content=%s, patterns=%d)",
               settings.version, rate, capture, len(settings.redact_patterns))
 
@@ -183,6 +191,14 @@ def _setup(cfg: _config.Config):
         provider.add_span_processor(processor)
         trace.set_tracer_provider(provider)
 
+    # Counts steps and tokens per run for bindle.check_limits().
+    from ._limits import Guard, RunCounter
+
+    counter = RunCounter()
+    provider.add_span_processor(counter)
+    provider.add_span_processor(_SessionTagger())
+    _state["guard"] = Guard(cfg.agent or "", counter)
+
     enabled = _instrument.instrument(provider, cfg.instrument)
     log.debug("bindle: initialized (endpoint=%s, frameworks=%s)", cfg.endpoint, enabled)
     return provider
@@ -212,12 +228,79 @@ def shutdown() -> None:
     except Exception:  # noqa: BLE001
         pass
     _state["provider"] = None
-    _state.update(sampler=None, exporter=None, remote=None, capture=True)
+    _state.update(sampler=None, exporter=None, remote=None, capture=True, guard=None)
+
+
+def check_limits() -> None:
+    """Raise ``bindle.LimitExceeded`` if this agent is paused in the Bindle
+    console, over its daily budget (when its limit pauses it), or the current
+    run has more steps or tokens than its limit allows.
+
+    Call it where stopping is safe: at the top of each loop iteration, before
+    a tool call or before an LLM call. Does nothing if Bindle isn't
+    initialized or no limits are set.
+    """
+    guard = _state["guard"]
+    if guard is None:
+        return
+    try:
+        guard.check()
+    except LimitExceeded:
+        raise
+    except Exception as exc:  # noqa: BLE001 - a bug here must not stop the agent
+        log.debug("bindle: limit check failed: %s", exc)
+
+
+def limits_status() -> dict:
+    """The limits that apply to this agent and the current run's usage."""
+    guard = _state["guard"]
+    if guard is None:
+        return {}
+    try:
+        return guard.status()
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def set_session(session_id: Optional[str]) -> None:
-    """Tag subsequent steps on this thread with a session/conversation ID."""
+    """Tag every span started from here on (in this thread or async task),
+    including framework spans, with a session/conversation ID. Runs that
+    share it show as one conversation under Sessions."""
     _state["session"].value = session_id
+    _session_var.set(session_id or None)
+
+
+def _current_session() -> Optional[str]:
+    return _session_var.get() or getattr(_state["session"], "value", None)
+
+
+try:
+    from opentelemetry.sdk.trace import SpanProcessor as _SpanProcessor
+except Exception:  # noqa: BLE001
+    _SpanProcessor = object  # type: ignore[misc,assignment]
+
+
+class _SessionTagger(_SpanProcessor):
+    """Span processor: adds bindle.session.id to spans started in a session.
+    Subclasses SpanProcessor so hooks newer SDKs call (e.g. _on_ending)
+    always exist."""
+
+    def on_start(self, span, parent_context=None) -> None:
+        try:
+            sid = _current_session()
+            if sid and not (span.attributes or {}).get("bindle.session.id"):
+                span.set_attribute("bindle.session.id", str(sid)[:256])
+        except Exception:  # noqa: BLE001 - never break the host app
+            pass
+
+    def on_end(self, span) -> None:
+        pass
+
+    def shutdown(self) -> None:
+        pass
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +329,7 @@ def step(name: str, type: str = "other", **attributes: Any) -> Iterator[trace.Sp
     tracer = trace.get_tracer(_TRACER_NAME, __version__)
     with tracer.start_as_current_span(name) as span:
         span.set_attribute("bindle.step.type", type)
-        session = getattr(_state["session"], "value", None)
+        session = _current_session()
         if session:
             span.set_attribute("bindle.session.id", session)
         for k, v in attributes.items():
@@ -316,6 +399,83 @@ def decision(name: str, options: Sequence[str], chosen: str, rationale: Optional
         span.set_attribute("bindle.decision.chosen", chosen)
         if rationale and _capture():
             span.set_attribute("bindle.reasoning", rationale[:_MAX_CAPTURE])
+
+
+def score(name: str, value: Optional[float] = None, *, passed: Optional[bool] = None,
+          comment: Optional[str] = None, trace_id: Union[str, int, None] = None, _source: Optional[str] = None) -> bool:
+    """Record a score for a run: a number, pass/fail, or both.
+
+    Inside a run, the score joins the current trace. From elsewhere (a CI
+    job or an LLM judge grading an exported dataset), pass the run's
+    ``trace_id`` (32 hex characters, as in the export) and the score is
+    attached to that run. Bindle shows scores per agent version.
+
+    Returns True if the score was recorded. Never raises.
+    """
+    try:
+        import math
+        import random
+
+        from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags, set_span_in_context
+
+        if _state["provider"] is None or not isinstance(name, str) or not name.strip() or len(name) > 80:
+            return False
+        attrs: dict = {"bindle.step.type": "eval", "bindle.score.name": name.strip()}
+        if value is not None:
+            v = float(value)
+            if math.isnan(v) or math.isinf(v):
+                return False
+            attrs["bindle.score.value"] = v
+        if passed is not None:
+            attrs["bindle.score.passed"] = bool(passed)
+        if value is None and passed is None:
+            return False
+        if comment and _capture():
+            attrs["output.value"] = str(comment)[:_MAX_CAPTURE]
+        if _source:
+            attrs["bindle.score.source"] = _source
+        ctx = None
+        if trace_id is not None:
+            tid = int(trace_id, 16) if isinstance(trace_id, str) else int(trace_id)
+            if not 0 < tid < 1 << 128:
+                return False
+            parent = SpanContext(trace_id=tid, span_id=random.getrandbits(64) or 1, is_remote=True,
+                                 trace_flags=TraceFlags(TraceFlags.SAMPLED))
+            ctx = set_span_in_context(NonRecordingSpan(parent))
+            attrs["bindle.score.external"] = True
+        elif not trace.get_current_span().get_span_context().is_valid:
+            log.debug("bindle: score() outside a run needs trace_id")
+            return False
+        tracer = _state["provider"].get_tracer(_TRACER_NAME, __version__)
+        with tracer.start_as_current_span(f"score {name.strip()}", context=ctx, attributes=attrs):
+            pass
+        return True
+    except Exception as exc:  # noqa: BLE001 - never break the host app
+        log.debug("bindle: score failed: %s", exc)
+        return False
+
+
+def feedback(*, trace_id: Union[str, int, None] = None, thumbs_up: Optional[bool] = None,
+             rating: Optional[float] = None, comment: Optional[str] = None) -> bool:
+    """Record a user's feedback on a run: thumbs up/down, a rating, or both,
+    with an optional comment (redacted like everything else).
+
+    Typically called from your app's feedback handler with the trace ID the
+    run returned (see ``current_trace_id()``). Feedback shows on the run, its
+    session, and Home ("unhappy sessions"). Returns True if recorded.
+    """
+    value = rating if rating is not None else (None if thumbs_up is None else (1.0 if thumbs_up else 0.0))
+    return score("feedback", value, passed=thumbs_up, comment=comment, trace_id=trace_id, _source="user")
+
+
+def current_trace_id() -> Optional[str]:
+    """The current run's trace ID (32 hex characters), to hand to your UI so
+    user feedback can be attached to the run later. None outside a run."""
+    try:
+        ctx = trace.get_current_span().get_span_context()
+        return format(ctx.trace_id, "032x") if ctx.is_valid else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def handoff(to_agent: str, reason: Optional[str] = None, from_agent: Optional[str] = None) -> None:

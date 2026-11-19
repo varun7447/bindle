@@ -81,6 +81,15 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 0 if res.ok else 1
 
 
+def cmd_eval(args: argparse.Namespace) -> int:
+    import bindle
+
+    from . import _eval
+
+    bindle.init(instrument=False)  # a no-op without BINDLE_API_KEY; with it, runs and judge scores are recorded
+    return _eval.run(args.dataset, args.checks, args.agent, args.judge, args.min_pass_rate, args.max_drop, args.report)
+
+
 def cmd_mcp(_: argparse.Namespace) -> int:
     from . import _mcp
 
@@ -107,6 +116,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     sp = sub.add_parser("check", help="check the key and endpoint")
     common(sp)
     sp.set_defaults(fn=cmd_check)
+
+    sp = sub.add_parser("eval", help="grade an agent on an exported dataset (for CI)")
+    sp.add_argument("--dataset", required=True, help="dataset exported from Bindle (JSONL)")
+    sp.add_argument("--checks", required=True, help="checks file downloaded from Bindle (JSON)")
+    sp.add_argument("--agent", required=True, help="module:function that answers one input")
+    sp.add_argument("--judge", help="module:function that grades an answer (runs here, with your keys)")
+    sp.add_argument("--min-pass-rate", type=float, help="fail below this pass rate (0-1)")
+    sp.add_argument("--max-drop", type=float, default=0.0, help="fail if the pass rate drops more than this below the baseline (0-1)")
+    sp.add_argument("--report", help="also write the Markdown report here")
+    sp.set_defaults(fn=cmd_eval)
 
     sp = sub.add_parser("mcp", help="run the Bindle MCP server on stdio")
     sp.set_defaults(fn=cmd_mcp)

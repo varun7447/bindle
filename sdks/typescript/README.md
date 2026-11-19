@@ -39,6 +39,36 @@ await bindle.withSession(conversationId, () =>
 
 Await `bindle.flush()` before your handler returns.
 
+## Scores
+
+```ts
+bindle.score('helpful', { value: 0.8 });                       // inside a run
+bindle.score('resolved', { passed: true, traceId: line.trace_id }); // from elsewhere
+```
+
+## Sessions and user feedback
+
+```ts
+bindle.withSession('conversation-42', async () => {
+  const answer = await agent.run(input);
+  return { answer, traceId: bindle.currentTraceId() }; // hand the trace ID to your UI
+});
+bindle.feedback({ traceId, thumbsUp: false, comment: 'wrong order' });
+```
+
+## Agent limits
+
+Limits set in the console (pause, max steps or tokens per run, daily budget) apply where your code calls `bindle.checkLimits()`:
+
+```ts
+while (!done) {
+  bindle.checkLimits(); // throws bindle.LimitExceededError when paused or over a limit
+  await step();
+}
+```
+
+`LimitExceededError.reason` is `paused`, `over_budget`, `max_steps_per_run` or `max_tokens_per_run`; `bindle.limitsStatus()` returns the limits and the current run's usage. Without `init()` or without limits, `checkLimits()` does nothing.
+
 ## Already using OpenTelemetry?
 
 If your app registers its own tracer provider, `init()` leaves it alone and returns false. Add Bindle's processor to your provider instead:
