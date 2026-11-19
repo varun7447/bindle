@@ -20,6 +20,10 @@ export interface Run {
   framework: string;
   environment: string;
   session_id: string;
+  cached_tokens?: number;
+  llm_calls?: number;
+  tool_calls?: number;
+  peak_input_tokens?: number;
 }
 
 export interface RunsResponse {
@@ -156,6 +160,22 @@ export interface AgentSummary {
   cost_partial: boolean;
   p95_run_ms: number;
   last_run_start: string;
+  median_steps?: number;
+  median_cost_usd?: number;
+}
+
+export interface ErrorPattern {
+  pattern: string;
+  failures: number;
+  sample_trace_id: string;
+  sample_step_id: string;
+}
+
+export interface Outlier {
+  run: Run;
+  reason: 'steps' | 'cost';
+  value: number;
+  typical: number;
 }
 
 export interface Issue {
@@ -167,10 +187,13 @@ export interface Issue {
   sample_error: string;
   sample_trace_id: string;
   sample_step_id: string;
+  patterns?: ErrorPattern[];
 }
 
 export interface Insights {
   agents: AgentSummary[];
   issues: Issue[];
+  outliers?: Outlier[];
+  unhappy_sessions?: { session_id: string; feedback: { positive: number; negative: number; count: number } }[];
   previous: { runs: number; failed_runs: number; cost_usd: number; p95_run_ms: number };
 }

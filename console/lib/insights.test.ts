@@ -108,3 +108,38 @@ describe('command palette', () => {
     expect(paletteCommands('refund').at(-1)!.href).toBe('/runs?agent=refund');
   });
 });
+
+describe('attention: error variants and unusual runs', () => {
+  const run = { trace_id: 'tz', agent: 'busy', cost_partial: false } as unknown as import('./types').Run;
+  it('lists distinct errors behind one issue', () => {
+    const issue = { ...ins().issues[1]!, patterns: [
+      { pattern: 'timeout after <n>s', failures: 3, sample_trace_id: 't1', sample_step_id: 'b' },
+      { pattern: 'HTTP <n>', failures: 1, sample_trace_id: 't2', sample_step_id: 'c' },
+    ] };
+    const items = attentionItems(ov(), ins({ issues: [issue], agents: [] }), [], '24h');
+    expect(items[0]!.variants).toEqual([
+      { text: 'timeout after <n>s', count: 3, href: '/traces/t1?step=b' },
+      { text: 'HTTP <n>', count: 1, href: '/traces/t2?step=c' },
+    ]);
+    const one = attentionItems(ov(), ins({ issues: [{ ...issue, patterns: issue.patterns.slice(0, 1) }], agents: [] }), [], '24h');
+    expect(one[0]!.variants).toBeUndefined();
+  });
+  it('flags runs far above the agent median', () => {
+    const items = attentionItems(ov(), ins({ issues: [], agents: [], outliers: [
+      { run, reason: 'steps', value: 30, typical: 2 },
+      { run: { ...run, trace_id: 'ty' }, reason: 'cost', value: 0.9, typical: 0.2 },
+    ] }), [], '24h');
+    expect(items.map((i) => i.title)).toEqual(['busy: a run took 30 steps', 'busy: a run cost $0.90']);
+    expect(items[0]!.detail).toBe('15× the typical 2 steps for this agent. It may be stuck or looping.');
+    expect(items[1]!.detail).toContain('4.5× the typical');
+    expect(items[0]!.href).toBe('/traces/tz');
+  });
+});
+
+describe('attention: unhappy sessions', () => {
+  it('links to the conversation', () => {
+    const items = attentionItems(ov(), ins({ issues: [], agents: [], unhappy_sessions: [{ session_id: 'conv/1', feedback: { positive: 0, negative: 2, count: 2 } }] }), [], '24h');
+    expect(items[0]).toMatchObject({ severity: 'warning', href: '/sessions/conv%2F1', cta: 'Open conversation' });
+    expect(items[0]!.detail).toContain('2 thumbs down');
+  });
+});

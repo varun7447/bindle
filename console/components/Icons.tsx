@@ -46,6 +46,12 @@ export const SlidersIcon = () => (
     <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />
   </svg>
 );
+export const ShieldIcon = () => (
+  <svg {...base}>
+    <path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6z" />
+    <path d="M9.5 12.5 11 14l3.5-3.5" />
+  </svg>
+);
 export const MoonIcon = () => (
   <svg {...base}>
     <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />

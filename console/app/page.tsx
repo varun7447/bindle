@@ -74,12 +74,24 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
               </div>
             ) : (
               <ul className="attention">
-                {items.slice(0, 8).map((it) => (
+                {items.slice(0, 12).map((it) => (
                   <li key={it.key}>
                     <Severity level={it.severity} />
                     <div>
                       <div className="a-title">{it.title}</div>
                       <div className="a-detail">{it.detail}</div>
+                      {it.variants ? (
+                        <ul className="a-variants" aria-label="Distinct errors">
+                          {it.variants.map((v) => (
+                            <li key={v.text}>
+                              <Link href={v.href}>
+                                <code>{v.text}</code>
+                              </Link>
+                              <span className="sub"> ×{formatCount(v.count)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </div>
                     <Link href={it.href} className="a-cta">
                       {it.cta} →
@@ -140,7 +152,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
             <section className="panel panel-flush" aria-labelledby="agents-h">
               <div className="section-title">
                 <h2 id="agents-h" className="h-icon"><BotIcon />Agents</h2>
-                <Link href="/runs">All runs →</Link>
+                <Link href="/agents">Compare versions →</Link>
               </div>
               {insights.agents.length === 0 ? (
                 <div className="empty">No agents.</div>

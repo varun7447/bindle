@@ -1,7 +1,7 @@
 'use client';
 
 import { useActionState, useState } from 'react';
-import { CHANNEL_KINDS, RULE_KINDS, WINDOWS, thresholdInput, type AlertRule, type ChannelKind, type RuleKind } from '@/lib/alerting';
+import { CHANNEL_KINDS, HAS_MIN, RULE_KINDS, WINDOWS, thresholdInput, type AlertRule, type ChannelKind, type RuleKind } from '@/lib/alerting';
 import { channelAction, createChannelAction, createRuleAction, updateRuleAction, type AlertActionState } from './actions';
 
 const idle: AlertActionState = { kind: 'idle' };
@@ -77,9 +77,18 @@ export function NewRuleForm() {
             </option>
           ))}
         </select>
-        <input name="threshold" inputMode="decimal" required placeholder={meta.unit} aria-label={`Threshold (${meta.unit})`} style={{ width: 120 }} />
-        <WindowSelect value={60} />
-        {kind === 'error_rate' ? <input name="min_runs" inputMode="numeric" placeholder="min runs" aria-label="Minimum runs" style={{ width: 100 }} /> : null}
+        {kind === 'weekly_digest' ? (
+          <>
+            <input type="hidden" name="threshold" value="1" />
+            <input type="hidden" name="window" value="1440" />
+          </>
+        ) : (
+          <>
+            <input name="threshold" inputMode="decimal" required placeholder={meta.unit} aria-label={`Threshold (${meta.unit})`} style={{ width: 120 }} />
+            <WindowSelect value={kind === 'cost_regression' ? 1440 : 60} />
+          </>
+        )}
+        {HAS_MIN.includes(kind) ? <input name="min_runs" inputMode="numeric" placeholder="minimum" aria-label="Minimum count" style={{ width: 100 }} /> : null}
         <button type="submit" className="btn btn-primary" disabled={pending}>
           {pending ? 'Adding…' : 'Add rule'}
         </button>
@@ -98,20 +107,30 @@ export function RuleRow({ rule, canEdit }: { rule: AlertRule; canEdit: boolean }
       <input type="hidden" name="id" value={rule.id} />
       <input type="hidden" name="kind" value={rule.kind} />
       <strong style={{ minWidth: 120 }}>{meta?.label ?? rule.kind}</strong>
-      <label className="sub" style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-        at
-        <input
-          name="threshold"
-          defaultValue={thresholdInput(rule.kind, rule.threshold)}
-          inputMode="decimal"
-          disabled={!canEdit}
-          aria-label={`Threshold (${meta?.unit ?? ''})`}
-          style={{ width: 90 }}
-        />
-        {meta?.unit}
-      </label>
-      <WindowSelect value={rule.window_minutes} />
-      {rule.kind === 'error_rate' ? (
+      {rule.kind === 'weekly_digest' ? (
+        <>
+          <input type="hidden" name="threshold" value="1" />
+          <input type="hidden" name="window" value="1440" />
+          <span className="sub">Mondays at 09:00 UTC</span>
+        </>
+      ) : (
+        <>
+          <label className="sub" style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+            at
+            <input
+              name="threshold"
+              defaultValue={thresholdInput(rule.kind, rule.threshold)}
+              inputMode="decimal"
+              disabled={!canEdit}
+              aria-label={`Threshold (${meta?.unit ?? ''})`}
+              style={{ width: 90 }}
+            />
+            {meta?.unit}
+          </label>
+          <WindowSelect value={rule.window_minutes} />
+        </>
+      )}
+      {HAS_MIN.includes(rule.kind) ? (
         <input name="min_runs" defaultValue={String(rule.min_runs)} inputMode="numeric" disabled={!canEdit} aria-label="Minimum runs" style={{ width: 80 }} />
       ) : null}
       <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>

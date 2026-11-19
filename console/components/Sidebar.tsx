@@ -5,12 +5,14 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { CommandPalette } from './CommandPalette';
 import { BindleLogo } from './Logo';
-import { BellIcon, GearIcon, HomeIcon, LogoutIcon, MoonIcon, RunsIcon, SearchIcon, SunIcon } from './Icons';
+import { BellIcon, BotIcon, CheckCircleIcon, GearIcon, HomeIcon, LogoutIcon, MoonIcon, RunsIcon, SearchIcon, SunIcon } from './Icons';
 
-// Three places to look, one place to configure.
+// Five places to look, one place to configure.
 const PRIMARY = [
   { href: '/', label: 'Home', icon: HomeIcon },
   { href: '/runs', label: 'Runs', icon: RunsIcon },
+  { href: '/agents', label: 'Agents', icon: BotIcon },
+  { href: '/evals', label: 'Evals', icon: CheckCircleIcon },
   { href: '/alerts', label: 'Alerts', icon: BellIcon },
 ];
 

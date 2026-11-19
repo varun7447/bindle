@@ -1,0 +1,306 @@
+import Link from 'next/link';
+import { BotIcon, CheckCircleIcon, LayersIcon } from '@/components/Icons';
+import { ApiErrorPanel, Help, settle } from '@/components/ui';
+import { type Delta } from '@/lib/insights';
+import { api } from '@/lib/api';
+import { requireSession } from '@/lib/auth';
+import { toolFlags, verdict, versionRows } from '@/lib/agents';
+import { checkMatrix, passRate } from '@/lib/evals';
+import { fmtBytes } from '@/lib/context';
+import { formatCost, formatCount, formatDuration, formatPercent, formatRelative } from '@/lib/format';
+import { WINDOWS, asWindow, one } from '@/lib/ids';
+
+export const dynamic = 'force-dynamic';
+
+const WINDOW_LABEL = { '24h': 'Last 24 hours', '7d': 'Last 7 days', '30d': 'Last 30 days' } as const;
+
+function Change({ d }: { d?: Delta }) {
+  if (!d || d.direction === 'flat' || d.direction === 'new') return null;
+  const cls = d.good === undefined ? 'delta-neutral' : d.good ? 'delta-good' : 'delta-bad';
+  return <div className={`delta ${cls}`} style={{ fontSize: 11.5, display: 'block' }}>{d.text}</div>;
+}
+
+export default async function AgentsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  await requireSession('/agents');
+  const sp = await searchParams;
+  const window = asWindow(one(sp.window) ?? '7d');
+  const [ins, tools] = await Promise.all([settle(api.insights(window)), settle(api.tools(window))]);
+  const agents = ins.ok ? ins.data.agents : [];
+  const requested = one(sp.agent);
+  const agent = requested !== undefined && agents.some((a) => a.agent === requested) ? requested : agents[0]?.agent;
+  const [versions, checks] =
+    agent !== undefined ? await Promise.all([settle(api.agentVersions(agent, window)), settle(api.agentChecks(agent, window))]) : [undefined, undefined];
+  const matrix = checks?.ok ? checkMatrix(checks.data) : null;
+  const scoreVersions = checks?.ok ? [...new Set(checks.data.scores.map((s) => s.version))] : [];
+  const scoreNames = checks?.ok ? [...new Set(checks.data.scores.map((s) => s.name))] : [];
+  const rows = versions?.ok ? versionRows(versions.data.versions) : [];
+  const summary = verdict(rows);
+  const now = Date.now();
+  const q = (o: Record<string, string | undefined>) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(o)) if (v !== undefined && !(k === 'window' && v === '7d')) p.set(k, v);
+    const s = p.toString();
+    return s ? `/agents?${s}` : '/agents';
+  };
+
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="title">
+            <span className="title-icon" aria-hidden="true">
+              <BotIcon />
+            </span>
+            Agents
+          </h1>
+          <div className="sub">{WINDOW_LABEL[window]} · compare versions, check tools</div>
+        </div>
+        <div className="seg" role="group" aria-label="Time range">
+          {WINDOWS.map((w) => (
+            <Link key={w} href={q({ agent, window: w })} aria-current={w === window ? 'true' : undefined}>
+              {w}
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      {!ins.ok ? <ApiErrorPanel error={ins.error} /> : null}
+
+      <section className="panel panel-flush" style={{ marginBottom: 16 }} aria-labelledby="versions-h">
+        <div className="section-title">
+          <h2 id="versions-h" className="h-icon">
+            <BotIcon />
+            Versions
+          </h2>
+          <span className="sub">Each version against the one before it</span>
+        </div>
+        {agents.length === 0 ? (
+          <div className="empty">No runs in this period.</div>
+        ) : (
+          <>
+            <nav className="chips" aria-label="Agent" style={{ padding: '10px 18px 0' }}>
+              {agents.map((a) => (
+                <Link key={a.agent || '(none)'} href={q({ agent: a.agent, window })} className="chip" aria-current={a.agent === agent ? 'true' : undefined}>
+                  {a.agent || 'Unnamed agent'}
+                </Link>
+              ))}
+            </nav>
+            {summary ? (
+              <div className="banner-detail" style={{ padding: '10px 18px 0' }} role="status">
+                {summary}
+              </div>
+            ) : null}
+            {versions && !versions.ok ? (
+              <div style={{ padding: 18 }}>
+                <ApiErrorPanel error={versions.error} />
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ marginTop: 8 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ paddingLeft: 18 }}>Version</th>
+                      <th className="num">Runs</th>
+                      <th className="num">Failed</th>
+                      <th className="num">Cost / run</th>
+                      <th className="num">p95</th>
+                      <th className="num">Steps / run</th>
+                      <th className="num">
+                        Cache <Help>Share of input tokens served from the prompt cache.</Help>
+                      </th>
+                      <th className="num" style={{ paddingRight: 18 }}>
+                        Tool errors
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.v.version || '(none)'}>
+                        <td style={{ paddingLeft: 18 }}>
+                          <Link href={`/runs?${new URLSearchParams({ ...(window === '24h' ? {} : { range: window }), ...(agent ? { agent } : {}) })}`}>
+                            <b>{r.v.version || 'unversioned'}</b>
+                          </Link>
+                          <div className="sub">Last run {formatRelative(r.v.last_run_start, now)}</div>
+                        </td>
+                        <td className="num">{formatCount(r.v.runs)}</td>
+                        <td className="num">
+                          {formatPercent(r.failureRate)}
+                          <Change d={r.vs?.failureRate} />
+                        </td>
+                        <td className="num">
+                          {formatCost(r.costPerRun, r.v.cost_partial)}
+                          <Change d={r.vs?.costPerRun} />
+                        </td>
+                        <td className="num">
+                          {formatDuration(r.v.p95_run_ms)}
+                          <Change d={r.vs?.p95} />
+                        </td>
+                        <td className="num">
+                          {r.v.avg_steps.toFixed(1)}
+                          <Change d={r.vs?.steps} />
+                        </td>
+                        <td className="num">{r.v.input_tokens ? formatPercent(r.cacheRate) : '–'}</td>
+                        <td className="num" style={{ paddingRight: 18 }}>
+                          {r.v.tool_calls ? formatPercent(r.toolErrorRate) : '–'}
+                          <Change d={r.vs?.toolErrorRate} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="sub" style={{ padding: '8px 18px 14px', margin: 0 }}>
+              Versions come from <code>bindle.init(version=…)</code>. Changes are shown when both versions have at least 5 runs.
+            </p>
+          </>
+        )}
+      </section>
+
+      {agent !== undefined ? (
+        <section className="panel panel-flush" style={{ marginBottom: 16 }} aria-labelledby="checks-h">
+          <div className="section-title">
+            <h2 id="checks-h" className="h-icon">
+              <CheckCircleIcon />
+              Checks and scores
+            </h2>
+            <Link href="/evals">Manage checks →</Link>
+          </div>
+          {checks && !checks.ok ? (
+            <div style={{ padding: 18 }}>
+              <ApiErrorPanel error={checks.error} />
+            </div>
+          ) : !matrix || (matrix.rows.length === 0 && scoreNames.length === 0) ? (
+            <div className="empty">
+              No checks or scores for this agent yet. <Link href="/evals">Add a check</Link>, or send scores with <code>bindle.score()</code>.
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ marginTop: 8 }}>
+                <thead>
+                  <tr>
+                    <th style={{ paddingLeft: 18 }}>Check</th>
+                    {(matrix.rows.length ? matrix.versions : scoreVersions).map((v) => (
+                      <th key={v || '(none)'} className="num">
+                        {v || 'unversioned'}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {matrix.rows.map((row) => (
+                    <tr key={row.name}>
+                      <td style={{ paddingLeft: 18 }}>{row.name}</td>
+                      {row.cells.map((c, i) => {
+                        const pr = c ? passRate(c) : null;
+                        return (
+                          <td key={i} className="num" title={c ? `${c.passed} passed, ${c.failed} failed, ${c.skipped} skipped` : undefined}>
+                            {pr === null ? '–' : formatPercent(pr)}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                  {scoreNames.map((name) => (
+                    <tr key={`score:${name}`}>
+                      <td style={{ paddingLeft: 18 }}>
+                        {name} <span className="badge">score</span>
+                      </td>
+                      {(matrix.rows.length ? matrix.versions : scoreVersions).map((v) => {
+                        const s = checks!.ok ? checks!.data.scores.find((x) => x.name === name && x.version === v) : undefined;
+                        const graded = s ? s.passed + s.failed : 0;
+                        return (
+                          <td key={v || '(none)'} className="num" title={s ? `${s.count} scores` : undefined}>
+                            {!s ? '–' : graded ? formatPercent(s.passed / graded) : s.valued ? s.average.toFixed(2) : '–'}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="sub" style={{ padding: '8px 18px 14px', margin: 0 }}>
+            Checks run on up to 100 recent runs per version. Scores come from <code>bindle.score()</code>: pass rate when they pass or fail, else the average value.
+          </p>
+        </section>
+      ) : null}
+
+      <section className="panel panel-flush" aria-labelledby="tools-h">
+        <div className="section-title">
+          <h2 id="tools-h" className="h-icon">
+            <LayersIcon />
+            Tools
+          </h2>
+          <span className="sub">All agents · most failures first</span>
+        </div>
+        {!tools.ok ? (
+          <div style={{ padding: 18 }}>
+            <ApiErrorPanel error={tools.error} />
+          </div>
+        ) : tools.data.tools.length === 0 ? (
+          <div className="empty">No tool calls in this period.</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ marginTop: 8 }}>
+              <thead>
+                <tr>
+                  <th style={{ paddingLeft: 18 }}>Tool</th>
+                  <th className="num">Calls</th>
+                  <th className="num">Failed</th>
+                  <th className="num">
+                    Bad arguments <Help>Failures whose error mentions invalid arguments, a missing parameter or schema validation: the model misread the tool.</Help>
+                  </th>
+                  <th className="num">p50 / p95</th>
+                  <th className="num">
+                    Result size <Help>Average and largest result. Large results are carried in every later prompt.</Help>
+                  </th>
+                  <th style={{ paddingRight: 18 }}>Most common error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tools.data.tools.map((t) => {
+                  const flags = toolFlags(t);
+                  return (
+                    <tr key={t.tool_name}>
+                      <td className="truncate" style={{ paddingLeft: 18 }}>
+                        {t.sample_trace_id ? (
+                          <Link href={`/traces/${t.sample_trace_id}?step=${t.sample_step_id}`}>
+                            <b>{t.tool_name}</b>
+                          </Link>
+                        ) : (
+                          <b>{t.tool_name}</b>
+                        )}
+                        <div className="sub">
+                          {t.framework ? `${t.framework} · ` : ''}
+                          {formatCount(t.runs)} run{t.runs === 1 ? '' : 's'}
+                          {flags.map((f) => (
+                            <span key={f} className="badge badge-warn" style={{ marginLeft: 6 }}>
+                              {f}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="num">{formatCount(t.calls)}</td>
+                      <td className="num">{t.failures ? `${formatCount(t.failures)} (${formatPercent(t.failures / t.calls)})` : '0'}</td>
+                      <td className="num">{formatCount(t.argument_errors)}</td>
+                      <td className="num">
+                        {formatDuration(t.p50_ms)} / {formatDuration(t.p95_ms)}
+                      </td>
+                      <td className="num">{t.max_output_bytes ? `${fmtBytes(Math.round(t.avg_output_bytes))} / ${fmtBytes(t.max_output_bytes)}` : '–'}</td>
+                      <td style={{ paddingRight: 18 }}>{t.top_error ? <code style={{ fontSize: 12 }}>{t.top_error}</code> : <span className="sub">–</span>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="sub" style={{ padding: '8px 18px 14px', margin: 0 }}>
+          Includes tools behind MCP servers and Amazon Bedrock AgentCore Gateway (through the CloudWatch span connector). Result sizes need content capture on.
+        </p>
+      </section>
+    </>
+  );
+}

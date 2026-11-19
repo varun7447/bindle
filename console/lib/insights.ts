@@ -12,6 +12,8 @@ export interface AttentionItem {
   detail: string;
   href: string;
   cta: string;
+  /** Distinct errors behind one issue, most frequent first. */
+  variants?: { text: string; count: number; href: string }[];
 }
 
 export interface Headline {
@@ -49,6 +51,9 @@ export function attentionItems(ov: OverviewResponse, ins: Insights, loops: Alert
       detail: `Failed ${formatCount(is.failures)} time${is.failures === 1 ? '' : 's'} in ${formatCount(is.runs)} run${is.runs === 1 ? '' : 's'}${is.sample_error ? `. Latest error: ${is.sample_error}` : ''}`,
       href: `/traces/${is.sample_trace_id}?step=${is.sample_step_id}`,
       cta: 'Open latest failure',
+      variants: (is.patterns?.length ?? 0) > 1
+        ? is.patterns!.map((p) => ({ text: p.pattern, count: p.failures, href: `/traces/${p.sample_trace_id}?step=${p.sample_step_id}` }))
+        : undefined,
     });
   }
 
@@ -77,6 +82,35 @@ export function attentionItems(ov: OverviewResponse, ins: Insights, loops: Alert
     });
   }
 
+  // Unusual runs: far more steps or cost than the agent's typical run.
+  for (const o of ins.outliers ?? []) {
+    const who = agentLabel(o.run.agent);
+    const times = o.typical > 0 ? `${formatRatio(o.value / o.typical)} the typical` : 'far above the typical';
+    items.push({
+      key: `outlier:${o.run.trace_id}`,
+      severity: 'warning',
+      title: o.reason === 'steps' ? `${who}: a run took ${formatCount(o.value)} steps` : `${who}: a run cost ${formatCost(o.value, o.run.cost_partial)}`,
+      detail:
+        o.reason === 'steps'
+          ? `${times} ${formatCount(Math.round(o.typical))} steps for this agent. It may be stuck or looping.`
+          : `${times} ${formatCost(o.typical, false)} per run for this agent.`,
+      href: `/traces/${o.run.trace_id}`,
+      cta: 'Open run',
+    });
+  }
+
+  // Sessions where users gave negative feedback.
+  for (const u of ins.unhappy_sessions ?? []) {
+    items.push({
+      key: `unhappy:${u.session_id}`,
+      severity: 'warning',
+      title: `A user was unhappy with a conversation`,
+      detail: `${u.feedback.negative} thumbs down${u.feedback.positive ? `, ${u.feedback.positive} up` : ''} in session ${u.session_id.length > 24 ? u.session_id.slice(0, 24) + '…' : u.session_id}.`,
+      href: `/sessions/${encodeURIComponent(u.session_id)}`,
+      cta: 'Open conversation',
+    });
+  }
+
   // Cost we can't price.
   if (ov.cost_partial && ov.cost_unknown_steps > 0) {
     items.push({
@@ -91,6 +125,10 @@ export function attentionItems(ov: OverviewResponse, ins: Insights, loops: Alert
 
   const rank: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
   return items.sort((a, b) => rank[a.severity] - rank[b.severity]);
+}
+
+function formatRatio(x: number): string {
+  return `${x >= 10 ? Math.round(x) : x.toFixed(1).replace(/\.0$/, '')}×`;
 }
 
 export function headline(ov: OverviewResponse, ins: Insights, items: AttentionItem[], windowLabel: string): Headline {

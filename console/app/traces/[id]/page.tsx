@@ -13,6 +13,9 @@ import { buildStory } from '@/lib/story';
 import { bothEmpty, emptyReason } from '@/lib/content';
 import { Payload } from '@/components/Payload';
 import { TimeBreakdown } from '@/components/TimeBreakdown';
+import { ContextChart } from '@/components/ContextChart';
+import { contextProfile, fmtBytes } from '@/lib/context';
+import { AddToDataset } from '@/app/evals/Forms';
 
 export default async function TracePage({
   params,
@@ -36,6 +39,8 @@ export default async function TracePage({
   const { trace, steps, truncated } = res.data;
   const wf = buildWaterfall(steps);
   const story = buildStory(trace, steps);
+  const ctx = contextProfile(steps);
+  const datasets = await settle(api.datasets());
   const requested = one((await searchParams).step)?.toLowerCase();
   const selectedId =
     isStepId(requested) && steps.some((s) => s.step_id === requested) ? requested : (story.firstFailureId ?? defaultStepId(wf.rows));
@@ -51,6 +56,9 @@ export default async function TracePage({
         <div className="story-head">
           <StatusBadge status={trace.status} />
           <h2 id="story-h">{story.headline}</h2>
+          <span style={{ marginLeft: 'auto' }}>
+            <AddToDataset traceId={id} datasets={datasets.ok ? datasets.data.datasets.map((d) => ({ id: d.id, name: d.name })) : []} />
+          </span>
           {story.firstFailureId && story.firstFailureId !== selectedId ? (
             <Link href={`/traces/${id}?step=${story.firstFailureId}`} scroll={false} className="btn btn-sm" style={{ marginLeft: 'auto' }}>
               Jump to failure
@@ -115,6 +123,50 @@ export default async function TracePage({
           ) : null}
         </div>
       </section>
+
+      {ctx ? (
+        <section className="panel story" style={{ marginBottom: 16 }} aria-labelledby="ctx-h">
+          <div className="story-head">
+            <h2 id="ctx-h">Context and cache</h2>
+          </div>
+          <div className="ctx-stats">
+            <span>
+              LLM calls <b>{formatCount(ctx.calls.length)}</b>
+            </span>
+            <span>
+              Peak prompt <b>{formatCount(ctx.peak)}</b> tokens
+            </span>
+            <span>
+              Total input <b>{formatCount(ctx.input)}</b>
+            </span>
+            <span>
+              From cache <b>{Math.round(ctx.cacheRate * 100)}%</b>
+            </span>
+            {ctx.bigResults[0] ? (
+              <span>
+                Largest tool result{' '}
+                <Link href={`/traces/${id}?step=${ctx.bigResults[0].stepId}`} scroll={false}>
+                  <b>{ctx.bigResults[0].name}</b>
+                </Link>{' '}
+                ({fmtBytes(ctx.bigResults[0].bytes)})
+              </span>
+            ) : null}
+          </div>
+          <ContextChart calls={ctx.calls} peak={ctx.peak} traceId={id} />
+          {ctx.hints.length ? (
+            <ul className="story-lines">
+              {ctx.hints.map((h, i) => (
+                <li key={i} className="t-neutral">
+                  <span className="dot" aria-hidden="true">
+                    •
+                  </span>
+                  <span>{h}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
 
       {truncated ? (
         <div className="notice notice-warn" style={{ marginBottom: 16 }} role="status">
@@ -223,6 +275,11 @@ function StepPanel({ step, summary }: { step: StepDetail; summary?: StepSummary 
           {step.attempt > 0 ? <span className="badge">retry {step.attempt}</span> : null}
         </div>
         <h2 style={{ margin: 0, overflowWrap: 'anywhere' }}>{step.name}</h2>
+        {step.type === 'llm_call' && step.input ? (
+          <Link href={`/traces/${step.trace_id}/replay?step=${step.step_id}`} className="btn btn-sm" style={{ marginTop: 8 }}>
+            Replay this call
+          </Link>
+        ) : null}
       </div>
 
       {step.redacted_kinds.length > 0 ? (

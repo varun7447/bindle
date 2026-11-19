@@ -8,6 +8,13 @@
 // token is sent and the API's dev bypass, if enabled, applies.
 
 import { sessionToken } from './auth';
+import type { AgentLimit, LimitsResponse } from './limits';
+import type { AWSPrice, ModelUsage, PriceOverride, PricesResponse } from './prices';
+import type { ToolHealth, VersionStats } from './agents';
+import type { ReplayMessage, ReplayResponse } from './replay';
+import type { AgentChecks, Dataset, DatasetItem, EvalRun, Scorer } from './evals';
+import type { Session, SessionDetail } from './sessions';
+import type { SearchHit } from './search';
 import type {
   APIKey,
   AlertsResponse,
@@ -92,6 +99,8 @@ const put = async <T>(path: string, body: object) => apiSend<T>('PUT', path, bod
 const del = async (path: string) => apiSend<void>('DELETE', path, undefined, fetch, await sessionToken());
 
 const RULE_ID = /^ar_[0-9a-f]{20}$/;
+const SCORER_ID = /^sc_[0-9a-f]{20}$/;
+const DATASET_ID = /^ds_[0-9a-f]{20}$/;
 const CHANNEL_ID = /^ch_[0-9a-f]{20}$/;
 
 function checked(id: string, re: RegExp, what: string): string {
@@ -125,6 +134,44 @@ export const api = {
   revokeKey: async (id: string) => post<void>(keyPath(id, 'revoke'), {}),
   config: () => get<SDKConfig>('/api/config'),
   saveConfig: (c: Omit<SDKConfig, 'updated_at' | 'poll_interval_seconds'>) => put<SDKConfig>('/api/config', c),
+  limits: () => get<LimitsResponse>('/api/limits'),
+  saveLimits: (version: number, limits: AgentLimit[]) => put<LimitsResponse>('/api/limits', { version, limits }),
+  prices: () => get<PricesResponse>('/api/prices'),
+  savePrices: (version: number, prices: PriceOverride[]) => put<PricesResponse>('/api/prices', { version, prices }),
+  awsPrices: (region: string) => get<{ region: string; prices: AWSPrice[] }>('/api/prices/aws', { region }),
+  models: (window: string) => get<{ window: string; models: ModelUsage[] }>('/api/models', { window }),
+  tools: (window: string) => get<{ window: string; tools: ToolHealth[] }>('/api/tools', { window }),
+  agentVersions: (agent: string, window: string) => get<{ window: string; agent: string; versions: VersionStats[] }>('/api/agents/versions', { agent, window }),
+  replay: async (traceId: string, stepId: string, body: { provider: string; model: string; api_key: string; messages: ReplayMessage[]; max_tokens: number }) => {
+    if (!isTraceId(traceId) || !isStepId(stepId)) throw new ApiError(400, 'bad_request', 'Invalid step ID');
+    return post<ReplayResponse>(`/api/traces/${traceId}/steps/${stepId}/replay`, body);
+  },
+  scorers: () => get<{ scorers: Scorer[] }>('/api/scorers'),
+  createScorer: (s: Omit<Scorer, 'id' | 'created_at'>) => post<Scorer>('/api/scorers', s),
+  updateScorer: async (id: string, s: Omit<Scorer, 'id' | 'created_at' | 'kind'>) => put<Scorer>(`/api/scorers/${checked(id, SCORER_ID, 'check')}`, s),
+  deleteScorer: async (id: string) => del(`/api/scorers/${checked(id, SCORER_ID, 'check')}`),
+  datasets: () => get<{ datasets: Dataset[] }>('/api/datasets'),
+  createDataset: (name: string, description: string) => post<Dataset>('/api/datasets', { name, description }),
+  dataset: async (id: string) => get<{ dataset: Dataset; items: DatasetItem[] }>(`/api/datasets/${checked(id, DATASET_ID, 'dataset')}`),
+  deleteDataset: async (id: string) => del(`/api/datasets/${checked(id, DATASET_ID, 'dataset')}`),
+  addDatasetItems: async (id: string, traceIds: string[]) =>
+    post<{ added: number; found: number; requested: number }>(`/api/datasets/${checked(id, DATASET_ID, 'dataset')}/items`, { trace_ids: traceIds }),
+  removeDatasetItem: async (id: string, traceId: string) => {
+    if (!isTraceId(traceId)) throw new ApiError(400, 'bad_request', 'Invalid trace ID');
+    return del(`/api/datasets/${checked(id, DATASET_ID, 'dataset')}/items/${traceId}`);
+  },
+  evaluateDataset: async (id: string) => post<EvalRun>(`/api/datasets/${checked(id, DATASET_ID, 'dataset')}/evaluate`, {}),
+  datasetEvals: async (id: string) => get<{ evals: EvalRun[] }>(`/api/datasets/${checked(id, DATASET_ID, 'dataset')}/evals`),
+  agentChecks: (agent: string, window: string) => get<AgentChecks>('/api/agents/checks', { agent, window }),
+  search: (p: { q: string; window: string; agent?: string; status?: string }) =>
+    get<{ window: string; q: string; hits: SearchHit[] }>('/api/search', {
+      q: p.q,
+      window: p.window,
+      ...(p.agent ? { agent: p.agent } : {}),
+      ...(p.status ? { status: p.status } : {}),
+    }),
+  sessions: (window: string, agent?: string) => get<{ window: string; sessions: Session[] }>('/api/sessions', { window, ...(agent ? { agent } : {}) }),
+  session: (id: string) => get<SessionDetail>(`/api/sessions/${encodeURIComponent(id)}`),
   alertRules: () => get<{ rules: AlertRule[] }>('/api/alert-rules'),
   createAlertRule: (r: { kind: RuleKind; threshold: number; window_minutes: number; min_runs: number; enabled: boolean }) =>
     post<AlertRule>('/api/alert-rules', r),

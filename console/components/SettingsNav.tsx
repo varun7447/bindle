@@ -2,12 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { KeyIcon, PlugIcon, SlidersIcon } from './Icons';
+import { CoinIcon, KeyIcon, PlugIcon, ShieldIcon, SlidersIcon } from './Icons';
 
 const TABS = [
   { href: '/settings/connect', label: 'Connect an agent', icon: PlugIcon },
   { href: '/settings/keys', label: 'Ingest keys', icon: KeyIcon },
   { href: '/settings/sdk', label: 'SDK settings', icon: SlidersIcon },
+  { href: '/settings/limits', label: 'Agent limits', icon: ShieldIcon },
+  { href: '/settings/prices', label: 'Model prices', icon: CoinIcon },
 ];
 
 export function SettingsNav() {

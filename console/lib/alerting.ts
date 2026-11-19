@@ -1,7 +1,12 @@
 // Alert rules and channels: types and form parsing. Pure; unit-tested.
 // The API validates authoritatively; this shapes input and display.
 
-export type RuleKind = 'error_rate' | 'runaway_loop' | 'run_cost';
+export type RuleKind = 'error_rate' | 'runaway_loop' | 'run_cost' | 'negative_feedback' | 'cost_regression' | 'new_error' | 'weekly_digest';
+
+/** Kinds whose threshold is a percentage in the form (stored as a fraction). */
+const PERCENT: RuleKind[] = ['error_rate', 'negative_feedback', 'cost_regression'];
+/** Kinds that take a minimum count (runs or feedback). */
+export const HAS_MIN: RuleKind[] = ['error_rate', 'negative_feedback', 'cost_regression'];
 export type ChannelKind = 'slack' | 'webhook' | 'email';
 
 export interface AlertRule {
@@ -38,6 +43,10 @@ export const RULE_KINDS: { kind: RuleKind; label: string; unit: string; help: st
   { kind: 'runaway_loop', label: 'Runaway loop', unit: 'repeats', help: 'A run calls the same tool with the same input this many times.' },
   { kind: 'error_rate', label: 'Failure rate', unit: '% of runs', help: 'This share of runs failed in the window.' },
   { kind: 'run_cost', label: 'Expensive run', unit: 'USD per run', help: 'One run cost at least this much (known prices only).' },
+  { kind: 'negative_feedback', label: 'Unhappy users', unit: '% negative', help: 'This share of user feedback (bindle.feedback) was negative in the window. Minimum: feedback needed (default 5).' },
+  { kind: 'cost_regression', label: 'Cost regression', unit: '% more per run', help: "An agent's newest version costs this much more per run than the previous one. Minimum: runs per version (default 5)." },
+  { kind: 'new_error', label: 'New error', unit: 'failures', help: "An error that didn't occur in the 7 days before appeared this many times." },
+  { kind: 'weekly_digest', label: 'Weekly digest', unit: '', help: 'A summary every Monday at 09:00 UTC: runs, failure rate and spend against the week before, and what failed most.' },
 ];
 
 export const WINDOWS = [
@@ -63,7 +72,7 @@ export function isChannelKind(v: unknown): v is ChannelKind {
 
 /** Threshold as the user types it (percent for failure rate). */
 export function thresholdInput(kind: RuleKind, threshold: number): string {
-  return kind === 'error_rate' ? String(Math.round(threshold * 1000) / 10) : String(threshold);
+  return PERCENT.includes(kind) ? String(Math.round(threshold * 1000) / 10) : String(threshold);
 }
 
 export function windowLabel(minutes: number): string {
@@ -79,6 +88,14 @@ export function describeRule(r: Pick<AlertRule, 'kind' | 'threshold' | 'window_m
       return `${thresholdInput('error_rate', r.threshold)}%+ of runs fail over ${win}${r.min_runs ? ` (at least ${r.min_runs} runs)` : ''}`;
     case 'run_cost':
       return `A run costs $${r.threshold >= 0.01 ? r.threshold.toFixed(2) : String(r.threshold)} or more (checked over ${win})`;
+    case 'negative_feedback':
+      return `${thresholdInput('negative_feedback', r.threshold)}%+ of user feedback is negative over ${win}${r.min_runs ? ` (at least ${r.min_runs})` : ''}`;
+    case 'cost_regression':
+      return `A new agent version costs ${thresholdInput('cost_regression', r.threshold)}%+ more per run than the previous one (runs over ${win})`;
+    case 'new_error':
+      return `A new error appears ${r.threshold}+ times over ${win}`;
+    case 'weekly_digest':
+      return 'Every Monday at 09:00 UTC';
   }
 }
 
@@ -101,6 +118,17 @@ export function parseRule(kind: RuleKind, threshold: unknown, window: unknown, m
     case 'run_cost':
       if (t <= 0 || t > 1e6) return { error: 'Cost must be above $0.' };
       return { threshold: t, window_minutes: w, min_runs: 0 };
+    case 'negative_feedback':
+      if (t <= 0 || t > 100) return { error: 'Enter a share above 0% and at most 100%.' };
+      return { threshold: Math.round(t * 10) / 1000, window_minutes: w, min_runs: m };
+    case 'cost_regression':
+      if (t <= 0 || t > 10000) return { error: 'Enter an increase above 0%.' };
+      return { threshold: Math.round(t * 10) / 1000, window_minutes: w, min_runs: m };
+    case 'new_error':
+      if (!Number.isInteger(t) || t < 1) return { error: 'Failures must be a whole number, at least 1.' };
+      return { threshold: t, window_minutes: w, min_runs: 0 };
+    case 'weekly_digest':
+      return { threshold: 1, window_minutes: 1440, min_runs: 0 };
   }
 }
 

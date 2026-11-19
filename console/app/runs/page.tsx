@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { RunsTabs } from '@/components/RunsTabs';
 import { CheckCircleIcon, LayersIcon, RunsIcon, XCircleIcon } from '@/components/Icons';
 import { ApiErrorPanel, RunsTable, settle } from '@/components/ui';
 import { api } from '@/lib/api';
@@ -52,6 +53,7 @@ export default async function RunsPage({ searchParams }: { searchParams: Promise
           <h1 className="title"><span className="title-icon" aria-hidden="true"><RunsIcon /></span>Runs</h1>
           <div className="sub">Every execution of your agents. Open one to see what happened, step by step.</div>
         </div>
+        <RunsTabs current="/runs" />
       </div>
       <div className="filters">
         <div className="seg" role="group" aria-label="Status">
