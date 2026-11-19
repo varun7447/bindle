@@ -99,6 +99,14 @@ const post = async <T>(path: string, body: object) => apiSend<T>('POST', path, b
 const put = async <T>(path: string, body: object) => apiSend<T>('PUT', path, body, fetch, await sessionToken());
 const del = async (path: string) => apiSend<void>('DELETE', path, undefined, fetch, await sessionToken());
 
+/** Whether a run was stopped from the console (GET/POST /api/traces/{id}/stop). */
+export interface RunStop {
+  stopped: boolean;
+  stopped_at?: string;
+  /** How often the SDK refreshes its settings, so how long a stop can take to arrive. */
+  poll_seconds: number;
+}
+
 const RULE_ID = /^ar_[0-9a-f]{20}$/;
 const SCORER_ID = /^sc_[0-9a-f]{20}$/;
 const DATASET_ID = /^ds_[0-9a-f]{20}$/;
@@ -124,6 +132,14 @@ export const api = {
   traceLinks: async (id: string) => {
     if (!isTraceId(id)) throw new ApiError(400, 'bad_request', 'Invalid trace ID');
     return get<{ links: TraceLink[] }>(`/api/traces/${id}/links`);
+  },
+  runStop: async (id: string) => {
+    if (!isTraceId(id)) throw new ApiError(400, 'bad_request', 'Invalid trace ID');
+    return get<RunStop>(`/api/traces/${id}/stop`);
+  },
+  stopRun: async (id: string) => {
+    if (!isTraceId(id)) throw new ApiError(400, 'bad_request', 'Invalid trace ID');
+    return post<RunStop>(`/api/traces/${id}/stop`, {});
   },
   step: async (traceId: string, stepId: string) => {
     if (!isTraceId(traceId) || !isStepId(stepId)) throw new ApiError(400, 'bad_request', 'Invalid step ID');

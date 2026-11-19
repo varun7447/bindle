@@ -69,7 +69,7 @@ bindle.withMcpContext(request.params, () => handle(request)); // MCP server: con
 
 ## Agent limits
 
-Limits set in the console (pause, max steps or tokens per run, daily budget) apply where your code calls `bindle.checkLimits()`:
+Limits set in the console (pause, max steps or tokens per run, max repeated tool calls per run, daily budget) and runs stopped from the console apply where your code calls `bindle.checkLimits()`:
 
 ```ts
 while (!done) {
@@ -78,7 +78,20 @@ while (!done) {
 }
 ```
 
-`LimitExceededError.reason` is `paused`, `over_budget`, `max_steps_per_run` or `max_tokens_per_run`; `bindle.limitsStatus()` returns the limits and the current run's usage. Without `init()` or without limits, `checkLimits()` does nothing.
+`LimitExceededError.reason` is `paused`, `over_budget`, `stopped` (**Stop run** in the console), `max_steps_per_run`, `max_tokens_per_run` or `max_repeat_calls` (the same tool with the same arguments more than the limit); `bindle.limitsStatus()` returns the limits and the current run's usage. Settings refresh about once a minute. Without `init()` or without limits, `checkLimits()` does nothing.
+
+## Replay a run with its recorded tool outputs
+
+Download a run from the console (**Run details → Download for replay**), then answer every tool call from the recording:
+
+```ts
+const cassette = bindle.Cassette.load('run-0af7….cassette.json');
+const lookupOrder = cassette.wrap('lookup_order', async (args: { orderId: string }) => realLookup(args));
+const answer = await myAgent(cassette.input, { lookupOrder });
+console.log(cassette.report());
+```
+
+Calls match by tool name and arguments (key order ignored), then by call order. A call the run never made throws `UnrecordedCallError` (or calls the real tool with `{ onMissing: 'call' }`); a call that failed in the recording throws `RecordedToolError`.
 
 ## Already using OpenTelemetry?
 

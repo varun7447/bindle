@@ -8,7 +8,7 @@ import * as bindle from '../src/index.js';
 import { Guard, LimitExceededError, RunCounter, limitFor, parseLimits, type Limit } from '../src/limits.js';
 import { parseSettings } from '../src/remote.js';
 
-const lim = (o: Partial<Limit> & { agent: string }): Limit => ({ paused: false, maxStepsPerRun: 0, maxTokensPerRun: 0, dailyBudgetUsd: 0, pauseOverBudget: false, ...o });
+const lim = (o: Partial<Limit> & { agent: string }): Limit => ({ paused: false, maxStepsPerRun: 0, maxTokensPerRun: 0, dailyBudgetUsd: 0, pauseOverBudget: false, maxRepeatCalls: 0, ...o });
 
 beforeAll(() => {
   context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
@@ -82,6 +82,44 @@ describe('limits', () => {
     });
   });
 
+  it('stops a run stopped from the console, and only that run', () => {
+    const { tracer, guard } = setup();
+    tracer.startActiveSpan('run', (root: Span) => {
+      guard.update([], [], ['0'.repeat(32)]);
+      guard.check();
+      guard.update([], [], [root.spanContext().traceId]);
+      expectReason(() => guard.check(), 'stopped');
+      expect(guard.status().stopped).toBe(true);
+      root.end();
+    });
+    tracer.startActiveSpan('other', (s: Span) => {
+      guard.check();
+      s.end();
+    });
+    const st = parseSettings(JSON.stringify({ version: 1, sample_rate: 1, capture_content: true, stopped_runs: ['0af7651916cd43dd8448eb211c80319c', 'NOPE', 4] }))!;
+    expect(st.stoppedRuns).toEqual(['0af7651916cd43dd8448eb211c80319c']);
+  });
+
+  it('guards against the same tool called with the same arguments', () => {
+    const { tracer, guard } = setup();
+    guard.update([lim({ agent: 'refunds', maxRepeatCalls: 2 })], []);
+    const tool = (name: string, args: string) =>
+      tracer.startSpan(`execute_tool ${name}`, { attributes: { 'gen_ai.operation.name': 'execute_tool', 'gen_ai.tool.name': name, 'gen_ai.tool.call.arguments': args } }).end();
+    tracer.startActiveSpan('run', (root: Span) => {
+      tool('search', '{"q":"refund","page":1}');
+      tool('search', '{"page":1,"q":"refund"}'); // same call, keys reordered
+      tool('search', '{"q":"refund","page":2}');
+      tool('lookup', '{"q":"refund","page":1}');
+      guard.check();
+      tool('search', '{"q": "refund", "page": 1}');
+      const e = expectReason(() => guard.check(), 'max_repeat_calls');
+      expect(e.value).toBe(3);
+      expect(e.message).toContain('search');
+      root.end();
+    });
+    expect(parseLimits([{ agent: '*', max_repeat_calls: 4 }])[0]!.maxRepeatCalls).toBe(4);
+  });
+
   it('bounds the number of tracked runs', () => {
     const c = new RunCounter(3);
     const p = new BasicTracerProvider({ spanProcessors: [c] });
@@ -95,7 +133,7 @@ describe('limits', () => {
     const mem = new InMemorySpanExporter();
     expect(bindle.init({ apiKey: 'bd_test_' + 'a'.repeat(40), endpoint: 'http://localhost:4318', agent: 'refunds', remoteConfig: false }, { exporter: () => mem })).toBe(true);
     bindle.checkLimits();
-    bindle._applyRemote({ version: 2, sampleRate: 1, captureContent: true, redactPatterns: {}, pollIntervalSeconds: 60, limits: [lim({ agent: 'refunds', paused: true })], overBudget: [] });
+    bindle._applyRemote({ version: 2, sampleRate: 1, captureContent: true, redactPatterns: {}, pollIntervalSeconds: 60, limits: [lim({ agent: 'refunds', paused: true })], overBudget: [], stoppedRuns: [] });
     expect(() => bindle.checkLimits()).toThrow(bindle.LimitExceededError);
     expect(bindle.limitsStatus()!.paused).toBe(true);
     void trace;

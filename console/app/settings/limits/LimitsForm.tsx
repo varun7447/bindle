@@ -35,6 +35,9 @@ export function LimitsForm({ data, agents, canEdit }: { data: LimitsResponse; ag
                   <th>Paused</th>
                   <th className="num">Max steps / run</th>
                   <th className="num">Max tokens / run</th>
+                  <th className="num" title="Stop a run that calls the same tool with the same arguments more than this many times">
+                    Max repeated calls
+                  </th>
                   <th className="num">Daily budget (USD)</th>
                   <th>Pause over budget</th>
                   <th>Today</th>
@@ -69,6 +72,16 @@ export function LimitsForm({ data, agents, canEdit }: { data: LimitsResponse; ag
                       </td>
                       <td className="num">
                         <input aria-label={`Row ${i + 1} max tokens`} inputMode="numeric" value={r.maxTokens} onChange={(e) => set(i, { maxTokens: e.target.value })} placeholder="no limit" style={{ width: 120 }} />
+                      </td>
+                      <td className="num">
+                        <input
+                          aria-label={`Row ${i + 1} max repeated calls`}
+                          inputMode="numeric"
+                          value={r.maxRepeats}
+                          onChange={(e) => set(i, { maxRepeats: e.target.value })}
+                          placeholder="no limit"
+                          style={{ width: 100 }}
+                        />
                       </td>
                       <td className="num">
                         <input aria-label={`Row ${i + 1} daily budget`} inputMode="decimal" value={r.budget} onChange={(e) => set(i, { budget: e.target.value })} placeholder="none" style={{ width: 100 }} />

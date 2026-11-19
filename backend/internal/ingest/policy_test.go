@@ -146,6 +146,28 @@ func TestConfigEndpoint(t *testing.T) {
 	}
 }
 
+func TestConfigEndpointStoppedRuns(t *testing.T) {
+	p := policy(1, true)
+	auth := map[string]string{"Authorization": "Bearer bd_test_good"}
+	w := getConfig(configServer(&fixedPolicy{p: p}), auth)
+	var body map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if runs, ok := body["stopped_runs"].([]any); !ok || len(runs) != 0 {
+		t.Fatalf("stopped_runs should be an empty list: %v", body["stopped_runs"])
+	}
+	plain := w.Header().Get("ETag")
+
+	p.Config.StoppedRuns = []string{"0af7651916cd43dd8448eb211c80319c"}
+	w = getConfig(configServer(&fixedPolicy{p: p}), map[string]string{"Authorization": "Bearer bd_test_good", "If-None-Match": plain})
+	if w.Code != 200 {
+		t.Fatalf("a new stop must change the ETag: %d", w.Code)
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if runs := body["stopped_runs"].([]any); len(runs) != 1 || runs[0] != "0af7651916cd43dd8448eb211c80319c" {
+		t.Fatalf("stopped_runs: %v", body["stopped_runs"])
+	}
+}
+
 func TestApplyPolicyWorkspacePrices(t *testing.T) {
 	p := policy(1, true)
 	p.Prices = sdkconfig.PriceTable([]sdkconfig.PriceOverride{{Model: "gpt-x", InputPerMTok: 1, OutputPerMTok: 2}})

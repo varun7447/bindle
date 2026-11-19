@@ -42,6 +42,7 @@ def _suppress_instrumentation():
 _MIN_POLL, _MAX_POLL, _MAX_BACKOFF = 30.0, 3600.0, 600.0
 _MAX_BODY = 64 * 1024
 _NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,31}$")
+_TRACE_RE = re.compile(r"^[0-9a-f]{32}$")
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,7 @@ class RemoteSettings:
     poll_interval: float = 60.0
     limits: tuple = ()
     over_budget: tuple = ()
+    stopped_runs: tuple = ()
 
 
 def parse(body: bytes) -> Optional[RemoteSettings]:
@@ -73,8 +75,10 @@ def parse(body: bytes) -> Optional[RemoteSettings]:
         from ._limits import parse_limits
 
         over = tuple(a for a in (d.get("over_budget") or []) if isinstance(a, str))
+        stopped = tuple(t for t in (d.get("stopped_runs") or [])
+                        if isinstance(t, str) and _TRACE_RE.match(t))[:1000]
         return RemoteSettings(version, rate, capture, patterns, min(max(poll, _MIN_POLL), _MAX_POLL),
-                              parse_limits(d.get("limits")), over)
+                              parse_limits(d.get("limits")), over, stopped)
     except Exception:  # noqa: BLE001 - malformed config is ignored, never fatal
         return None
 

@@ -114,7 +114,7 @@ Runs the agent on a dataset exported from Bindle, applies Bindle's checks (and y
 
 ## Agent limits
 
-Limits set in the console (pause, max steps or tokens per run, daily budget) apply where your code calls `bindle.check_limits()`:
+Limits set in the console (pause, max steps or tokens per run, max repeated tool calls per run, daily budget) and runs stopped from the console apply where your code calls `bindle.check_limits()`:
 
 ```python
 while not done:
@@ -122,7 +122,23 @@ while not done:
     step()
 ```
 
-`LimitExceeded.reason` is `paused`, `over_budget`, `max_steps_per_run` or `max_tokens_per_run`. Steps are counted per run in-process (every span in the trace); tokens come from LLM spans. `bindle.limits_status()` returns the current limits and the run's usage. Without `bindle.init()` or without limits, `check_limits()` does nothing. This is the only place the SDK raises on purpose.
+`LimitExceeded.reason` is `paused`, `over_budget`, `stopped` (someone chose **Stop run** on this run in the console), `max_steps_per_run`, `max_tokens_per_run` or `max_repeat_calls` (the run called the same tool with the same arguments more than the limit: a loop guard). Steps are counted per run in-process (every span in the trace); tokens come from LLM spans; repeated calls from tool spans, by tool name and arguments with key order ignored. Settings refresh about once a minute, so a stop reaches the agent within about a minute. `bindle.limits_status()` returns the current limits and the run's usage. Without `bindle.init()` or without limits, `check_limits()` does nothing. This is the only place the SDK raises on purpose.
+
+## Replay a run with its recorded tool outputs
+
+Download a run from the console (**Run details → Download for replay**) and re-run your agent on the same input, with every tool answered from the recording instead of the real system:
+
+```python
+cassette = bindle.Cassette.load("run-0af7….cassette.json")
+
+@cassette.tool
+def lookup_order(order_id: str) -> dict: ...   # never called: answered from the recording
+
+answer = my_agent(cassette.input)
+print(cassette.report())   # calls matched, calls the new run never made, calls it made that the run didn't
+```
+
+Calls match by tool name and arguments (key order ignored), repeated identical calls get the recorded results in order, and a call with new arguments gets that tool's next recorded result (`match_order=False` turns this off). A call the run never made raises `bindle.UnrecordedCall`, unless you load with `on_missing="call"` to call the real tool. A call that failed in the recording raises `bindle.RecordedToolError`. `cassette.result(name, args)` looks up a result directly, for frameworks that dispatch tools themselves. Put `@bindle.trace_tool` above `@cassette.tool` to record the replayed calls as a new run. Example: `examples/sdk/replay_with_cassette.py`.
 
 ## Safety guarantees
 

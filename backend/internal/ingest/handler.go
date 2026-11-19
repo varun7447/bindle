@@ -273,6 +273,11 @@ func (h *ConfigHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sum := sha256.Sum256([]byte(strings.Join(cfg.OverBudget, "\x00")))
 		etag += "-b" + hex.EncodeToString(sum[:4])
 	}
+	if len(cfg.StoppedRuns) > 0 {
+		// So do stopped runs.
+		sum := sha256.Sum256([]byte(strings.Join(cfg.StoppedRuns, "\x00")))
+		etag += "-s" + hex.EncodeToString(sum[:4])
+	}
 	etag += `"`
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "private, no-cache")
@@ -288,6 +293,9 @@ func (h *ConfigHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if cfg.OverBudget == nil {
 		cfg.OverBudget = []string{}
+	}
+	if cfg.StoppedRuns == nil {
+		cfg.StoppedRuns = []string{}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(struct {

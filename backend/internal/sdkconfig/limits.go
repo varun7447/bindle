@@ -23,6 +23,9 @@ type Limit struct {
 	MaxTokensPerRun int64   `json:"max_tokens_per_run"`
 	DailyBudgetUSD  float64 `json:"daily_budget_usd"`
 	PauseOverBudget bool    `json:"pause_over_budget"`
+	// MaxRepeatCalls stops a run that calls the same tool with the same
+	// arguments more than this many times (a loop guard), checked by the SDK.
+	MaxRepeatCalls int64 `json:"max_repeat_calls"`
 }
 
 const (
@@ -31,6 +34,7 @@ const (
 	maxStepsLimit  = 1_000_000
 	maxTokensLimit = 1_000_000_000_000
 	maxDailyBudget = 1_000_000
+	maxRepeatLimit = 10_000
 	AnyAgent       = "*"
 )
 
@@ -54,6 +58,9 @@ func ValidateLimits(ls []Limit) error {
 		}
 		if l.MaxTokensPerRun < 0 || l.MaxTokensPerRun > maxTokensLimit {
 			return fmt.Errorf("limit %s: max_tokens_per_run must be between 0 and %d", name, int64(maxTokensLimit))
+		}
+		if l.MaxRepeatCalls < 0 || l.MaxRepeatCalls > maxRepeatLimit {
+			return fmt.Errorf("limit %s: max_repeat_calls must be between 0 and %d", name, maxRepeatLimit)
 		}
 		if math.IsNaN(l.DailyBudgetUSD) || l.DailyBudgetUSD < 0 || l.DailyBudgetUSD > maxDailyBudget {
 			return fmt.Errorf("limit %s: daily_budget_usd must be between 0 and %d", name, maxDailyBudget)

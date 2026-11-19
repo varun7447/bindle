@@ -18,6 +18,7 @@ import { contextProfile, fmtBytes } from '@/lib/context';
 import { AddToDataset } from '@/app/evals/Forms';
 import { groupLinks, linkSentence } from '@/lib/links';
 import type { StoryLine } from '@/lib/story';
+import { RunActions } from './RunActions';
 
 export default async function TracePage({
   params,
@@ -42,7 +43,7 @@ export default async function TracePage({
   const wf = buildWaterfall(steps);
   const story = buildStory(trace, steps);
   const ctx = contextProfile(steps);
-  const [datasets, linkRes] = await Promise.all([settle(api.datasets()), settle(api.traceLinks(id))]);
+  const [datasets, linkRes, stop, me] = await Promise.all([settle(api.datasets()), settle(api.traceLinks(id)), settle(api.runStop(id)), settle(api.me())]);
   const links = linkRes.ok ? linkRes.data.links : [];
   const linkGroups = groupLinks(links);
   const linkLine = linkSentence(links, trace.started_at);
@@ -62,7 +63,13 @@ export default async function TracePage({
         <div className="story-head">
           <StatusBadge status={trace.status} />
           <h2 id="story-h">{story.headline}</h2>
-          <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <RunActions
+              traceId={id}
+              stoppedAt={stop.ok && stop.data.stopped ? stop.data.stopped_at : undefined}
+              pollSeconds={stop.ok ? stop.data.poll_seconds : 60}
+              canStop={me.ok && me.data.can_manage_keys}
+            />
             <Link href={`/traces/compare?a=${id}`} className="btn btn-sm">
               Compare with…
             </Link>
