@@ -56,6 +56,17 @@ bindle.withSession('conversation-42', async () => {
 bindle.feedback({ traceId, thumbsUp: false, comment: 'wrong order' });
 ```
 
+## Linked runs: queues, approvals, handoffs and MCP
+
+```ts
+const token = bindle.contextToken(); // store with the job, message or approval request
+await bindle.resume(token, { name: 'after approval' }, async () => { /* later, anywhere: a new run linked to the first */ });
+const params = bindle.injectMcpMeta({ name: 'lookup_order', arguments }); // MCP client
+bindle.withMcpContext(request.params, () => handle(request)); // MCP server: continue the caller's trace
+```
+
+`kind: 'handoff'` marks another agent taking over and `kind: 'called'` a run that serves another run's request. Guide: [`docs/integrations/multi-agent.md`](../../docs/integrations/multi-agent.md).
+
 ## Agent limits
 
 Limits set in the console (pause, max steps or tokens per run, daily budget) apply where your code calls `bindle.checkLimits()`:

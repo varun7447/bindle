@@ -91,6 +91,18 @@ trace_id = bindle.current_trace_id()            # hand this to your UI with the 
 bindle.feedback(trace_id=trace_id, thumbs_up=False, comment="wrong order")
 ```
 
+## Linked runs: queues, approvals, handoffs and MCP
+
+```python
+token = bindle.context_token()                  # store with the job, message or approval request
+with bindle.resume(token, name="after approval"):   # later, anywhere: a new run linked to the first
+    ...
+params = bindle.inject_mcp_meta(params)         # MCP client: trace context in params._meta
+with bindle.mcp_server_context(params): ...     # MCP server: continue the caller's trace
+```
+
+`resume(token, kind="handoff")` marks another agent taking over and `kind="called"` a run that serves another run's request. Guide: [`docs/integrations/multi-agent.md`](../../docs/integrations/multi-agent.md).
+
 ## CI: `bindle eval`
 
 ```bash

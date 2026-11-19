@@ -16,6 +16,8 @@ import { TimeBreakdown } from '@/components/TimeBreakdown';
 import { ContextChart } from '@/components/ContextChart';
 import { contextProfile, fmtBytes } from '@/lib/context';
 import { AddToDataset } from '@/app/evals/Forms';
+import { groupLinks, linkSentence } from '@/lib/links';
+import type { StoryLine } from '@/lib/story';
 
 export default async function TracePage({
   params,
@@ -40,7 +42,11 @@ export default async function TracePage({
   const wf = buildWaterfall(steps);
   const story = buildStory(trace, steps);
   const ctx = contextProfile(steps);
-  const datasets = await settle(api.datasets());
+  const [datasets, linkRes] = await Promise.all([settle(api.datasets()), settle(api.traceLinks(id))]);
+  const links = linkRes.ok ? linkRes.data.links : [];
+  const linkGroups = groupLinks(links);
+  const linkLine = linkSentence(links, trace.started_at);
+  const lines: StoryLine[] = linkLine ? [{ tone: 'neutral', text: linkLine }, ...story.lines] : story.lines;
   const requested = one((await searchParams).step)?.toLowerCase();
   const selectedId =
     isStepId(requested) && steps.some((s) => s.step_id === requested) ? requested : (story.causeId ?? story.firstFailureId ?? defaultStepId(wf.rows));
@@ -68,9 +74,9 @@ export default async function TracePage({
             </Link>
           ) : null}
         </div>
-        {story.lines.length ? (
+        {lines.length ? (
           <ul className="story-lines">
-            {story.lines.map((l, i) => (
+            {lines.map((l, i) => (
               <li key={i} className={`t-${l.tone}`}>
                 <span className="dot" aria-hidden="true">
                   {l.tone === 'critical' ? '✕' : l.tone === 'warning' ? '!' : '•'}
@@ -126,6 +132,33 @@ export default async function TracePage({
           ) : null}
         </div>
       </section>
+
+      {linkGroups.length ? (
+        <section className="panel story" style={{ marginBottom: 16 }} aria-labelledby="links-h">
+          <div className="story-head">
+            <h2 id="links-h">Linked runs</h2>
+          </div>
+          <ul className="story-lines">
+            {linkGroups.flatMap((g) =>
+              g.links.map((l) => (
+                <li key={`${g.label}-${l.trace_id}`} className="t-neutral">
+                  <span className="dot" aria-hidden="true">
+                    •
+                  </span>
+                  <span>
+                    {g.label}{' '}
+                    <Link href={`/traces/${l.trace_id}`}>
+                      <b>{l.run?.agent || 'a run'}</b>
+                    </Link>
+                    {l.run ? ` · ${formatTime(l.run.started_at)} · ${l.run.status === 'failed' ? 'failed' : `${l.run.steps} steps`}` : ' · not stored (sampled out or past retention)'}
+                    {l.step_name ? ` · via ${l.step_name}` : ''}
+                  </span>
+                </li>
+              )),
+            )}
+          </ul>
+        </section>
+      ) : null}
 
       {ctx ? (
         <section className="panel story" style={{ marginBottom: 16 }} aria-labelledby="ctx-h">
