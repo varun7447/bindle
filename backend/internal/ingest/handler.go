@@ -205,7 +205,7 @@ func ApplyPolicy(p sdkconfig.Policy, steps []model.Step) []model.Step {
 			}
 		}
 		if !c.CaptureContent {
-			s.Input, s.Output, s.Reasoning = "", "", ""
+			s.Input, s.Output, s.Reasoning, s.UserInput = "", "", "", ""
 			// Say why, so the console can explain the empty fields.
 			attrs := make(map[string]string, len(s.Attributes)+1)
 			for k, v := range s.Attributes {
@@ -218,6 +218,7 @@ func ApplyPolicy(p sdkconfig.Policy, steps []model.Step) []model.Step {
 			s.Name = p.Redactor.Apply(s.Name)
 			s.Input, s.Output = p.Redactor.Apply(s.Input), p.Redactor.Apply(s.Output)
 			s.Reasoning, s.ErrorMessage = p.Redactor.Apply(s.Reasoning), p.Redactor.Apply(s.ErrorMessage)
+			s.UserInput = p.Redactor.Apply(s.UserInput)
 			if len(s.Attributes) > 0 {
 				attrs := make(map[string]string, len(s.Attributes))
 				for k, v := range s.Attributes {

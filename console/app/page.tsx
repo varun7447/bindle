@@ -8,6 +8,7 @@ import { fillSeries } from '@/lib/chart';
 import { formatCost, formatCount, formatDuration, formatPercent, formatRelative, formatTime } from '@/lib/format';
 import { WINDOWS, asWindow, one } from '@/lib/ids';
 import { agentLabel, attentionItems, delta, headline } from '@/lib/insights';
+import { securityItems } from '@/lib/security';
 import type { Insights } from '@/lib/types';
 
 const WINDOW_LABEL = { '24h': 'Last 24 hours', '7d': 'Last 7 days', '30d': 'Last 30 days' } as const;
@@ -19,11 +20,12 @@ const EMPTY_INSIGHTS: Insights = { agents: [], issues: [], previous: { runs: 0, 
 export default async function HomePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requireSession('/');
   const window = asWindow(one((await searchParams).window));
-  const [ov, ins, loops, econ] = await Promise.all([
+  const [ov, ins, loops, econ, sec] = await Promise.all([
     settle(api.overview(window)),
     settle(api.insights(window)),
     settle(api.alerts('1h')),
     settle(api.economics(window)),
+    settle(api.security(window)),
   ]);
   const now = Date.now();
 
@@ -37,7 +39,8 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   }
   const o = ov.data;
   const insights = ins.ok ? ins.data : EMPTY_INSIGHTS;
-  const items = attentionItems(o, insights, loops.ok ? loops.data.alerts : [], window, econ.ok ? econ.data.agents : []);
+  const security = sec.ok ? securityItems(sec.data.signals, sec.data.explanations) : [];
+  const items = attentionItems(o, insights, loops.ok ? loops.data.alerts : [], window, econ.ok ? econ.data.agents : [], security);
   const head = headline(o, insights, items, WINDOW_LABEL[window]);
   const prev = insights.previous;
   const prevRate = prev.runs ? prev.failed_runs / prev.runs : 0;

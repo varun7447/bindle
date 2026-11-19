@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { TraceIcon } from '@/components/Icons';
 import { notFound } from 'next/navigation';
+import { SecurityBadge, SecurityNotice } from '@/components/Security';
 import { ApiErrorPanel, KindChip, StatusBadge, settle } from '@/components/ui';
 import { ApiError, api } from '@/lib/api';
 import { formatCost, formatCount, formatDuration, formatTime } from '@/lib/format';
@@ -249,7 +250,7 @@ export default async function TracePage({
                   scroll={false}
                   className={`wf-row${failed ? ' wf-failed' : ''}`}
                   aria-current={selected ? 'true' : undefined}
-                  aria-label={`${k.label} step ${r.step.name}, ${failed ? 'failed, ' : ''}${formatDuration(r.step.duration_ms)}, starts at +${formatDuration(r.startOffsetMs)}`}
+                  aria-label={`${k.label} step ${r.step.name}, ${failed ? 'failed, ' : ''}${r.step.security_flags?.length ? 'security signal, ' : ''}${formatDuration(r.step.duration_ms)}, starts at +${formatDuration(r.startOffsetMs)}`}
                 >
                   <span className="wf-name" style={{ paddingLeft: r.depth * 14 }}>
                     <KindChip type={r.step.type} />
@@ -257,6 +258,7 @@ export default async function TracePage({
                       {r.step.name}
                     </span>
                     {r.step.attempt > 0 ? <span className="badge">retry {r.step.attempt}</span> : null}
+                    <SecurityBadge flags={r.step.security_flags} />
                     {failed ? (
                       <span className="wf-fail" aria-hidden="true">
                         ✕
@@ -316,6 +318,7 @@ function StepPanel({ step, summary }: { step: StepDetail; summary?: StepSummary 
           <KindChip type={step.type} />
           <StatusBadge status={step.status} />
           {step.attempt > 0 ? <span className="badge">retry {step.attempt}</span> : null}
+          <SecurityBadge flags={step.security_flags} />
         </div>
         <h2 style={{ margin: 0, overflowWrap: 'anywhere' }}>{step.name}</h2>
         {step.type === 'llm_call' && step.input ? (
@@ -324,6 +327,8 @@ function StepPanel({ step, summary }: { step: StepDetail; summary?: StepSummary 
           </Link>
         ) : null}
       </div>
+
+      <SecurityNotice flags={step.security_flags} reasons={step.security_reasons} />
 
       {step.redacted_kinds.length > 0 ? (
         <div className="notice" role="note">

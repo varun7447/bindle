@@ -55,6 +55,10 @@ export interface StepSummary {
   redacted: boolean;
   /** Why an LLM call stopped ("stop", "length", "max_tokens"…), when the framework reports it. */
   finish_reason?: string;
+  /** Security signals on the step (prompt_injection, secret_exposed, possible_exfiltration). */
+  security_flags?: string[];
+  /** Why each flag was raised: "flag:reason". */
+  security_reasons?: string[];
 }
 
 export interface TraceResponse {

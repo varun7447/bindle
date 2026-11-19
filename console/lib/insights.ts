@@ -38,7 +38,15 @@ function runsHref(params: Record<string, string>): string {
   return q ? `/runs?${q}` : '/runs';
 }
 
-export function attentionItems(ov: OverviewResponse, ins: Insights, loops: Alert[], windowParam: string, econ: Economics[] = []): AttentionItem[] {
+/** econ: cost per outcome (wasted spend); extra: items computed elsewhere (security signals), ranked with the rest. */
+export function attentionItems(
+  ov: OverviewResponse,
+  ins: Insights,
+  loops: Alert[],
+  windowParam: string,
+  econ: Economics[] = [],
+  extra: AttentionItem[] = [],
+): AttentionItem[] {
   const items: AttentionItem[] = [];
   const win = windowParam === '24h' || windowParam === '30d' ? windowParam : '7d';
   const range: Record<string, string> = windowParam === '24h' ? {} : { range: windowParam };
@@ -134,6 +142,8 @@ export function attentionItems(ov: OverviewResponse, ins: Insights, loops: Alert
       cta: 'See runs',
     });
   }
+
+  items.push(...extra);
 
   const rank: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
   return items.sort((a, b) => rank[a.severity] - rank[b.severity]);

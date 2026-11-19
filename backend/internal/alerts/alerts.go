@@ -29,6 +29,9 @@ const (
 	KindNewError = "new_error"
 	// a Monday summary of the last 7 days; threshold and window are fixed
 	KindWeeklyDigest = "weekly_digest"
+	// threshold: steps with the same security flag (prompt injection, an
+	// exposed credential, possible exfiltration) for one agent in the window
+	KindSecuritySignal = "security_signal"
 )
 
 // Rule is one alert condition.
@@ -117,6 +120,10 @@ func ValidateRule(r Rule) error {
 	case KindNewError:
 		if r.Threshold < 1 || r.Threshold > 100000 || r.Threshold != float64(int(r.Threshold)) {
 			return invalid("new-error threshold must be a whole number of failures, at least 1")
+		}
+	case KindSecuritySignal:
+		if r.Threshold < 1 || r.Threshold > 100000 || r.Threshold != float64(int(r.Threshold)) {
+			return invalid("security-signal threshold must be a whole number of flagged steps, at least 1")
 		}
 	case KindWeeklyDigest:
 		if r.Threshold != 1 || r.WindowMinutes != 1440 {

@@ -191,6 +191,10 @@ type StepSummary struct {
 	// FinishReason is why an LLM call stopped ("stop", "length", "max_tokens",
 	// "tool_calls"…), from gen_ai.response.finish_reasons; empty if unknown.
 	FinishReason string `json:"finish_reason,omitempty"`
+	// SecurityFlags are security signals on the step (prompt_injection,
+	// secret_exposed, possible_exfiltration); SecurityReasons say why.
+	SecurityFlags   []string `json:"security_flags,omitempty"`
+	SecurityReasons []string `json:"security_reasons,omitempty"`
 }
 
 // Trace is a run summary plus its steps.
@@ -405,4 +409,56 @@ type SearchHit struct {
 	Field        string  `json:"field"`   // input, output, error or reasoning
 	Snippet      string  `json:"snippet"` // matches wrapped in \ue000 … \ue001
 	Score        float64 `json:"score"`
+}
+
+// ---- security signals and topics -------------------------------------------
+
+// SecuritySignal is how often one security flag was raised on one agent's
+// steps in a range. Signals are leads for review, not verdicts.
+type SecuritySignal struct {
+	Flag     string `json:"flag"`
+	Agent    string `json:"agent"`
+	Steps    uint64 `json:"steps"`
+	Runs     uint64 `json:"runs"`
+	LastSeen Time   `json:"last_seen"`
+	// Reasons counts why the flag was raised ("flag:reason").
+	Reasons map[string]uint64 `json:"reasons"`
+	// Examples are the latest flagged steps (at most 3).
+	Examples []SecurityExample `json:"examples"`
+}
+
+// SecurityExample is one flagged step.
+type SecurityExample struct {
+	TraceID  string   `json:"trace_id"`
+	StepID   string   `json:"step_id"`
+	StepName string   `json:"step_name"`
+	ToolName string   `json:"tool_name,omitempty"`
+	Reasons  []string `json:"reasons"`
+}
+
+// Topic is a term that users mention in a larger share of runs in a range
+// than in the period before it (or for the first time).
+type Topic struct {
+	Term string `json:"term"`
+	// Runs mentioning the term in the range and in the period before, and
+	// those as shares (0-1) of each period's runs with a user input.
+	Runs          uint64   `json:"runs"`
+	PreviousRuns  uint64   `json:"previous_runs"`
+	Share         float64  `json:"share"`
+	PreviousShare float64  `json:"previous_share"`
+	Examples      []string `json:"example_trace_ids"`
+}
+
+// Topics is what users ask an agent about, compared with the period before.
+type Topics struct {
+	// Rising terms were seen before but are mentioned more now; New terms
+	// were not seen at all in the period before.
+	Rising []Topic `json:"rising"`
+	New    []Topic `json:"new"`
+	// Runs with a user input, and the average input length (characters
+	// per step), in the range and the period before.
+	Runs         uint64  `json:"runs"`
+	PreviousRuns uint64  `json:"previous_runs"`
+	AvgChars     float64 `json:"avg_chars"`
+	PrevAvgChars float64 `json:"previous_avg_chars"`
 }

@@ -3,6 +3,7 @@
 
 import { formatCost, formatDuration, formatPercent } from './format';
 import { likelyCause } from './blame';
+import { securityLines } from './security';
 import { stepKind } from './steps';
 import type { Run, StepSummary } from './types';
 
@@ -92,6 +93,8 @@ export function buildStory(run: Run, steps: StepSummary[]): RunStory {
   // 2b. Likely cause: the step the failure traces back to, when it isn't simply the first failure.
   const cause = likelyCause(run, steps);
   if (cause) lines.push({ tone: failed ? 'critical' : 'warning', text: cause.text, stepId: cause.stepId });
+  // Security signals on steps: leads to review, not verdicts.
+  lines.push(...securityLines(steps));
 
   // 3. Possible loops: the same tool called many times.
   const tools = new Map<string, StepSummary[]>();

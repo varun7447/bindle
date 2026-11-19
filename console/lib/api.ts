@@ -8,6 +8,8 @@
 // token is sent and the API's dev bypass, if enabled, applies.
 
 import { sessionToken } from './auth';
+import type { SecurityResponse } from './security';
+import type { TopicsResponse } from './topics';
 import type { AgentLimit, LimitsResponse } from './limits';
 import type { AWSPrice, ModelUsage, PriceOverride, PricesResponse } from './prices';
 import type { ToolHealth, VersionStats, VersionToolUsage } from './agents';
@@ -165,6 +167,8 @@ export const api = {
   tools: (window: string) => get<{ window: string; tools: ToolHealth[] }>('/api/tools', { window }),
   agentVersions: (agent: string, window: string) => get<{ window: string; agent: string; versions: VersionStats[] }>('/api/agents/versions', { agent, window }),
   toolUsage: (agent: string, window: string) => get<{ window: string; agent: string; versions: VersionToolUsage[] }>('/api/agents/tool-usage', { agent, window }),
+  agentTopics: (agent: string, window: string) => get<TopicsResponse>('/api/agents/topics', { agent, window }),
+  security: (window: string) => get<SecurityResponse>('/api/security', { window }),
   replay: async (traceId: string, stepId: string, body: { provider: string; model: string; api_key: string; messages: ReplayMessage[]; max_tokens: number }) => {
     if (!isTraceId(traceId) || !isStepId(stepId)) throw new ApiError(400, 'bad_request', 'Invalid step ID');
     return post<ReplayResponse>(`/api/traces/${traceId}/steps/${stepId}/replay`, body);

@@ -39,7 +39,7 @@ func TestApplyPolicy(t *testing.T) {
 	keep := "00000000000000000000000000000001" // low bits ~0: kept at any rate > 0
 	drop := "0000000000000000ffffffffffffffff" // dropped below rate 1
 	steps := []model.Step{
-		{TraceID: keep, Input: "order ord_123", Output: "ok", Reasoning: "r", ErrorMessage: "failed ord_9",
+		{TraceID: keep, Input: "order ord_123", Output: "ok", Reasoning: "r", ErrorMessage: "failed ord_9", UserInput: "where is ord_5",
 			Name: "lookup ord_1", Attributes: map[string]string{"q": "ord_77"}},
 		{TraceID: drop, Input: "x"},
 	}
@@ -48,7 +48,7 @@ func TestApplyPolicy(t *testing.T) {
 		t.Fatalf("sampling: %+v", out)
 	}
 	s := out[0]
-	if s.Input != "order [REDACTED:ORDER]" || s.ErrorMessage != "failed [REDACTED:ORDER]" || s.Name != "lookup [REDACTED:ORDER]" ||
+	if s.Input != "order [REDACTED:ORDER]" || s.UserInput != "where is [REDACTED:ORDER]" || s.ErrorMessage != "failed [REDACTED:ORDER]" || s.Name != "lookup [REDACTED:ORDER]" ||
 		s.Attributes["q"] != "[REDACTED:ORDER]" || s.Output != "ok" {
 		t.Errorf("redaction: %+v", s)
 	}
@@ -57,7 +57,7 @@ func TestApplyPolicy(t *testing.T) {
 	}
 
 	out = ApplyPolicy(policy(1, false), append([]model.Step(nil), steps...))
-	if len(out) != 2 || out[0].Input != "" || out[0].Output != "" || out[0].Reasoning != "" || out[0].ErrorMessage == "" {
+	if len(out) != 2 || out[0].Input != "" || out[0].Output != "" || out[0].Reasoning != "" || out[0].UserInput != "" || out[0].ErrorMessage == "" {
 		t.Errorf("capture off must drop content but keep errors: %+v", out[0])
 	}
 	if out[0].Attributes[ContentDroppedAttr] != "workspace" || out[0].Attributes["q"] != "ord_77" {

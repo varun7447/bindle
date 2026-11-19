@@ -175,7 +175,7 @@ func (e *Evaluator) detect(ctx context.Context, tenant string, r Rule) ([]Event,
 				map[string]any{"cost_usd": run.CostUSD, "agent": run.Agent, "cost_partial": run.CostUnknownSteps > 0}))
 		}
 		return out, nil
-	case KindNegativeFeedback, KindCostRegression, KindNewError, KindWeeklyDigest:
+	case KindNegativeFeedback, KindCostRegression, KindNewError, KindWeeklyDigest, KindSecuritySignal:
 		return e.detectMore(ctx, tenant, r, now, from, limit, ev)
 	}
 	return nil, fmt.Errorf("unknown rule kind %q", r.Kind)
