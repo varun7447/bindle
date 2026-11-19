@@ -24,7 +24,11 @@ services:
       # The security plugin stays on (authentication required); only TLS on
       # the HTTP layer is off for this local, loopback-published node.
       plugins.security.ssl.http.enabled: "false"
-      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+      # Java heap (default 1g; real agents with long prompts need more than
+      # demo data). Heap dumps after an OutOfMemoryError go to /tmp, not the
+      # data volume, so a crash can't fill the disk and block the restart.
+      # Docker needs about 2.5x the heap in memory for this container.
+      OPENSEARCH_JAVA_OPTS: -Xms${BINDLE_OPENSEARCH_HEAP:-1g} -Xmx${BINDLE_OPENSEARCH_HEAP:-1g} -XX:HeapDumpPath=/tmp
     volumes:
       - os-data:/usr/share/opensearch/data
     healthcheck:

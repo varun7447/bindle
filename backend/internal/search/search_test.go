@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -300,5 +301,42 @@ func TestOutlierLimits(t *testing.T) {
 	}
 	if _, ok := got["empty"]; ok {
 		t.Error("no limits without medians")
+	}
+}
+
+func TestWriteSplitsLargeBulks(t *testing.T) {
+	f, c := newFake(t)
+	w := &Writer{Client: c, MaxBulkBytes: 64 << 10}
+	now := uint64(time.Now().UnixNano())
+	var steps []model.Step
+	for i := 0; i < 40; i++ {
+		steps = append(steps, model.Step{TenantID: "t", TraceID: strings.Repeat("a", 32), StepID: fmt.Sprintf("%016x", i),
+			StartUnixNano: now, Input: strings.Repeat("x", 8<<10)})
+	}
+	if err := w.Write(context.Background(), steps); err != nil {
+		t.Fatal(err)
+	}
+	var bulks []req
+	for _, r := range f.all() {
+		if strings.HasSuffix(r.Path, "/_bulk") && !strings.Contains(string(r.Body), "\"index\"") {
+			bulks = append(bulks, r)
+		}
+	}
+	if len(bulks) < 4 {
+		t.Fatalf("40 x 8 KiB steps with a 64 KiB cap should take several requests, got %d", len(bulks))
+	}
+	creates := 0
+	for i, b := range bulks {
+		if len(b.Body) > 80<<10 {
+			t.Errorf("bulk %d is %d bytes", i, len(b.Body))
+		}
+		creates += strings.Count(string(b.Body), `"create"`)
+		waits := strings.Contains(b.Query, "refresh=wait_for")
+		if waits != (i == len(bulks)-1) {
+			t.Errorf("bulk %d refresh=wait_for %v: only the last should wait", i, waits)
+		}
+	}
+	if creates != 40 {
+		t.Errorf("every step written once: %d creates", creates)
 	}
 }

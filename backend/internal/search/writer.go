@@ -35,6 +35,10 @@ type Writer struct {
 	Payloads     payload.Store
 	OffloadBytes int // default 32 KiB
 	PreviewBytes int // default 4 KiB
+	// MaxBulkBytes caps one bulk request; larger batches are split, so a
+	// big export can't arrive in OpenSearch as one huge request (heap and
+	// direct-memory pressure). Default 8 MiB.
+	MaxBulkBytes int
 }
 
 const maxFutureSkew = 24 * time.Hour
@@ -181,7 +185,16 @@ func (w *Writer) Write(ctx context.Context, steps []model.Step) error {
 	if err := w.offload(ctx, docs, days); err != nil {
 		return err
 	}
+	maxBulk := w.MaxBulkBytes
+	if maxBulk <= 0 {
+		maxBulk = 8 << 20
+	}
+	var chunks [][]byte
 	for i, d := range docs {
+		if bulk.Len() >= maxBulk {
+			chunks = append(chunks, append([]byte(nil), bulk.Bytes()...))
+			bulk.Reset()
+		}
 		meta := map[string]any{"create": map[string]any{
 			"_index":  w.Names.StepsIndex(days[i]),
 			"_id":     docID(d.TenantID, d.TraceID, d.StepID),
@@ -201,12 +214,22 @@ func (w *Writer) Write(ctx context.Context, steps []model.Step) error {
 	if dropped > 0 {
 		w.logger().Warn("dropping steps outside the accepted time window", "dropped", dropped, "retention", w.retention().String())
 	}
-	if bulk.Len() == 0 {
+	if bulk.Len() > 0 {
+		chunks = append(chunks, bulk.Bytes())
+	}
+	if len(chunks) == 0 {
 		return nil
 	}
-	// wait_for: the rollup recompute below must see these steps.
-	if err := w.bulk(ctx, bulk.Bytes(), url.Values{"refresh": {"wait_for"}}, http.StatusConflict); err != nil {
-		return err
+	for i, c := range chunks {
+		q := url.Values{}
+		if i == len(chunks)-1 {
+			// wait_for on the last request: the refresh it waits for also
+			// covers the earlier ones, and the rollup below must see them all.
+			q.Set("refresh", "wait_for")
+		}
+		if err := w.bulk(ctx, c, q, http.StatusConflict); err != nil {
+			return err
+		}
 	}
 
 	tenants := make([]string, 0, len(touched))
