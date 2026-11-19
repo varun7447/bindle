@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
+import { Platform } from 'aws-cdk-lib/aws-ecr-assets';
 import { Construct } from 'constructs';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
@@ -16,6 +17,12 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 
 export interface BindleStackProps extends cdk.StackProps {
+  /**
+   * Where the backend image build downloads Go modules (GOPROXY). Default:
+   * Go's public proxy with a direct fallback. Use "direct" on networks that
+   * can't reach proxy.golang.org.
+   */
+  readonly goproxy?: string;
   /** ACM certificate ARN for ingest.bindle.ai. Required unless insecureDevCidr is set. */
   readonly certificateArn?: string;
   /**
@@ -238,7 +245,13 @@ export class BindleStack extends cdk.Stack {
       enableTokenRevocation: true,
     });
 
-    const image = ecs.ContainerImage.fromAsset(path.join(__dirname, '../../../backend'));
+    // Every task runs on ARM (Graviton): images are built for linux/arm64
+    // wherever cdk deploy runs, and the task definitions below match.
+    const image = ecs.ContainerImage.fromAsset(path.join(__dirname, '../../../backend'), {
+      platform: Platform.LINUX_ARM64,
+      buildArgs: { GOPROXY: props.goproxy ?? 'https://proxy.golang.org,direct' },
+    });
+    const arm: ecs.RuntimePlatform = { cpuArchitecture: ecs.CpuArchitecture.ARM64, operatingSystemFamily: ecs.OperatingSystemFamily.LINUX };
 
     // Ingest -> processor. On-demand capacity: no shards to size up front.
     const steps = new kinesis.Stream(this, 'Steps', {
@@ -267,6 +280,7 @@ export class BindleStack extends cdk.Stack {
 
     const ingest = new ecsPatterns.ApplicationLoadBalancedFargateService(this, 'Ingest', {
       cluster,
+      runtimePlatform: arm,
       cpu: 512,
       memoryLimitMiB: 1024,
       desiredCount: props.minTasks ?? 2,
@@ -334,7 +348,7 @@ export class BindleStack extends cdk.Stack {
 
     // One-off setup task: run it after each deploy (command in the
     // MigrateCommand output). Same image, different entrypoint.
-    const migrateTask = new ecs.FargateTaskDefinition(this, 'MigrateTask', { cpu: 256, memoryLimitMiB: 512 });
+    const migrateTask = new ecs.FargateTaskDefinition(this, 'MigrateTask', { cpu: 256, memoryLimitMiB: 512, runtimePlatform: arm });
     migrateTask.addContainer('migrate', {
       image,
       entryPoint: ['/bindle-migrate'],
@@ -363,7 +377,7 @@ export class BindleStack extends cdk.Stack {
       description: 'Point a CNAME for ingest.bindle.ai here',
     });
     // ---- processor: stream -> OpenSearch ---------------------------------------
-    const processorTask = new ecs.FargateTaskDefinition(this, 'ProcessorTask', { cpu: 512, memoryLimitMiB: 1024 });
+    const processorTask = new ecs.FargateTaskDefinition(this, 'ProcessorTask', { cpu: 512, memoryLimitMiB: 1024, runtimePlatform: arm });
     processorTask.addContainer('processor', {
       image,
       entryPoint: ['/bindle-processor'],
@@ -406,7 +420,7 @@ export class BindleStack extends cdk.Stack {
     // No listener and no load balancer. Egress to customer webhooks goes
     // through the NAT; the service refuses private and metadata addresses
     // itself (alerts.SafeClient), since a VPC route can't express that.
-    const alertsTask = new ecs.FargateTaskDefinition(this, 'AlertsTask', { cpu: 256, memoryLimitMiB: 512 });
+    const alertsTask = new ecs.FargateTaskDefinition(this, 'AlertsTask', { cpu: 256, memoryLimitMiB: 512, runtimePlatform: arm });
     alertsTask.addContainer('alerts', {
       image,
       entryPoint: ['/bindle-alerts'],
@@ -452,7 +466,7 @@ export class BindleStack extends cdk.Stack {
     // admits only the console. Every request still carries the user's
     // Cognito access token, which the API verifies.
     const namespace = cluster.addDefaultCloudMapNamespace({ name: 'bindle.internal', vpc });
-    const apiTask = new ecs.FargateTaskDefinition(this, 'ApiTask', { cpu: 512, memoryLimitMiB: 1024 });
+    const apiTask = new ecs.FargateTaskDefinition(this, 'ApiTask', { cpu: 512, memoryLimitMiB: 1024, runtimePlatform: arm });
     apiTask.addContainer('api', {
       image,
       entryPoint: ['/bindle-api'],
@@ -517,6 +531,7 @@ export class BindleStack extends cdk.Stack {
       });
       const consoleSvc = new ecsPatterns.ApplicationLoadBalancedFargateService(this, 'Console', {
         cluster,
+        runtimePlatform: arm,
         cpu: 512,
         memoryLimitMiB: 1024,
         desiredCount: 2,
@@ -529,7 +544,7 @@ export class BindleStack extends cdk.Stack {
         redirectHTTP: true, // browsers: port 80 only redirects to 443
         circuitBreaker: { rollback: true },
         taskImageOptions: {
-          image: ecs.ContainerImage.fromAsset(path.join(__dirname, '../../../console')),
+          image: ecs.ContainerImage.fromAsset(path.join(__dirname, '../../../console'), { platform: Platform.LINUX_ARM64 }),
           containerPort: 3000,
           environment: {
             BINDLE_API_URL: 'http://api.bindle.internal:8080',

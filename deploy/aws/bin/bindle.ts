@@ -22,6 +22,7 @@ new BindleStack(app, 'BindleDataPlane', {
   alertsEmailFrom: app.node.tryGetContext('alertsEmailFrom'),
   consoleCertificateArn: app.node.tryGetContext('consoleCertificateArn'),
   ingestUrl: app.node.tryGetContext('ingestUrl'),
+  goproxy: app.node.tryGetContext('goproxy') ?? process.env.BINDLE_GOPROXY,
 });
 
 cdk.Tags.of(app).add('project', 'bindle');
