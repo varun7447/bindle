@@ -3,9 +3,25 @@ Copyright 2026 The Bindle Authors
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
-It includes the following third-party software:
+The backend binaries and container images built from this repository include
+the following third-party Go modules. Their source isn't committed here; it is
+downloaded at build time at the versions and checksums pinned in
+backend/go.mod and backend/go.sum, and each module's license text ships with
+its source.
 
-- github.com/lib/pq (PostgreSQL driver for Go), vendored in
-  backend/vendor/github.com/lib/pq. Copyright (c) 2011-2013, 'pq'
-  Contributors. Portions Copyright (c) 2011 Blake Mizerany. MIT License;
-  the full text is in that directory's LICENSE file.
+- github.com/lib/pq (PostgreSQL driver). Copyright (c) 2011-2013, 'pq'
+  Contributors. Portions Copyright (c) 2011 Blake Mizerany. MIT License.
+- github.com/anthropics/anthropic-sdk-go/v2 (Anthropic API client, used by
+  step replay). Copyright 2023 Anthropic, PBC. Apache License 2.0.
+
+Dependencies of the Anthropic SDK:
+
+- Apache License 2.0: github.com/go-logr/logr, github.com/go-logr/stdr,
+  github.com/pb33f/ordered-map/v2, go.opentelemetry.io/auto/sdk,
+  go.opentelemetry.io/otel, go.opentelemetry.io/otel/metric,
+  go.opentelemetry.io/otel/trace, go.yaml.in/yaml/v4
+- MIT License: github.com/buger/jsonparser, github.com/invopop/jsonschema,
+  github.com/standard-webhooks/standard-webhooks/libraries,
+  github.com/tidwall/gjson, github.com/tidwall/match, github.com/tidwall/pretty,
+  github.com/tidwall/sjson
+- BSD 3-Clause License: github.com/bahlo/generic-list-go, golang.org/x/sync

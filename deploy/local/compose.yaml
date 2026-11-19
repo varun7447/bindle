@@ -51,7 +51,12 @@ services:
   # bindle_writer / bindle_reader users. PostgreSQL: control-plane roles and
   # schema, plus the local dev tenant with BINDLE_API_KEY. Then exits.
   setup:
-    build: ../../backend
+    build:
+      context: ../../backend
+      args:
+        # Go module downloads: "direct" fetches from source repositories (works
+        # where proxy.golang.org is blocked); set BINDLE_GOPROXY to change it.
+        GOPROXY: ${BINDLE_GOPROXY:-direct}
     entrypoint: ["/bindle-migrate"]
     restart: "no"
     environment:
@@ -74,7 +79,12 @@ services:
         condition: service_healthy
 
   ingest:
-    build: ../../backend
+    build:
+      context: ../../backend
+      args:
+        # Go module downloads: "direct" fetches from source repositories (works
+        # where proxy.golang.org is blocked); set BINDLE_GOPROXY to change it.
+        GOPROXY: ${BINDLE_GOPROXY:-direct}
     ports:
       - "127.0.0.1:4318:4318"
     environment:
@@ -94,13 +104,19 @@ services:
         condition: service_completed_successfully
 
   api:
-    build: ../../backend
+    build:
+      context: ../../backend
+      args:
+        # Go module downloads: "direct" fetches from source repositories (works
+        # where proxy.golang.org is blocked); set BINDLE_GOPROXY to change it.
+        GOPROXY: ${BINDLE_GOPROXY:-direct}
     entrypoint: ["/bindle-api"]
     ports:
       - "127.0.0.1:8080:8080"
     environment:
       <<: *search
       BINDLE_API_LISTEN: ":8080"
+      BINDLE_PRICING_FILE: /etc/bindle/pricing.json
       BINDLE_SEARCH_USER: bindle_reader
       BINDLE_SEARCH_PASSWORD: ${BINDLE_SEARCH_READER_PASSWORD:?run deploy/local/dev-env.sh}
       BINDLE_PAYLOAD_STORE: file:///data/payloads
@@ -124,7 +140,12 @@ services:
   # Evaluates alert rules every minute and sends Slack/webhook alerts
   # (email needs Amazon SES, so it is off locally). Publishes no port.
   alerts:
-    build: ../../backend
+    build:
+      context: ../../backend
+      args:
+        # Go module downloads: "direct" fetches from source repositories (works
+        # where proxy.golang.org is blocked); set BINDLE_GOPROXY to change it.
+        GOPROXY: ${BINDLE_GOPROXY:-direct}
     entrypoint: ["/bindle-alerts"]
     environment:
       <<: *search

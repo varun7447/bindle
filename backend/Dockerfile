@@ -1,8 +1,17 @@
 FROM golang:1.27 AS build
+# Where modules are downloaded from. The default is Go's public proxy; set
+# GOPROXY=direct to fetch from the source repositories instead (for networks
+# that can't reach proxy.golang.org). go.sum pins every module's checksum
+# either way.
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=$GOPROXY
 WORKDIR /src
+# Dependencies first, so they are cached across source changes.
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download && go mod verify
 COPY . .
-# Dependencies are vendored (backend/vendor), so no module proxy is needed.
-RUN mkdir -p /out/data/payloads && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ ./cmd/bindle-ingest ./cmd/bindle-api ./cmd/bindle-migrate ./cmd/bindle-processor ./cmd/bindle-alerts
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    mkdir -p /out/data/payloads && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ ./cmd/bindle-ingest ./cmd/bindle-api ./cmd/bindle-migrate ./cmd/bindle-processor ./cmd/bindle-alerts
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/bindle-ingest /out/bindle-api /out/bindle-migrate /out/bindle-processor /out/bindle-alerts /

@@ -1,6 +1,6 @@
 # Bindle backend
 
-Go services, one module (`github.com/bindle-ai/bindle/backend`), standard library plus one vendored dependency: the PostgreSQL driver `lib/pq`. Go 1.23 or newer; the container image builds all five binaries.
+Go services, one module (`github.com/bindle-ai/bindle/backend`), the standard library plus two direct dependencies: the PostgreSQL driver `lib/pq` and Anthropic's Go SDK (used only by step replay). Dependencies are pinned by `go.mod` and `go.sum` and downloaded at build time (not committed). Go 1.25 or newer; the container image builds all five binaries. On networks that can't reach `proxy.golang.org`, set `GOPROXY=direct`.
 
 ```bash
 go vet ./... && go test ./...      # from this directory, or `make test-backend` from the repo root

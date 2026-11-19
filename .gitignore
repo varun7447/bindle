@@ -29,3 +29,6 @@ deploy/connectors/*/**/*.d.ts
 .env
 
 .DS_Store
+
+# Go dependencies are fetched by go.mod/go.sum (module cache), not committed.
+backend/vendor/
