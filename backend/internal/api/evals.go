@@ -52,6 +52,8 @@ func (s *Server) evalRoutes(api *http.ServeMux) {
 	api.HandleFunc("GET /api/datasets/{id}", s.getDataset)
 	api.HandleFunc("DELETE /api/datasets/{id}", s.deleteDataset)
 	api.HandleFunc("POST /api/datasets/{id}/items", s.addDatasetItems)
+	api.HandleFunc("POST /api/datasets/{id}/items/from-problems", s.addProblemItems)
+	api.HandleFunc("GET /api/problems/suggestions", s.suggestChecks)
 	api.HandleFunc("DELETE /api/datasets/{id}/items/{trace}", s.removeDatasetItem)
 	api.HandleFunc("POST /api/datasets/{id}/evaluate", s.evaluateDataset)
 	api.HandleFunc("GET /api/datasets/{id}/evals", s.listEvalRuns)

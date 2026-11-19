@@ -1,6 +1,7 @@
 // The home page's "what needs attention?" logic. Pure; unit-tested.
 
 import { formatCost, formatCount, formatDuration, formatPercent } from './format';
+import { type Economics, problemHref, wasteItems } from './outcomes';
 import type { Alert, Insights, OverviewResponse } from './types';
 
 export type Severity = 'critical' | 'warning' | 'info';
@@ -14,6 +15,8 @@ export interface AttentionItem {
   cta: string;
   /** Distinct errors behind one issue, most frequent first. */
   variants?: { text: string; count: number; href: string }[];
+  /** A second action, e.g. turning the problem runs into eval cases. */
+  secondary?: { href: string; label: string };
 }
 
 export interface Headline {
@@ -35,8 +38,9 @@ function runsHref(params: Record<string, string>): string {
   return q ? `/runs?${q}` : '/runs';
 }
 
-export function attentionItems(ov: OverviewResponse, ins: Insights, loops: Alert[], windowParam: string): AttentionItem[] {
+export function attentionItems(ov: OverviewResponse, ins: Insights, loops: Alert[], windowParam: string, econ: Economics[] = []): AttentionItem[] {
   const items: AttentionItem[] = [];
+  const win = windowParam === '24h' || windowParam === '30d' ? windowParam : '7d';
   const range: Record<string, string> = windowParam === '24h' ? {} : { range: windowParam };
 
   // Failing steps, grouped. Skip agent wrappers that only echo a child's
@@ -54,6 +58,10 @@ export function attentionItems(ov: OverviewResponse, ins: Insights, loops: Alert
       variants: (is.patterns?.length ?? 0) > 1
         ? is.patterns!.map((p) => ({ text: p.pattern, count: p.failures, href: `/traces/${p.sample_trace_id}?step=${p.sample_step_id}` }))
         : undefined,
+      secondary: {
+        href: problemHref({ kind: 'failure', step_name: is.step_name, ...(is.patterns?.length === 1 ? { pattern: is.patterns[0]!.pattern } : {}), window: win }),
+        label: 'Add these runs to a dataset',
+      },
     });
   }
 
@@ -108,8 +116,12 @@ export function attentionItems(ov: OverviewResponse, ins: Insights, loops: Alert
       detail: `${u.feedback.negative} thumbs down${u.feedback.positive ? `, ${u.feedback.positive} up` : ''} in session ${u.session_id.length > 24 ? u.session_id.slice(0, 24) + '…' : u.session_id}.`,
       href: `/sessions/${encodeURIComponent(u.session_id)}`,
       cta: 'Open conversation',
+      secondary: { href: problemHref({ kind: 'negative_feedback', window: win }), label: 'Add disliked runs to a dataset' },
     });
   }
+
+  // Spend on runs without a good outcome.
+  items.push(...wasteItems(econ, windowParam));
 
   // Cost we can't price.
   if (ov.cost_partial && ov.cost_unknown_steps > 0) {

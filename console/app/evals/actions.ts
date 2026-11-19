@@ -6,6 +6,7 @@ import { ApiError, api } from '@/lib/api';
 import { assertSameOrigin } from '@/lib/auth';
 import { parseScorerForm } from '@/lib/evals';
 import { isTraceId } from '@/lib/ids';
+import { parseChecks, parseProblemSource, problemTitle } from '@/lib/outcomes';
 
 export type EvalActionState = { kind: 'idle' } | { kind: 'done'; message: string } | { kind: 'error'; message: string };
 
@@ -118,6 +119,41 @@ export async function addTracesAction(_: EvalActionState, form: FormData): Promi
     const res = await api.addDatasetItems(id, ids);
     return { kind: 'done', message: `Added ${res.added} run${res.added === 1 ? '' : 's'}.` };
   });
+}
+
+/**
+ * Copies problem runs (a failure group, disliked runs, failed scores) into
+ * an existing or new dataset, and saves the suggested checks the user kept.
+ */
+export async function addProblemsAction(_: EvalActionState, form: FormData): Promise<EvalActionState> {
+  const src = parseProblemSource(Object.fromEntries(['kind', 'step_name', 'pattern', 'agent', 'score', 'window'].map((k) => [k, s(form, k)])));
+  let id = s(form, 'dataset_id');
+  const out = await run(['/evals'], async () => {
+    if (!src) return { kind: 'error', message: 'Reload the page and try again.' };
+    const checks = parseChecks(form.getAll('check').map(String));
+    if (id === 'new') {
+      const name = s(form, 'new_name').trim();
+      if (!name) return { kind: 'error', message: 'Name the new dataset.' };
+      id = (await api.createDataset(name, `From production: ${problemTitle(src)}`.slice(0, 500))).id;
+    }
+    if (!id) return { kind: 'error', message: 'Choose a dataset.' };
+    const res = await api.addProblemItems(id, src);
+    let saved = 0;
+    for (const c of checks) {
+      try {
+        await api.createScorer({ ...c, enabled: true });
+        saved++;
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 409)) throw e; // already saved under that name
+      }
+    }
+    return {
+      kind: 'done',
+      message: `Added ${res.added} run${res.added === 1 ? '' : 's'}${res.added < res.found ? ` (${res.found - res.added} already there)` : ''}${saved ? `, saved ${saved} check${saved === 1 ? '' : 's'}` : ''}.`,
+    };
+  });
+  if (out.kind === 'done' && id && id !== 'new') redirect(`/evals/datasets/${id}`);
+  return out;
 }
 
 export async function datasetAction(_: EvalActionState, form: FormData): Promise<EvalActionState> {

@@ -63,6 +63,8 @@ type Run struct {
 	CostKnown  bool     `json:"cost_known"` // every model step was priced
 	DurationMs float64  `json:"duration_ms"`
 	Failed     bool     `json:"failed"`
+	// Source says where a dataset item came from ("" = added by hand).
+	Source string `json:"source,omitempty"`
 }
 
 // Result is one check on one run. Skipped means the check couldn't apply

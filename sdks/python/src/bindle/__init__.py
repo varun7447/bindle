@@ -36,7 +36,7 @@ from ._links import inject_mcp_meta, mcp_server_context
 
 __all__ = [
     "init", "flush", "shutdown", "step", "trace_step", "trace_tool",
-    "decision", "handoff", "score", "feedback", "current_trace_id", "set_session", "check_limits", "limits_status",
+    "decision", "handoff", "score", "feedback", "outcome", "current_trace_id", "set_session", "check_limits", "limits_status",
     "LimitExceeded", "Redactor", "context_token", "resume", "inject_mcp_meta", "mcp_server_context",
     "Cassette", "UnrecordedCall", "RecordedToolError",
 ]
@@ -469,6 +469,25 @@ def feedback(*, trace_id: Union[str, int, None] = None, thumbs_up: Optional[bool
     """
     value = rating if rating is not None else (None if thumbs_up is None else (1.0 if thumbs_up else 0.0))
     return score("feedback", value, passed=thumbs_up, comment=comment, trace_id=trace_id, _source="user")
+
+
+def outcome(name: str, success: bool = True, value: Optional[float] = None, *,
+            trace_id: Union[str, int, None] = None, comment: Optional[str] = None) -> bool:
+    """Record a run's business outcome: did it do the job? For example
+    ``bindle.outcome("ticket_resolved")`` when a support ticket closes, or
+    ``bindle.outcome("refund_issued", success=False)`` when it didn't.
+
+    Bindle divides each agent version's spend by its successful outcomes
+    (cost per resolved ticket) and counts the spend on runs that failed or
+    whose outcome failed as wasted. Agents that never send an outcome fall
+    back to "no step failed and no negative feedback". ``value`` is an
+    optional number (an order total, minutes saved). Inside a run the
+    outcome joins it; from elsewhere pass the run's ``trace_id``. Returns
+    True if recorded. Never raises.
+    """
+    if not isinstance(success, bool):
+        return False
+    return score(name, value, passed=success, comment=comment, trace_id=trace_id, _source="outcome")
 
 
 def current_trace_id() -> Optional[str]:

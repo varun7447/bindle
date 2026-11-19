@@ -283,6 +283,12 @@ func TestScores(t *testing.T) {
 	if ext.Type != model.StepEval || *ext.ScoreValue != 3 || ext.ScorePass != "fail" || ext.AgentName != "" || ext.AgentVersion != "" {
 		t.Errorf("external score must not carry the sender's agent: %+v", ext)
 	}
+	for src, want := range map[string]string{"user": "user", "outcome": "outcome", "admin": ""} {
+		st := n.Normalize("t1", model.Span{Attributes: map[string]any{"bindle.score.name": "resolved", "bindle.score.passed": true, "bindle.score.source": src}})
+		if st.ScoreSource != want {
+			t.Errorf("source %q stored as %q", src, st.ScoreSource)
+		}
+	}
 	if plain := n.Normalize("t1", model.Span{Attributes: map[string]any{"gen_ai.operation.name": "chat"}}); plain.ScoreName != "" {
 		t.Error("non-score span")
 	}

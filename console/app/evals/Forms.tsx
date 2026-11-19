@@ -2,7 +2,18 @@
 
 import { useActionState, useState } from 'react';
 import { KINDS } from '@/lib/evals';
-import { type EvalActionState, addRunAction, addRunsAction, addTracesAction, createDatasetAction, createScorerAction, datasetAction, scorerAction } from './actions';
+import type { Suggestion } from '@/lib/outcomes';
+import {
+  type EvalActionState,
+  addProblemsAction,
+  addRunAction,
+  addRunsAction,
+  addTracesAction,
+  createDatasetAction,
+  createScorerAction,
+  datasetAction,
+  scorerAction,
+} from './actions';
 
 const idle: EvalActionState = { kind: 'idle' };
 
@@ -221,6 +232,73 @@ export function AddTracesToDataset({ traceIds, datasets }: { traceIds: string[];
         Add all to dataset
       </button>
       <Status state={state} />
+    </form>
+  );
+}
+
+/** Problem runs -> dataset, with the suggested checks to keep. */
+export function FromProblemsForm({
+  source,
+  datasets,
+  suggestions,
+  defaultName,
+}: {
+  source: Record<string, string>;
+  datasets: { id: string; name: string }[];
+  suggestions: Suggestion[];
+  defaultName: string;
+}) {
+  const [state, action, pending] = useActionState(addProblemsAction, idle);
+  const [target, setTarget] = useState(datasets.length ? datasets[0]!.id : 'new');
+  return (
+    <form action={action} className="stack">
+      {Object.entries(source).map(([k, v]) => (
+        <input key={k} type="hidden" name={k} value={v} />
+      ))}
+      <fieldset className="stack" style={{ border: 0, padding: 0, margin: 0 }}>
+        <legend className="sub" style={{ marginBottom: 6 }}>
+          Checks that would have caught these runs
+        </legend>
+        {suggestions.length === 0 ? (
+          <div className="sub">No check would catch these runs yet: add the runs, then write a check (or send a judge score with bindle.score()).</div>
+        ) : (
+          suggestions.map((sg) => (
+            <label key={sg.scorer.name} className="inline" style={{ alignItems: 'flex-start' }}>
+              <input type="checkbox" name="check" value={JSON.stringify(sg.scorer)} defaultChecked={!sg.exists} disabled={sg.exists} />
+              <span>
+                <b>{sg.scorer.name}</b>
+                {sg.exists ? <span className="badge" style={{ marginLeft: 6 }}>already saved</span> : null}
+                <div className="sub">
+                  Fails {sg.catches} of {sg.graded} of these runs · {sg.reason}
+                  {sg.scorer.agent ? ` · ${sg.scorer.agent} only` : ''}
+                </div>
+              </span>
+            </label>
+          ))
+        )}
+      </fieldset>
+      <div className="eval-form">
+        <label>
+          Dataset{' '}
+          <select name="dataset_id" value={target} onChange={(e) => setTarget(e.target.value)}>
+            {datasets.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+            <option value="new">New dataset…</option>
+          </select>
+        </label>
+        {target === 'new' ? (
+          <label>
+            Name <input name="new_name" required maxLength={80} defaultValue={defaultName} />
+          </label>
+        ) : null}
+        <button type="submit" className="btn btn-primary" disabled={pending}>
+          {pending ? 'Adding…' : 'Add runs and checks'}
+        </button>
+        <Status state={state} />
+      </div>
     </form>
   );
 }

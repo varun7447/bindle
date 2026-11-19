@@ -67,6 +67,8 @@ Costs are computed at ingest, when a step arrives, from `backend/pricing.json` (
 
 - A **session** is the runs sharing a session ID (`bindle.set_session()` / `withSession()` tags every span started inside it, framework spans included). Sessions are aggregated from the run rollups on request.
 - **Feedback** (`bindle.feedback()`) is an eval step with `score_source=user`, usually sent later with the run's trace ID (`bindle.current_trace_id()`); it rolls up to the run's session.
+- **Outcomes** (`bindle.outcome()`) are eval steps with `score_source=outcome`. `GET /api/economics` joins them to the run rollups by trace: per agent version, priced cost divided by runs with a passing outcome, and wasted spend (failed runs and failed outcomes). Agents that send no outcomes use "no step failed and no negative feedback" instead; the response says which definition each agent used. Runs with unpriced model calls are counted, never estimated.
+- **Problem runs to datasets**: `POST /api/datasets/{id}/items/from-problems` copies up to 50 recent runs from a failure group (step name and error pattern), negative feedback, failed scores or failed runs into a dataset, labelling each item with its source. `GET /api/problems/suggestions` proposes checks that would catch them (no step fails, the error text doesn't reach the user, the tool good runs always call, a step budget, valid JSON), graded against the problem runs and compared with the agent's recent good runs; nothing is saved until the user confirms.
 - **Search** is OpenSearch full-text over step input, output, errors and names (simple query syntax), one hit per run, with highlighted snippets. Redacted values stay redacted; offloaded fields are searched in their preview.
 
 ## Evals and replay

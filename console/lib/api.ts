@@ -13,6 +13,7 @@ import type { AWSPrice, ModelUsage, PriceOverride, PricesResponse } from './pric
 import type { ToolHealth, VersionStats, VersionToolUsage } from './agents';
 import type { ReplayMessage, ReplayResponse } from './replay';
 import type { AgentChecks, Dataset, DatasetItem, EvalRun, Scorer } from './evals';
+import { type Economics, type ProblemSource, type SuggestionsResponse, problemParams } from './outcomes';
 import type { Session, SessionDetail } from './sessions';
 import type { SearchHit } from './search';
 import type { TraceLink } from './links';
@@ -185,6 +186,10 @@ export const api = {
   evaluateDataset: async (id: string) => post<EvalRun>(`/api/datasets/${checked(id, DATASET_ID, 'dataset')}/evaluate`, {}),
   datasetEvals: async (id: string) => get<{ evals: EvalRun[] }>(`/api/datasets/${checked(id, DATASET_ID, 'dataset')}/evals`),
   agentChecks: (agent: string, window: string) => get<AgentChecks>('/api/agents/checks', { agent, window }),
+  economics: (window: string) => get<{ window: string; agents: Economics[] }>('/api/economics', { window }),
+  problemSuggestions: (src: ProblemSource) => get<SuggestionsResponse>('/api/problems/suggestions', problemParams(src)),
+  addProblemItems: async (id: string, src: ProblemSource) =>
+    post<{ added: number; found: number; source: string }>(`/api/datasets/${checked(id, DATASET_ID, 'dataset')}/items/from-problems`, problemParams(src)),
   search: (p: { q: string; window: string; agent?: string; status?: string }) =>
     get<{ window: string; q: string; hits: SearchHit[] }>('/api/search', {
       q: p.q,

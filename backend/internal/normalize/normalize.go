@@ -535,8 +535,9 @@ func applyScore(st *model.Step, a map[string]any) {
 	if st.Output == "" {
 		st.Output = str(a, "gen_ai.evaluation.explanation")
 	}
-	if src := str(a, "bindle.score.source"); src == "user" {
-		st.ScoreSource = "user"
+	switch src := str(a, "bindle.score.source"); src {
+	case "user", "outcome": // bindle.feedback() and bindle.outcome()
+		st.ScoreSource = src
 	}
 	if b, _ := a["bindle.score.external"].(bool); b {
 		st.AgentName, st.AgentVersion, st.Environment, st.SessionID, st.Framework = "", "", "", "", ""

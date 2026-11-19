@@ -50,6 +50,8 @@ export interface DatasetItem {
   cost_known: boolean;
   duration_ms: number;
   failed: boolean;
+  /** Where the item came from, e.g. "negative feedback"; absent when added by hand. */
+  source?: string;
 }
 
 export interface VersionScore {

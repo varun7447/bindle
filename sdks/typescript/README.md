@@ -67,6 +67,17 @@ bindle.withMcpContext(request.params, () => handle(request)); // MCP server: con
 
 `kind: 'handoff'` marks another agent taking over and `kind: 'called'` a run that serves another run's request. Guide: [`docs/integrations/multi-agent.md`](../../docs/integrations/multi-agent.md).
 
+## Outcomes
+
+Tell Bindle when a run did its job, so it can show cost per successful outcome (and the spend on runs that didn't):
+
+```ts
+bindle.outcome('ticket_resolved');                                 // inside a run
+bindle.outcome('refund_issued', { success: false, traceId });      // later, from elsewhere
+```
+
+Without outcomes, a run counts as successful when no step failed and no user gave it a thumbs down.
+
 ## Agent limits
 
 Limits set in the console (pause, max steps or tokens per run, max repeated tool calls per run, daily budget) and runs stopped from the console apply where your code calls `bindle.checkLimits()`:
