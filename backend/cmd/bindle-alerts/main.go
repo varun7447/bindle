@@ -64,10 +64,11 @@ func run(log *slog.Logger) error {
 		}
 		d.SES = &alerts.SES{Region: region, From: from, Creds: &awsv4.CredentialChain{Getenv: os.Getenv}}
 	}
+	cs := &control.AlertStore{DB: db}
+	ss := &search.Store{Client: client, Names: search.Names{Prefix: os.Getenv("BINDLE_SEARCH_PREFIX")}}
 	e := &alerts.Evaluator{
-		Store:   &control.AlertStore{DB: db},
-		Detect:  &search.Store{Client: client, Names: search.Names{Prefix: os.Getenv("BINDLE_SEARCH_PREFIX")}},
-		Deliver: d, Log: log,
+		Store: cs, Detect: ss, Deliver: d, Log: log,
+		Budgets: &alerts.Budgets{Store: cs, Channels: cs, Spend: ss, Deliver: d, Log: log},
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

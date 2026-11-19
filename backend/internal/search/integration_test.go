@@ -71,8 +71,14 @@ func TestIntegrationOpenSearch(t *testing.T) {
 	batch1[1].Model = "unpriced-model"
 	var batch2 []model.Step
 	for i := 0; i < 5; i++ {
-		batch2 = append(batch2, mk("tenant-a", traceA, randHex(8), root, model.StepTool, model.StatusFailure, "search", `{"q":"same"}`, uint64(2000+i)))
+		st := mk("tenant-a", traceA, randHex(8), root, model.StepTool, model.StatusFailure, "search", `{"q":"same"}`, uint64(2000+i))
+		st.Name, st.ErrorMessage, st.ErrorPattern = "search", "timeout", "timeout after <n>s"
+		if i == 4 {
+			st.ErrorPattern = "HTTP <n>"
+		}
+		batch2 = append(batch2, st)
 	}
+	batch1[1].InputTokens, batch1[1].CachedTokens = 900, 600
 	for _, b := range [][]model.Step{batch1, batch2, batch1} { // batch1 twice: a retry must not double-count
 		if err := w.Write(ctx, b); err != nil {
 			t.Fatal(err)
@@ -91,6 +97,9 @@ func TestIntegrationOpenSearch(t *testing.T) {
 	if r.Steps != 7 || r.FailedSteps != 5 || r.RootStatus != "success" || r.CostUnknownSteps != 1 ||
 		r.Agent != "agent-a" || r.Environment != "test" || r.Started.UnixNano() != int64(start) {
 		t.Errorf("rollup = %+v (want 7 steps, 5 failed, started %d)", r, start)
+	}
+	if r.LLMCalls != 1 || r.ToolCalls != 5 || r.CachedTokens != 600 || r.PeakInputTokens != 900 {
+		t.Errorf("rollup counters = %+v", r)
 	}
 	for _, f := range []query.RunFilter{
 		{From: from, To: to, Limit: 10, Status: "ok"},
@@ -142,6 +151,154 @@ func TestIntegrationOpenSearch(t *testing.T) {
 		t.Errorf("tenant-b loops = %+v", loops)
 	}
 
+	ms, err := store.Models(ctx, "tenant-a", from, to)
+	if err != nil || len(ms) != 1 || ms[0].Model != "unpriced-model" || ms[0].Calls != 1 || ms[0].Unpriced != 1 || ms[0].CachedTokens != 600 {
+		t.Errorf("models = %+v %v", ms, err)
+	}
+	if spend, err := store.CostByAgent(ctx, "tenant-a", from, to); err != nil || len(spend) != 1 {
+		t.Errorf("cost by agent = %v %v", spend, err)
+	}
+
+	tools, err := store.Tools(ctx, "tenant-a", from, to)
+	if err != nil || len(tools) != 1 || tools[0].ToolName != "search" || tools[0].Calls != 5 || tools[0].Failures != 5 ||
+		tools[0].TopError != "timeout after <n>s" || tools[0].Runs != 1 || tools[0].SampleTrace != traceA {
+		t.Errorf("tools = %+v %v", tools, err)
+	}
+	vs, err := store.AgentVersions(ctx, "tenant-a", "agent-a", from, to)
+	if err != nil || len(vs) != 1 || vs[0].Runs != 1 || vs[0].ToolCalls != 5 || vs[0].ToolFailures != 5 || vs[0].AvgSteps != 7 {
+		t.Errorf("versions = %+v %v", vs, err)
+	}
+
+	er, err := store.RunsForEval(ctx, "tenant-a", []string{traceA, randHex(16)})
+	if err != nil || len(er) != 1 || er[0].TraceID != traceA || len(er[0].Tools) != 1 || er[0].Tools[0] != "search" || er[0].Steps != 7 ||
+		!er[0].Failed || er[0].CostKnown || er[0].Input == "" {
+		t.Errorf("runs for eval = %+v %v", er, err)
+	}
+	if got, _ := store.RunsForEval(ctx, "tenant-b", []string{traceA}); len(got) != 0 {
+		t.Errorf("tenant-b loaded tenant-a's run: %+v", got)
+	}
+	if got, _ := store.ListRuns(ctx, "tenant-a", query.RunFilter{From: from, To: to, Limit: 10, Version: "nope"}); len(got) != 0 {
+		t.Errorf("version filter: %+v", got)
+	}
+	v1, v0 := 0.9, 0.2
+	scoreSteps := []model.Step{
+		{TenantID: "tenant-a", TraceID: traceA, StepID: randHex(8), ParentStepID: randHex(8), Name: "score helpful", Type: model.StepEval, Status: model.StatusSuccess,
+			StartUnixNano: start + 9000, ScoreName: "helpful", ScoreValue: &v1, ScorePass: "pass"},
+		{TenantID: "tenant-a", TraceID: traceA, StepID: randHex(8), ParentStepID: randHex(8), Name: "score helpful", Type: model.StepEval, Status: model.StatusSuccess,
+			StartUnixNano: start + 9001, ScoreName: "helpful", ScoreValue: &v0, ScorePass: "fail"},
+	}
+	if err := w.Write(ctx, scoreSteps); err != nil {
+		t.Fatal(err)
+	}
+	scores, err := store.Scores(ctx, "tenant-a", "agent-a", from, to)
+	if err != nil || len(scores) != 1 || scores[0].Name != "helpful" || scores[0].Count != 2 || scores[0].Passed != 1 || scores[0].Failed != 1 ||
+		scores[0].Valued != 2 || scores[0].Average < 0.54 || scores[0].Average > 0.56 {
+		t.Errorf("scores = %+v %v", scores, err)
+	}
+
+	// Sessions and user feedback.
+	var conv []model.Step
+	t1, t2 := randHex(16), randHex(16)
+	for i, tr := range []string{t1, t2} {
+		st := mk("tenant-d", tr, randHex(8), "", model.StepAgent, model.StatusSuccess, "", "hi", uint64(i*1000))
+		st.SessionID, st.AgentName = "conv-1", "chat"
+		if i == 1 {
+			st.Status = model.StatusFailure
+		}
+		conv = append(conv, st)
+	}
+	bad := 0.0
+	conv = append(conv, model.Step{TenantID: "tenant-d", TraceID: t2, StepID: randHex(8), ParentStepID: randHex(8), Name: "score feedback", Type: model.StepEval,
+		Status: model.StatusSuccess, StartUnixNano: start + 5000, ScoreName: "feedback", ScoreValue: &bad, ScorePass: "fail", ScoreSource: "user"})
+	if err := w.Write(ctx, conv); err != nil {
+		t.Fatal(err)
+	}
+	sessions, err := store.ListSessions(ctx, "tenant-d", query.SessionFilter{From: from, To: to})
+	if err != nil || len(sessions) != 1 || sessions[0].SessionID != "conv-1" || sessions[0].Runs != 2 || sessions[0].FailedRuns != 1 ||
+		!sessions[0].LastFailed || sessions[0].Agent != "chat" {
+		t.Errorf("sessions = %+v %v", sessions, err)
+	}
+	if got, _ := store.ListSessions(ctx, "tenant-a", query.SessionFilter{From: from, To: to}); len(got) != 0 {
+		t.Errorf("tenant-a sees tenant-d sessions: %+v", got)
+	}
+	fb, err := store.Feedback(ctx, "tenant-d", []string{t1, t2})
+	if err != nil || fb[t2].Negative != 1 || fb[t2].Count != 1 || fb[t2].Average == nil || len(fb) != 1 {
+		t.Errorf("feedback = %+v %v", fb, err)
+	}
+	if rf, _ := store.RecentFeedback(ctx, "tenant-d", from, to); rf[t2].Negative != 1 {
+		t.Errorf("recent feedback = %+v", rf)
+	}
+	if rs, _ := store.RunsByIDs(ctx, "tenant-d", []string{t1, t2}); len(rs) != 2 {
+		t.Errorf("runs by IDs = %+v", rs)
+	}
+
+	// Full-text search: one hit per run, with a highlighted snippet.
+	hitsA, err := store.Search(ctx, "tenant-a", query.SearchFilter{Query: "timeout", From: from, To: to})
+	if err != nil || len(hitsA) != 1 || hitsA[0].TraceID != traceA || hitsA[0].Field != "error" || !strings.Contains(hitsA[0].Snippet, "\ue000timeout\ue001") {
+		t.Errorf("search = %+v %q %v", hitsA, func() string {
+			if len(hitsA) > 0 {
+				return hitsA[0].Snippet
+			}
+			return ""
+		}(), err)
+	}
+	if got, _ := store.Search(ctx, "tenant-b", query.SearchFilter{Query: "timeout", From: from, To: to}); len(got) != 0 {
+		t.Errorf("tenant-b found tenant-a content: %+v", got)
+	}
+	if got, _ := store.Search(ctx, "tenant-a", query.SearchFilter{Query: "\"no such phrase anywhere\"", From: from, To: to}); len(got) != 0 {
+		t.Errorf("phrase search = %+v", got)
+	}
+	if got, err := store.Search(ctx, "tenant-a", query.SearchFilter{Query: "((unbalanced", From: from, To: to}); err != nil {
+		t.Errorf("odd syntax must not error: %v %v", got, err)
+	}
+
+	// Insights: error patterns within an issue, and unusual runs.
+	ins, err := store.Insights(ctx, "tenant-a", from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var search *query.Issue
+	for i := range ins.Issues {
+		if ins.Issues[i].StepName == "search" {
+			search = &ins.Issues[i]
+		}
+	}
+	if search == nil || search.Failures != 5 || len(search.Patterns) != 2 ||
+		search.Patterns[0].Pattern != "timeout after <n>s" || search.Patterns[0].Failures != 4 || search.Patterns[0].SampleTrace != traceA {
+		t.Errorf("issues = %+v", ins.Issues)
+	}
+	var many []model.Step
+	var bigTrace string
+	for i := 0; i < 11; i++ {
+		tr := randHex(16)
+		n := 2
+		if i == 10 {
+			n, bigTrace = 30, tr
+		}
+		r := randHex(8)
+		for j := 0; j < n; j++ {
+			parent := r
+			id := randHex(8)
+			if j == 0 {
+				id, parent = r, ""
+			}
+			st := mk("tenant-c", tr, id, parent, model.StepTool, model.StatusSuccess, "t", "", uint64(j))
+			st.AgentName = "busy"
+			many = append(many, st)
+		}
+	}
+	if err := w.Write(ctx, many); err != nil {
+		t.Fatal(err)
+	}
+	ins, err = store.Insights(ctx, "tenant-c", from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ins.Outliers) != 1 || ins.Outliers[0].Run.TraceID != bigTrace || ins.Outliers[0].Reason != "steps" ||
+		ins.Outliers[0].Value != 30 || ins.Outliers[0].Typical != 2 {
+		t.Errorf("outliers = %+v (agents %+v)", ins.Outliers, ins.Agents)
+	}
+
 	// Privileges.
 	day := now.Format("2006.01.02")
 	denied := func(c *Client, method, path string, body any) bool {
@@ -180,8 +337,8 @@ func TestIntegrationOpenSearch(t *testing.T) {
 		t.Errorf("retention with nothing expired: deleted=%d err=%v", n, err)
 	}
 	future := &Writer{Client: writerClient, Names: names, Now: func() time.Time { return now.Add(31 * 24 * time.Hour) }}
-	if n, err := future.ExpireRollups(ctx); err != nil || n != 2 {
-		t.Errorf("retention 31 days later: deleted=%d err=%v, want 2", n, err)
+	if n, err := future.ExpireRollups(ctx); err != nil || n != 15 {
+		t.Errorf("retention 31 days later: deleted=%d err=%v, want 15", n, err)
 	}
 }
 

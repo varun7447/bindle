@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/bindle-ai/bindle/backend/internal/auth"
@@ -142,5 +143,25 @@ func TestConfigEndpoint(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	if w.Code != 200 || body["sample_rate"] != float64(1) || body["capture_content"] != true {
 		t.Fatalf("defaults: %v", body)
+	}
+}
+
+func TestApplyPolicyWorkspacePrices(t *testing.T) {
+	p := policy(1, true)
+	p.Prices = sdkconfig.PriceTable([]sdkconfig.PriceOverride{{Model: "gpt-x", InputPerMTok: 1, OutputPerMTok: 2}})
+	steps := []model.Step{
+		{TraceID: strings.Repeat("0", 32), Type: model.StepLLM, Provider: "openai", Model: "gpt-x", InputTokens: 1_000_000, OutputTokens: 500_000, CostUSD: 99, CostKnown: true},
+		{TraceID: strings.Repeat("0", 32), Type: model.StepLLM, Provider: "openai", Model: "other", CostUSD: 5, CostKnown: true},
+		{TraceID: strings.Repeat("0", 32), Type: model.StepLLM, Provider: "openai", Model: "gpt-x", InputTokens: 10, CachedTokens: 5, CostUSD: 1, CostKnown: true},
+	}
+	out := ApplyPolicy(p, steps)
+	if out[0].CostUSD != 2 || !out[0].CostKnown || out[0].Attributes[PriceSourceAttr] != "workspace" {
+		t.Errorf("override: %+v", out[0])
+	}
+	if out[1].CostUSD != 5 || out[1].Attributes[PriceSourceAttr] != "" {
+		t.Errorf("list price kept for models without an override: %+v", out[1])
+	}
+	if out[2].CostKnown {
+		t.Errorf("override without a cached price must make cached usage unknown, not list-priced: %+v", out[2])
 	}
 }

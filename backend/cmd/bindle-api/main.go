@@ -3,6 +3,7 @@
 // Environment:
 //
 //	BINDLE_API_LISTEN                        listen address (default 127.0.0.1:8080; compose sets :8080)
+//	BINDLE_PRICING_FILE                      JSON price table for pricing step replays (optional)
 //	BINDLE_SEARCH_URL                        OpenSearch endpoint (https; http only with BINDLE_SEARCH_ALLOW_HTTP=1)
 //	BINDLE_SEARCH_USER / BINDLE_SEARCH_PASSWORD   the read-only user (default user bindle_reader)
 //	BINDLE_SEARCH_PREFIX                     index name prefix (default bindle)
@@ -35,8 +36,10 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/api"
 	"github.com/bindle-ai/bindle/backend/internal/awsv4"
 	"github.com/bindle-ai/bindle/backend/internal/control"
+	"github.com/bindle-ai/bindle/backend/internal/cost"
 	"github.com/bindle-ai/bindle/backend/internal/payload"
 	"github.com/bindle-ai/bindle/backend/internal/ratelimit"
+	"github.com/bindle-ai/bindle/backend/internal/replay"
 	"github.com/bindle-ai/bindle/backend/internal/search"
 	"github.com/bindle-ai/bindle/backend/internal/session"
 )
@@ -94,12 +97,23 @@ func run(log *slog.Logger) error {
 	}
 
 	rps := envInt("BINDLE_API_RATE_LIMIT_RPS", 20)
+	// List prices, used to price step replays (as ingest prices steps).
+	prices, err := cost.Load(os.Getenv("BINDLE_PRICING_FILE"))
+	if err != nil {
+		return err
+	}
 	srvAPI := &api.Server{
-		Store:          &search.Store{Client: client, Names: search.Names{Prefix: os.Getenv("BINDLE_SEARCH_PREFIX")}, Payloads: blobs, Log: log},
-		Sessions:       sessions,
-		Keys:           keyStore(store),
-		Config:         configStore(store),
-		Alerting:       alertingStore(store),
+		Store:    &search.Store{Client: client, Names: search.Names{Prefix: os.Getenv("BINDLE_SEARCH_PREFIX")}, Payloads: blobs, Log: log},
+		Sessions: sessions,
+		Keys:     keyStore(store),
+		Config:   configStore(store),
+		Alerting: alertingStore(store),
+		Evals:    evalStore(store),
+		Prices:   prices,
+		// Public AWS price list (no credentials), for Settings → Model prices.
+		AWSPrices: &api.AWSPriceList{},
+		// Step replay calls providers at fixed hosts with the caller's key.
+		Replay:         &replay.Runner{Providers: map[string]replay.Provider{"anthropic": &replay.Anthropic{}, "openai": &replay.OpenAI{}}},
 		Deliver:        deliverer,
 		Limiter:        ratelimit.New(float64(rps), float64(rps*2)),
 		Log:            log,
@@ -162,6 +176,13 @@ func keyStore(s *control.Store) api.KeyStore {
 func alertingStore(s *control.Store) api.AlertingStore {
 	if s == nil {
 		return nil
+	}
+	return s
+}
+
+func evalStore(s *control.Store) api.EvalStore {
+	if s == nil {
+		return nil // a nil *control.Store must not become a non-nil interface
 	}
 	return s
 }

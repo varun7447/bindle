@@ -157,6 +157,10 @@ func run(log *slog.Logger) error {
 
 	mux := http.NewServeMux()
 	mux.Handle("/v1/traces", h)
+	// OTLP logs: only gen_ai.evaluation.result events are kept (as scores).
+	logs := *h
+	logs.Logs = true
+	mux.Handle("/v1/logs", &logs)
 	mux.Handle("/v1/config", &ingest.ConfigHandler{Keys: keys, Policies: policies, Limiter: limiter, Log: log})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 

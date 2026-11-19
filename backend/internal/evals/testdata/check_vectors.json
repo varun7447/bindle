@@ -1,0 +1,21 @@
+{
+  "_comment": "Shared by the Go checks (internal/evals) and the Python SDK's local checks (bindle eval), so both grade runs the same way.",
+  "run": {"output": "Your refund for ORD_42 was issued.", "tools": ["lookup_order"], "steps": 7, "cost_usd": 0.02, "cost_known": true, "duration_ms": 900, "failed": false},
+  "cases": [
+    {"scorer": {"kind": "contains", "value": "REFUND"}, "pass": true, "skipped": false},
+    {"scorer": {"kind": "contains", "value": "REFUND", "case_sensitive": true}, "pass": false, "skipped": false},
+    {"scorer": {"kind": "not_contains", "value": "sorry"}, "pass": true, "skipped": false},
+    {"scorer": {"kind": "regex", "value": "ord_\\d+"}, "pass": true, "skipped": false},
+    {"scorer": {"kind": "regex", "value": "ord_\\d+", "case_sensitive": true}, "pass": false, "skipped": false},
+    {"scorer": {"kind": "json_valid"}, "pass": false, "skipped": false},
+    {"scorer": {"kind": "tool_called", "value": "lookup_order"}, "pass": true, "skipped": false},
+    {"scorer": {"kind": "tool_not_called", "value": "lookup_order"}, "pass": false, "skipped": false},
+    {"scorer": {"kind": "max_steps", "number": 5}, "pass": false, "skipped": false},
+    {"scorer": {"kind": "max_cost_usd", "number": 0.05}, "pass": true, "skipped": false},
+    {"scorer": {"kind": "max_duration_ms", "number": 500}, "pass": false, "skipped": false},
+    {"scorer": {"kind": "run_succeeded"}, "pass": true, "skipped": false},
+    {"scorer": {"kind": "contains", "value": "x"}, "run": {"output": "  "}, "pass": false, "skipped": true},
+    {"scorer": {"kind": "max_cost_usd", "number": 1}, "run": {"cost_known": false}, "pass": false, "skipped": true},
+    {"scorer": {"kind": "json_valid"}, "run": {"output": " {\"a\": 1} "}, "pass": true, "skipped": false}
+  ]
+}

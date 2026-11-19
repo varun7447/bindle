@@ -5,6 +5,8 @@ package ingest
 import (
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -43,6 +45,9 @@ type Handler struct {
 	Out          Submitter
 	MaxBodyBytes int64
 	Log          *slog.Logger
+	// Logs makes this the /v1/logs handler: only evaluation events
+	// (gen_ai.evaluation.result) are kept, as eval steps of their runs.
+	Logs bool
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -65,9 +70,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	isJSON := isJSONContent(r.Header.Get("Content-Type"))
 	var spans []model.Span
-	if isJSON {
+	switch {
+	case h.Logs && isJSON:
+		spans, err = otlp.DecodeLogsJSON(body)
+	case h.Logs:
+		spans, err = otlp.DecodeLogsProto(body)
+	case isJSON:
 		spans, err = otlp.DecodeJSON(body)
-	} else {
+	default:
 		spans, err = otlp.DecodeProto(body)
 	}
 	if err != nil {
@@ -87,6 +97,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			continue // load balancer and platform probes, not agent work
 		}
 		steps = append(steps, h.Normalizer.Normalize(tenant, s))
+		for _, ev := range normalize.EvaluationSpans(s) {
+			steps = append(steps, h.Normalizer.Normalize(tenant, ev))
+		}
 	}
 	if h.Policies != nil {
 		pol, err := h.Policies.Policy(r.Context(), tenant)
@@ -110,7 +123,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// An empty ExportTraceServiceResponse means full success.
+	// An empty Export*ServiceResponse means full success.
 	if isJSON {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte("{}"))
@@ -168,12 +181,28 @@ func isJSONContent(ct string) bool {
 // set by the Bindle SDKs).
 const ContentDroppedAttr = "bindle.content_dropped"
 
+// PriceSourceAttr marks steps priced with the workspace's own model price
+// instead of the list price.
+const PriceSourceAttr = "bindle.price_source"
+
 func ApplyPolicy(p sdkconfig.Policy, steps []model.Step) []model.Step {
 	c := p.Config
 	out := steps[:0]
 	for _, s := range steps {
 		if !sdkconfig.Sampled(s.TraceID, c.SampleRate) {
 			continue
+		}
+		if p.Prices != nil && s.Type == model.StepLLM {
+			if _, ok := p.Prices.Lookup(s.Provider, s.Model); ok {
+				// The workspace's own price wins over list prices.
+				s.CostUSD, s.CostKnown = p.Prices.Compute(s.Provider, s.Model, s.InputTokens, s.OutputTokens, s.CachedTokens)
+				attrs := make(map[string]string, len(s.Attributes)+1)
+				for k, v := range s.Attributes {
+					attrs[k] = v
+				}
+				attrs[PriceSourceAttr] = "workspace"
+				s.Attributes = attrs
+			}
 		}
 		if !c.CaptureContent {
 			s.Input, s.Output, s.Reasoning = "", "", ""
@@ -238,7 +267,13 @@ func (h *ConfigHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		cfg = pol.Config
 	}
-	etag := `"v` + strconv.FormatInt(cfg.Version, 10) + `"`
+	etag := `"v` + strconv.FormatInt(cfg.Version, 10)
+	if len(cfg.OverBudget) > 0 {
+		// Budget state changes without a config version bump.
+		sum := sha256.Sum256([]byte(strings.Join(cfg.OverBudget, "\x00")))
+		etag += "-b" + hex.EncodeToString(sum[:4])
+	}
+	etag += `"`
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "private, no-cache")
 	if r.Header.Get("If-None-Match") == etag {
@@ -247,6 +282,12 @@ func (h *ConfigHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if cfg.RedactPatterns == nil {
 		cfg.RedactPatterns = []sdkconfig.Pattern{}
+	}
+	if cfg.Limits == nil {
+		cfg.Limits = []sdkconfig.Limit{}
+	}
+	if cfg.OverBudget == nil {
+		cfg.OverBudget = []string{}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(struct {

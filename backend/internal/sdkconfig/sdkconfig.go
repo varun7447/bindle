@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/bindle-ai/bindle/backend/internal/cost"
 )
 
 // Pattern is a named extra redaction rule. Matches become [REDACTED:NAME].
@@ -31,12 +33,21 @@ type Config struct {
 	SampleRate     float64   `json:"sample_rate"`
 	CaptureContent bool      `json:"capture_content"`
 	RedactPatterns []Pattern `json:"redact_patterns"`
-	UpdatedAt      time.Time `json:"updated_at,omitempty"`
+	// Limits are edited separately from the fields above (PUT /api/limits).
+	Limits []Limit `json:"limits"`
+	// OverBudget lists agents whose daily budget was exceeded today (UTC).
+	// Set by Bindle; read-only. Their limit's PauseOverBudget decides
+	// whether they are paused.
+	OverBudget []string `json:"over_budget"`
+	// Prices are the workspace's model price overrides. Used by ingest;
+	// never sent to the SDK.
+	Prices    []PriceOverride `json:"-"`
+	UpdatedAt time.Time       `json:"updated_at,omitempty"`
 }
 
 // Default applies to tenants that never changed their settings.
 func Default() Config {
-	return Config{SampleRate: 1, CaptureContent: true, RedactPatterns: []Pattern{}}
+	return Config{SampleRate: 1, CaptureContent: true, RedactPatterns: []Pattern{}, Limits: []Limit{}, OverBudget: []string{}}
 }
 
 const (
@@ -119,6 +130,8 @@ func nestedRepeat(re *syntax.Regexp, inRepeat bool) bool {
 type Policy struct {
 	Config   Config
 	Redactor *Redactor
+	// Prices are the workspace's price overrides (nil: none).
+	Prices *cost.Table
 }
 
 // Redactor applies a config's extra patterns. Built-in redaction runs

@@ -60,7 +60,7 @@ func stepsMapping() map[string]any {
 	p := map[string]any{}
 	for _, f := range []string{"tenant_id", "trace_id", "step_id", "parent_step_id", "name", "type", "status",
 		"framework", "service_name", "agent_name", "agent_version", "session_id", "environment",
-		"provider", "model", "tool_name", "input_hash", "redacted_kinds", "links"} {
+		"provider", "model", "tool_name", "input_hash", "redacted_kinds", "links", "error_pattern", "score_name", "score_pass", "score_source"} {
 		p[f] = kw()
 	}
 	for _, f := range []string{"attempt", "input_tokens", "output_tokens", "cached_tokens", "start_ns",
@@ -69,6 +69,7 @@ func stepsMapping() map[string]any {
 	}
 	p["cost_usd"] = map[string]any{"type": "double"}
 	p["duration_ms"] = map[string]any{"type": "double"}
+	p["score_value"] = map[string]any{"type": "double"}
 	p["cost_known"] = map[string]any{"type": "boolean"}
 	p["redacted"] = map[string]any{"type": "boolean"}
 	p["start_time"] = map[string]any{"type": "date_nanos"}
@@ -92,7 +93,7 @@ func tracesMapping() map[string]any {
 		p[f] = kw()
 	}
 	for _, f := range []string{"first_start_ns", "steps", "failed_steps", "cost_unknown_steps",
-		"input_tokens", "output_tokens"} {
+		"input_tokens", "output_tokens", "cached_tokens", "llm_calls", "tool_calls", "peak_input_tokens"} {
 		p[f] = map[string]any{"type": "long"}
 	}
 	p["cost_usd"] = map[string]any{"type": "double"}
@@ -152,7 +153,8 @@ func Setup(ctx context.Context, c *Client, o SetupOptions) error {
 	// Additive mapping changes for step indices that already exist.
 	if err := c.Do(ctx, http.MethodPut, "/"+n.StepsPattern()+"/_mapping",
 		url.Values{"allow_no_indices": {"true"}, "ignore_unavailable": {"true"}},
-		map[string]any{"properties": map[string]any{"payload_refs": payloadRefsMapping()}}, nil); err != nil {
+		map[string]any{"properties": map[string]any{"payload_refs": payloadRefsMapping(), "error_pattern": kw(),
+			"score_name": kw(), "score_pass": kw(), "score_source": kw(), "score_value": map[string]any{"type": "double"}}}, nil); err != nil {
 		return fmt.Errorf("search: steps mapping: %w", err)
 	}
 

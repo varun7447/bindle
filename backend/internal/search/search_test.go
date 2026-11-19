@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -278,5 +279,26 @@ func TestFromEnvRefusesUnsafeConfig(t *testing.T) {
 	}
 	if _, err := FromEnv(env(map[string]string{"BINDLE_SEARCH_URL": "https://x"}), "u", ""); err == nil {
 		t.Error("empty password accepted")
+	}
+}
+
+func TestOutlierLimits(t *testing.T) {
+	got := outlierLimits([]query.AgentSummary{
+		{Agent: "big", Runs: 50, MedianSteps: 12, MedianCost: 0.02},
+		{Agent: "small", Runs: 50, MedianSteps: 2},
+		{Agent: "new", Runs: 3, MedianSteps: 5, MedianCost: 1},
+		{Agent: "empty", Runs: 20},
+	})
+	if l := got["big"]; l[0] != 36 || math.Abs(l[1]-0.06) > 1e-9 {
+		t.Errorf("big: %v", l)
+	}
+	if l := got["small"]; l[0] != 12 || l[1] != 0 { // median+10 beats 3x for tiny runs
+		t.Errorf("small: %v", l)
+	}
+	if _, ok := got["new"]; ok {
+		t.Error("agents with few runs have no reliable median")
+	}
+	if _, ok := got["empty"]; ok {
+		t.Error("no limits without medians")
 	}
 }

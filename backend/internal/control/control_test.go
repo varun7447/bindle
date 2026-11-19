@@ -16,6 +16,7 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/bindle-ai/bindle/backend/internal/evals"
 	"github.com/bindle-ai/bindle/backend/internal/sdkconfig"
 )
 
@@ -443,4 +444,163 @@ func randHex(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func TestIntegrationLimitsAndBudgets(t *testing.T) {
+	ctx := context.Background()
+	_, apiDB, ingestDB := newTestDB(t)
+	alertsDB := open(t, lastAlertsDSN)
+	store := &Store{DB: apiDB}
+	alice, _ := store.EnsureUser(ctx, "sub-a", "")
+	ma, _ := store.Provision(ctx, alice, "A")
+	bob, _ := store.EnsureUser(ctx, "sub-b", "")
+	mb, _ := store.Provision(ctx, bob, "B")
+
+	limits := []sdkconfig.Limit{{Agent: "*", MaxStepsPerRun: 100}, {Agent: "refunds", DailyBudgetUSD: 5, PauseOverBudget: true}}
+	saved, err := store.PutLimits(ctx, ma.TenantID, alice.ID, 0, limits)
+	if err != nil || saved.Version != 1 || len(saved.Limits) != 2 || saved.SampleRate != 1 || !saved.CaptureContent {
+		t.Fatalf("first limits save: %+v %v", saved, err)
+	}
+	if _, err := store.PutLimits(ctx, ma.TenantID, alice.ID, 0, limits); !errors.Is(err, ErrVersionConflict) {
+		t.Fatalf("stale limits save must conflict: %v", err)
+	}
+	// Saving SDK settings keeps limits, and bumps the shared version.
+	saved.SampleRate = 0.5
+	cfg, err := store.PutSDKConfig(ctx, ma.TenantID, alice.ID, saved)
+	if err != nil || cfg.Version != 2 {
+		t.Fatalf("config save: %+v %v", cfg, err)
+	}
+	if got, _ := store.GetSDKConfig(ctx, ma.TenantID); len(got.Limits) != 2 || got.Limits[1].DailyBudgetUSD != 5 || got.SampleRate != 0.5 {
+		t.Fatalf("limits lost after config save: %+v", got)
+	}
+	if _, err := store.PutLimits(ctx, ma.TenantID, alice.ID, 2, []sdkconfig.Limit{{Agent: ""}}); err == nil {
+		t.Fatal("invalid limits saved")
+	}
+
+	// Budget state: alerts role finds the tenant and records once.
+	as := &AlertStore{DB: alertsDB}
+	bts, err := as.BudgetTenants(ctx)
+	if err != nil || len(bts) != 1 || bts[0].Tenant != ma.TenantID || len(bts[0].Limits) != 2 {
+		t.Fatalf("budget tenants: %+v %v", bts, err)
+	}
+	today := time.Now().UTC()
+	if created, err := as.RecordBudgetExceeded(ctx, ma.TenantID, "refunds", today, 5.2, 5); err != nil || !created {
+		t.Fatalf("record: %v %v", created, err)
+	}
+	if created, err := as.RecordBudgetExceeded(ctx, ma.TenantID, "refunds", today, 6, 5); err != nil || created {
+		t.Fatalf("second record must be a no-op: %v %v", created, err)
+	}
+	if got, _ := store.GetSDKConfig(ctx, ma.TenantID); len(got.OverBudget) != 1 || got.OverBudget[0] != "refunds" {
+		t.Fatalf("over budget (api): %+v", got.OverBudget)
+	}
+	if got, _ := store.GetSDKConfig(ctx, mb.TenantID); len(got.OverBudget) != 0 || len(got.Limits) != 0 {
+		t.Fatalf("tenant B sees A's limits or budget state: %+v", got)
+	}
+	r := &ConfigResolver{DB: ingestDB}
+	res, err := r.Policy(ctx, ma.TenantID)
+	if err != nil || len(res.Config.Limits) != 2 || len(res.Config.OverBudget) != 1 || res.Config.Version != 2 {
+		t.Fatalf("resolver: %+v %v", res.Config, err)
+	}
+	// Prices share the version and reach ingest compiled.
+	pr, err := store.PutPrices(ctx, ma.TenantID, alice.ID, 2, []sdkconfig.PriceOverride{{Model: "gpt-x", InputPerMTok: 1, OutputPerMTok: 2}})
+	if err != nil || pr.Version != 3 || len(pr.Prices) != 1 || len(pr.Limits) != 2 {
+		t.Fatalf("prices save: %+v %v", pr, err)
+	}
+	r2 := &ConfigResolver{DB: ingestDB}
+	res2, err := r2.Policy(ctx, ma.TenantID)
+	if err != nil || res2.Prices == nil {
+		t.Fatalf("resolver prices: %+v %v", res2, err)
+	}
+	if c, ok := res2.Prices.Compute("openai", "gpt-x", 1_000_000, 0, 0); !ok || c != 1 {
+		t.Errorf("resolved price: %v %v", c, ok)
+	}
+	if res, _ := r2.Policy(ctx, mb.TenantID); res.Prices != nil {
+		t.Error("tenant B got A's prices")
+	}
+	if _, err := alertsDB.ExecContext(ctx, "UPDATE control.sdk_config SET limits = '[]'"); err == nil {
+		t.Fatal("alerts role can change limits")
+	}
+	if _, err := apiDB.ExecContext(ctx, "DELETE FROM control.budget_state"); err == nil {
+		t.Fatal("api role can delete budget state")
+	}
+}
+
+func TestIntegrationEvals(t *testing.T) {
+	ctx := context.Background()
+	_, apiDB, _ := newTestDB(t)
+	store := &Store{DB: apiDB}
+	alice, _ := store.EnsureUser(ctx, "sub-a", "")
+	ma, _ := store.Provision(ctx, alice, "A")
+	bob, _ := store.EnsureUser(ctx, "sub-b", "")
+	mb, _ := store.Provision(ctx, bob, "B")
+
+	sc, err := store.CreateScorer(ctx, ma.TenantID, alice.ID, evals.Scorer{Name: "mentions refund", Kind: evals.KindContains, Value: "refund", Enabled: true})
+	if err != nil || sc.ID == "" {
+		t.Fatalf("create scorer: %+v %v", sc, err)
+	}
+	if _, err := store.CreateScorer(ctx, ma.TenantID, alice.ID, evals.Scorer{Name: "mentions refund", Kind: evals.KindJSONValid}); !errors.Is(err, ErrDuplicate) {
+		t.Errorf("duplicate name: %v", err)
+	}
+	if _, err := store.CreateScorer(ctx, ma.TenantID, alice.ID, evals.Scorer{Name: "bad", Kind: evals.KindRegex, Value: "(a+)+"}); !evals.IsInvalid(err) {
+		t.Errorf("invalid scorer: %v", err)
+	}
+	up, err := store.UpdateScorer(ctx, ma.TenantID, sc.ID, evals.Scorer{Name: "says refund", Kind: evals.KindJSONValid, Value: "refund", Enabled: false})
+	if err != nil || up.Kind != evals.KindContains || up.Name != "says refund" || up.Enabled {
+		t.Fatalf("update keeps kind: %+v %v", up, err)
+	}
+	if got, _ := store.ListScorers(ctx, mb.TenantID); len(got) != 0 {
+		t.Fatalf("tenant B sees A's checks: %+v", got)
+	}
+	if err := store.DeleteScorer(ctx, mb.TenantID, sc.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("tenant B deleted A's check: %v", err)
+	}
+
+	ds, err := store.CreateDataset(ctx, ma.TenantID, alice.ID, "  regressions ", "refund edge cases")
+	if err != nil || ds.Name != "regressions" {
+		t.Fatalf("dataset: %+v %v", ds, err)
+	}
+	if _, err := store.CreateDataset(ctx, ma.TenantID, alice.ID, "regressions", ""); !errors.Is(err, ErrDuplicate) {
+		t.Errorf("duplicate dataset: %v", err)
+	}
+	runs := []evals.Run{
+		{TraceID: strings.Repeat("a", 32), Agent: "refunds", Version: "v1", Input: "where is my refund", Output: strings.Repeat("x", 70<<10), Tools: []string{"lookup_order"}, Steps: 5, CostKnown: true},
+		{TraceID: strings.Repeat("b", 32), Agent: "refunds", Version: "v1", Output: "done"},
+	}
+	if n, err := store.AddDatasetItems(ctx, ma.TenantID, ds.ID, runs); err != nil || n != 2 {
+		t.Fatalf("add: %d %v", n, err)
+	}
+	if n, err := store.AddDatasetItems(ctx, ma.TenantID, ds.ID, runs[:1]); err != nil || n != 0 {
+		t.Fatalf("re-add is a no-op: %d %v", n, err)
+	}
+	if _, err := store.AddDatasetItems(ctx, mb.TenantID, ds.ID, runs); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("tenant B added to A's dataset: %v", err)
+	}
+	d, items, err := store.GetDataset(ctx, ma.TenantID, ds.ID)
+	if err != nil || d.Items != 2 || len(items[0].Output) != maxItemText || items[0].Tools[0] != "lookup_order" || !items[0].CostKnown {
+		t.Fatalf("get: %+v %d %v", d, len(items), err)
+	}
+	ev, err := store.RecordEvalRun(ctx, ma.TenantID, alice.ID, ds.ID, 2, []evals.Tally{{ScorerID: sc.ID, Name: "says refund", Passed: 1, Failed: 1}},
+		[]Failure{{TraceID: runs[1].TraceID, ScorerID: sc.ID, Scorer: "says refund", Detail: "output doesn't contain \"refund\""}})
+	if err != nil || ev.ID == "" {
+		t.Fatalf("record: %v", err)
+	}
+	list, err := store.ListDatasets(ctx, ma.TenantID)
+	if err != nil || len(list) != 1 || list[0].Items != 2 || list[0].LastEval == nil || list[0].LastEval.Tallies[0].Failed != 1 {
+		t.Fatalf("list: %+v %v", list, err)
+	}
+	if evs, _ := store.ListEvalRuns(ctx, ma.TenantID, ds.ID); len(evs) != 1 || len(evs[0].Failures) != 1 {
+		t.Fatalf("eval runs: %+v", evs)
+	}
+	if got, _ := store.ListDatasets(ctx, mb.TenantID); len(got) != 0 {
+		t.Fatal("tenant B sees A's datasets")
+	}
+	if err := store.RemoveDatasetItem(ctx, ma.TenantID, ds.ID, runs[1].TraceID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteDataset(ctx, ma.TenantID, ds.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.GetDataset(ctx, ma.TenantID, ds.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted dataset: %v", err)
+	}
 }

@@ -18,6 +18,8 @@ type Evaluator struct {
 	Log        *slog.Logger
 	Now        func() time.Time
 	MaxPerRule int // new events per rule per evaluation; default 20
+	// Budgets, if set, checks daily budgets on every evaluation too.
+	Budgets *Budgets
 }
 
 // Run evaluates every interval until ctx ends.
@@ -47,6 +49,9 @@ func (e *Evaluator) RunOnce(ctx context.Context) error {
 		if err := e.evaluateTenant(ctx, t); err != nil {
 			e.Log.Error("tenant alert evaluation failed", "tenant", t, "err", err)
 		}
+	}
+	if e.Budgets != nil {
+		return e.Budgets.RunOnce(ctx)
 	}
 	return nil
 }
@@ -170,6 +175,8 @@ func (e *Evaluator) detect(ctx context.Context, tenant string, r Rule) ([]Event,
 				map[string]any{"cost_usd": run.CostUSD, "agent": run.Agent, "cost_partial": run.CostUnknownSteps > 0}))
 		}
 		return out, nil
+	case KindNegativeFeedback, KindCostRegression, KindNewError, KindWeeklyDigest:
+		return e.detectMore(ctx, tenant, r, now, from, limit, ev)
 	}
 	return nil, fmt.Errorf("unknown rule kind %q", r.Kind)
 }

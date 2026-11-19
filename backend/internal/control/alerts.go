@@ -282,3 +282,42 @@ func (a *AlertStore) SetDelivery(ctx context.Context, tenant, eventID string, d 
 		return err
 	})
 }
+
+// BudgetTenants implements alerts.Store: tenants with a daily budget, and
+// their limits.
+func (a *AlertStore) BudgetTenants(ctx context.Context) ([]alerts.BudgetTenant, error) {
+	rows, err := a.DB.QueryContext(ctx, `SELECT tenant_id, limits FROM control.budget_tenants()`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []alerts.BudgetTenant
+	for rows.Next() {
+		var bt alerts.BudgetTenant
+		var raw []byte
+		if err := rows.Scan(&bt.Tenant, &raw); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(raw, &bt.Limits); err != nil {
+			return nil, err
+		}
+		out = append(out, bt)
+	}
+	return out, rows.Err()
+}
+
+// RecordBudgetExceeded implements alerts.Store: it records that agent went
+// over budget on day, once; it reports whether this call recorded it.
+func (a *AlertStore) RecordBudgetExceeded(ctx context.Context, tenant, agent string, day time.Time, spent, budget float64) (created bool, err error) {
+	err = a.store().inTenant(ctx, tenant, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `INSERT INTO control.budget_state (tenant_id, agent, day, spent_usd, budget_usd)
+			VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`, tenant, agent, day.UTC().Format("2006-01-02"), spent, budget)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		created = n == 1
+		return err
+	})
+	return created, err
+}

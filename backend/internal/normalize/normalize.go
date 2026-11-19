@@ -11,12 +11,16 @@ package normalize
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/bindle-ai/bindle/backend/internal/cost"
 	"github.com/bindle-ai/bindle/backend/internal/model"
+	"github.com/bindle-ai/bindle/backend/internal/otlp"
 	"github.com/bindle-ai/bindle/backend/internal/redact"
 )
 
@@ -148,6 +152,7 @@ func (n *Normalizer) Normalize(tenantID string, s model.Span) model.Step {
 		// Attributes.
 		st.InputTokens, st.OutputTokens, st.CachedTokens = 0, 0, 0
 	}
+	applyScore(&st, a)
 	st.Status = status(s)
 	if st.Status == model.StatusFailure && st.ErrorMessage == "" {
 		st.ErrorMessage = s.StatusMessage
@@ -171,6 +176,7 @@ func (n *Normalizer) Normalize(tenantID string, s model.Span) model.Step {
 	st.Output = truncate(r.Apply(st.Output), maxPayload)
 	st.Reasoning = truncate(r.Apply(st.Reasoning), maxPayload)
 	st.ErrorMessage = truncate(r.Apply(st.ErrorMessage), maxAttrValue)
+	st.ErrorPattern = ErrorPattern(st.ErrorMessage)
 	for k, v := range st.Attributes {
 		st.Attributes[k] = r.Apply(v)
 	}
@@ -437,4 +443,130 @@ func agentCoreType(s model.Span) (string, bool) {
 		return model.StepOther, true
 	}
 	return "", false
+}
+
+var (
+	errUUID   = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+	errHex    = regexp.MustCompile(`\b(?:0x)?[0-9a-fA-F]{8,}\b`)
+	errQuoted = regexp.MustCompile(`"[^"\n]{0,200}"|'[^'\n]{0,200}'`)
+	errNumber = regexp.MustCompile(`\d+(?:\.\d+)?`)
+	errSpace  = regexp.MustCompile(`\s+`)
+)
+
+const maxErrorPattern = 200
+
+// ErrorPattern reduces an error message to its shape: the first line, with
+// UUIDs, hex IDs, quoted values and numbers replaced by placeholders, so
+// "timeout after 30s on order 1234" and "timeout after 31s on order 99"
+// group together.
+func ErrorPattern(msg string) string {
+	if msg == "" {
+		return ""
+	}
+	if i := strings.IndexByte(msg, '\n'); i >= 0 {
+		msg = msg[:i]
+	}
+	msg = errUUID.ReplaceAllString(msg, "<id>")
+	msg = errQuoted.ReplaceAllString(msg, "<str>")
+	msg = errHex.ReplaceAllStringFunc(msg, func(m string) string {
+		// IDs mix digits and letters; plain words and numbers are left alone.
+		h := strings.TrimPrefix(m, "0x")
+		if strings.ContainsAny(h, "0123456789") && strings.ContainsAny(strings.ToLower(h), "abcdef") {
+			return "<id>"
+		}
+		return m
+	})
+	msg = errNumber.ReplaceAllString(msg, "<n>")
+	msg = strings.TrimSpace(errSpace.ReplaceAllString(msg, " "))
+	if len(msg) > maxErrorPattern {
+		cut := maxErrorPattern
+		for cut > 0 && !utf8.RuneStart(msg[cut]) {
+			cut--
+		}
+		msg = msg[:cut]
+	}
+	return msg
+}
+
+// applyScore reads a bindle.score() span. A score sent after the run (from
+// CI, with the run's trace ID) carries the sender's resource, not the run's:
+// its agent fields are cleared so they never relabel the run.
+func applyScore(st *model.Step, a map[string]any) {
+	name := str(a, "bindle.score.name", "gen_ai.evaluation.name")
+	if name == "" {
+		return
+	}
+	if len(name) > 80 {
+		name = name[:80]
+	}
+	st.Type = model.StepEval
+	st.ScoreName = name
+	v := a["bindle.score.value"]
+	if v == nil {
+		v = a["gen_ai.evaluation.score.value"]
+	}
+	switch v := v.(type) {
+	case float64:
+		if !math.IsNaN(v) && !math.IsInf(v, 0) {
+			st.ScoreValue = &v
+		}
+	case int64:
+		f := float64(v)
+		st.ScoreValue = &f
+	}
+	switch p := a["bindle.score.passed"].(type) {
+	case bool:
+		if p {
+			st.ScorePass = "pass"
+		} else {
+			st.ScorePass = "fail"
+		}
+	}
+	// OpenTelemetry evaluation events carry a free-form label; read the
+	// common pass/fail words, keep the rest as an attribute only.
+	if st.ScorePass == "" {
+		switch strings.ToLower(str(a, "gen_ai.evaluation.score.label")) {
+		case "pass", "passed", "true", "yes", "good", "correct", "relevant":
+			st.ScorePass = "pass"
+		case "fail", "failed", "false", "no", "bad", "incorrect", "irrelevant":
+			st.ScorePass = "fail"
+		}
+	}
+	if st.Output == "" {
+		st.Output = str(a, "gen_ai.evaluation.explanation")
+	}
+	if src := str(a, "bindle.score.source"); src == "user" {
+		st.ScoreSource = "user"
+	}
+	if b, _ := a["bindle.score.external"].(bool); b {
+		st.AgentName, st.AgentVersion, st.Environment, st.SessionID, st.Framework = "", "", "", "", ""
+	}
+}
+
+// EvaluationSpans turns gen_ai.evaluation.result span events (the
+// OpenTelemetry GenAI evaluation event) into span-shaped records parented to
+// the evaluated span, so each is stored as an eval step of the run.
+func EvaluationSpans(s model.Span) []model.Span {
+	var out []model.Span
+	for i, e := range s.Events {
+		if e.Name != otlp.EvaluationEvent {
+			continue
+		}
+		attrs := make(map[string]any, len(e.Attributes)+1)
+		for k, v := range e.Attributes {
+			attrs[k] = v
+		}
+		attrs["bindle.step.type"] = "eval"
+		name, _ := attrs["gen_ai.evaluation.name"].(string)
+		t := e.TimeUnixNano
+		if t == 0 {
+			t = s.EndUnixNano
+		}
+		out = append(out, model.Span{
+			TraceID: s.TraceID, SpanID: otlp.DerivedSpanID(s.TraceID, s.SpanID, name, strconv.Itoa(i)), ParentSpanID: s.SpanID,
+			Name: "evaluation " + name, StartUnixNano: t, EndUnixNano: t, Attributes: attrs, ResourceAttrs: s.ResourceAttrs,
+			ScopeName: s.ScopeName, ScopeVersion: s.ScopeVersion,
+		})
+	}
+	return out
 }

@@ -67,6 +67,11 @@ type stepDoc struct {
 	StartNs        int64                  `json:"start_ns"`
 	DurationMs     float64                `json:"duration_ms"`
 	ErrorMessage   string                 `json:"error_message"`
+	ErrorPattern   string                 `json:"error_pattern"`
+	ScoreName      string                 `json:"score_name,omitempty"`
+	ScoreValue     *float64               `json:"score_value,omitempty"`
+	ScorePass      string                 `json:"score_pass,omitempty"`
+	ScoreSource    string                 `json:"score_source,omitempty"`
 	Input          string                 `json:"input"`
 	Output         string                 `json:"output"`
 	Reasoning      string                 `json:"reasoning"`
@@ -93,6 +98,10 @@ type traceDoc struct {
 	CostUnknownSteps int64   `json:"cost_unknown_steps"`
 	InputTokens      int64   `json:"input_tokens"`
 	OutputTokens     int64   `json:"output_tokens"`
+	CachedTokens     int64   `json:"cached_tokens"`
+	LLMCalls         int64   `json:"llm_calls"`
+	ToolCalls        int64   `json:"tool_calls"`
+	PeakInputTokens  int64   `json:"peak_input_tokens"` // largest single LLM call: the run's peak context
 	CostUSD          float64 `json:"cost_usd"`
 	AgentName        string  `json:"agent_name"`
 	AgentVersion     string  `json:"agent_version"`
@@ -134,7 +143,8 @@ func toDoc(s model.Step, ingested string) stepDoc {
 		InputTokens: s.InputTokens, OutputTokens: s.OutputTokens, CachedTokens: s.CachedTokens,
 		CostUSD: s.CostUSD, CostKnown: s.CostKnown,
 		StartTime: nanoTime(int64(s.StartUnixNano)), StartNs: int64(s.StartUnixNano), DurationMs: s.DurationMs,
-		ErrorMessage: s.ErrorMessage, Input: s.Input, Output: s.Output, Reasoning: s.Reasoning,
+		ErrorMessage: s.ErrorMessage, ErrorPattern: s.ErrorPattern,
+		ScoreName: s.ScoreName, ScoreValue: s.ScoreValue, ScorePass: s.ScorePass, ScoreSource: s.ScoreSource, Input: s.Input, Output: s.Output, Reasoning: s.Reasoning,
 		Attributes: attrs, Links: links, InputHash: hex.EncodeToString(ih[:16]),
 		InputBytes: len(s.Input), OutputBytes: len(s.Output), ReasoningBytes: len(s.Reasoning),
 		Redacted: len(kinds) > 0, RedactedKinds: kinds, IngestedAt: ingested,
@@ -281,6 +291,9 @@ func rollupAggs(traces []string) map[string]any {
 				"input_tokens":  map[string]any{"sum": map[string]any{"field": "input_tokens"}},
 				"output_tokens": map[string]any{"sum": map[string]any{"field": "output_tokens"}},
 				"cost_usd":      map[string]any{"sum": map[string]any{"field": "cost_usd"}},
+				"cached_tokens": map[string]any{"sum": map[string]any{"field": "cached_tokens"}},
+				"llm":           map[string]any{"filter": map[string]any{"term": map[string]any{"type": "llm_call"}}, "aggs": map[string]any{"peak": map[string]any{"max": map[string]any{"field": "input_tokens"}}}},
+				"tools":         map[string]any{"filter": map[string]any{"term": map[string]any{"type": "tool_call"}}},
 				"agent_name":    maxKw("agent_name", ""),
 				"agent_version": maxKw("agent_version", ""),
 				"framework":     maxKw("framework", "", "unknown"),
@@ -358,9 +371,17 @@ func (w *Writer) rollup(ctx context.Context, tenant string, traces []string) err
 					CostUnknown struct {
 						DocCount int64 `json:"doc_count"`
 					} `json:"cost_unknown"`
-					InputTokens  numValue   `json:"input_tokens"`
-					OutputTokens numValue   `json:"output_tokens"`
-					CostUSD      numValue   `json:"cost_usd"`
+					InputTokens  numValue `json:"input_tokens"`
+					OutputTokens numValue `json:"output_tokens"`
+					CostUSD      numValue `json:"cost_usd"`
+					CachedTokens numValue `json:"cached_tokens"`
+					LLM          struct {
+						DocCount int64    `json:"doc_count"`
+						Peak     numValue `json:"peak"`
+					} `json:"llm"`
+					Tools struct {
+						DocCount int64 `json:"doc_count"`
+					} `json:"tools"`
 					AgentName    keyBuckets `json:"agent_name"`
 					AgentVersion keyBuckets `json:"agent_version"`
 					Framework    keyBuckets `json:"framework"`
@@ -393,6 +414,7 @@ func (w *Writer) rollup(ctx context.Context, tenant string, traces []string) err
 			TenantID: tenant, TraceID: b.Key, FirstStart: nanoTime(first), FirstStartNs: first,
 			Steps: b.DocCount, FailedSteps: b.Failed.DocCount, CostUnknownSteps: b.CostUnknown.DocCount,
 			InputTokens: int64(b.InputTokens.get()), OutputTokens: int64(b.OutputTokens.get()), CostUSD: b.CostUSD.get(),
+			CachedTokens: int64(b.CachedTokens.get()), LLMCalls: b.LLM.DocCount, ToolCalls: b.Tools.DocCount, PeakInputTokens: int64(b.LLM.Peak.get()),
 			AgentName: b.AgentName.first(), AgentVersion: b.AgentVersion.first(), Framework: b.Framework.first(),
 			Environment: b.Environment.first(), SessionID: b.SessionID.first(),
 			RootStatus: b.Root.Status.first(), RootDurationMs: b.Root.Duration.get(), UpdatedAt: updated,

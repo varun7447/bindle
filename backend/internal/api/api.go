@@ -15,14 +15,17 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/bindle-ai/bindle/backend/internal/alerts"
 	"github.com/bindle-ai/bindle/backend/internal/control"
+	"github.com/bindle-ai/bindle/backend/internal/cost"
 	"github.com/bindle-ai/bindle/backend/internal/query"
 	"github.com/bindle-ai/bindle/backend/internal/ratelimit"
+	"github.com/bindle-ai/bindle/backend/internal/replay"
 	"github.com/bindle-ai/bindle/backend/internal/sdkconfig"
 	"github.com/bindle-ai/bindle/backend/internal/session"
 )
@@ -40,19 +43,28 @@ type KeyStore interface {
 type ConfigStore interface {
 	GetSDKConfig(ctx context.Context, tenant string) (sdkconfig.Config, error)
 	PutSDKConfig(ctx context.Context, tenant, userID string, c sdkconfig.Config) (sdkconfig.Config, error)
+	PutLimits(ctx context.Context, tenant, userID string, version int64, limits []sdkconfig.Limit) (sdkconfig.Config, error)
+	PutPrices(ctx context.Context, tenant, userID string, version int64, prices []sdkconfig.PriceOverride) (sdkconfig.Config, error)
 }
 
 // Server holds the API's dependencies.
 type Server struct {
 	Store    query.Store
-	Keys     KeyStore          // nil disables the /api/keys endpoints (503)
-	Config   ConfigStore       // nil disables the /api/config endpoints (503)
-	Alerting AlertingStore     // nil disables the alert rule/channel endpoints (503)
-	Deliver  *alerts.Deliverer // test sends; nil disables them
-	Sessions session.Resolver
-	Limiter  *ratelimit.Limiter // per-tenant requests/sec; nil disables
-	Log      *slog.Logger
-	Now      func() time.Time
+	Keys     KeyStore       // nil disables the /api/keys endpoints (503)
+	Config   ConfigStore    // nil disables the /api/config endpoints (503)
+	Alerting AlertingStore  // nil disables the alert rule/channel endpoints (503)
+	Evals    EvalStore      // nil disables the checks and datasets endpoints (503)
+	Replay   *replay.Runner // nil disables step replay (503)
+	Prices   *cost.Table    // list prices, for replay cost
+	// AWSPrices serves Bedrock list prices; nil disables (503).
+	AWSPrices *AWSPriceList
+	// ReplayLimiter caps replays per tenant; nil uses 10 a minute.
+	ReplayLimiter *ratelimit.Limiter
+	Deliver       *alerts.Deliverer // test sends; nil disables them
+	Sessions      session.Resolver
+	Limiter       *ratelimit.Limiter // per-tenant requests/sec; nil disables
+	Log           *slog.Logger
+	Now           func() time.Time
 
 	MaxSteps       int // waterfall step cap; default 5000
 	LoopMinRepeats int // runaway-loop threshold; default 5
@@ -86,6 +98,19 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/keys/{id}/revoke", s.revokeKey)
 	api.HandleFunc("GET /api/config", s.getConfig)
 	api.HandleFunc("PUT /api/config", s.putConfig)
+	api.HandleFunc("GET /api/limits", s.getLimits)
+	api.HandleFunc("PUT /api/limits", s.putLimits)
+	api.HandleFunc("GET /api/prices", s.getPrices)
+	api.HandleFunc("GET /api/prices/aws", s.awsPrices)
+	api.HandleFunc("PUT /api/prices", s.putPrices)
+	api.HandleFunc("GET /api/models", s.models)
+	api.HandleFunc("GET /api/tools", s.tools)
+	api.HandleFunc("GET /api/sessions", s.listSessions)
+	api.HandleFunc("GET /api/search", s.search)
+	api.HandleFunc("GET /api/sessions/{id}", s.getSession)
+	api.HandleFunc("GET /api/agents/versions", s.agentVersions)
+	s.evalRoutes(api)
+	api.HandleFunc("POST /api/traces/{id}/steps/{step}/replay", s.replayStep)
 	api.HandleFunc("GET /api/alert-rules", s.listAlertRules)
 	api.HandleFunc("POST /api/alert-rules", s.createAlertRule)
 	api.HandleFunc("PUT /api/alert-rules/{id}", s.updateAlertRule)
@@ -261,6 +286,10 @@ type RunJSON struct {
 	Framework        string    `json:"framework"`
 	Environment      string    `json:"environment"`
 	SessionID        string    `json:"session_id"`
+	CachedTokens     int64     `json:"cached_tokens"`
+	LLMCalls         int64     `json:"llm_calls"`
+	ToolCalls        int64     `json:"tool_calls"`
+	PeakInputTokens  int64     `json:"peak_input_tokens"`
 }
 
 func runJSON(r query.Run) RunJSON {
@@ -278,6 +307,7 @@ func runJSON(r query.Run) RunJSON {
 		CostPartial: r.CostUnknownSteps > 0, CostUnknownSteps: r.CostUnknownSteps,
 		Agent: r.Agent, AgentVersion: r.AgentVersion, Framework: r.Framework,
 		Environment: r.Environment, SessionID: r.SessionID,
+		CachedTokens: r.CachedTokens, LLMCalls: r.LLMCalls, ToolCalls: r.ToolCalls, PeakInputTokens: r.PeakInputTokens,
 	}
 }
 
@@ -515,7 +545,47 @@ func (s *Server) insights(w http.ResponseWriter, r *http.Request) {
 		s.storeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, in)
+	type outlierJSON struct {
+		Run     RunJSON `json:"run"`
+		Reason  string  `json:"reason"`
+		Value   float64 `json:"value"`
+		Typical float64 `json:"typical"`
+	}
+	outliers := make([]outlierJSON, 0, len(in.Outliers))
+	for _, o := range in.Outliers {
+		outliers = append(outliers, outlierJSON{Run: runJSON(o.Run), Reason: o.Reason, Value: o.Value, Typical: o.Typical})
+	}
+	// Sessions where users gave more negative than positive feedback.
+	type unhappyJSON struct {
+		SessionID string                `json:"session_id"`
+		Feedback  query.FeedbackSummary `json:"feedback"`
+	}
+	unhappy := []unhappyJSON{}
+	if fb, err := s.sessionFeedback(r, to.Add(-win.window), to); err == nil {
+		for id, f := range fb {
+			if f.Negative > 0 && f.Negative >= f.Positive {
+				unhappy = append(unhappy, unhappyJSON{id, f})
+			}
+		}
+		sort.Slice(unhappy, func(i, j int) bool {
+			if unhappy[i].Feedback.Negative != unhappy[j].Feedback.Negative {
+				return unhappy[i].Feedback.Negative > unhappy[j].Feedback.Negative
+			}
+			return unhappy[i].SessionID < unhappy[j].SessionID
+		})
+		if len(unhappy) > 10 {
+			unhappy = unhappy[:10]
+		}
+	} else {
+		s.logger().Warn("feedback lookup failed", "err", err)
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Agents   []query.AgentSummary `json:"agents"`
+		Issues   []query.Issue        `json:"issues"`
+		Outliers []outlierJSON        `json:"outliers"`
+		Unhappy  []unhappyJSON        `json:"unhappy_sessions"`
+		Previous query.PeriodTotals   `json:"previous"`
+	}{in.Agents, in.Issues, outliers, unhappy, in.Previous})
 }
 
 func (s *Server) alerts(w http.ResponseWriter, r *http.Request) {
@@ -760,4 +830,210 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, configJSON(saved))
+}
+
+// ---- agent limits ----------------------------------------------------------
+
+const maxLimitsBodyBytes = 32 << 10 // 50 limits with long agent names
+
+// limitsJSON is the limits view: the limits, which agents are over budget
+// today, and today's priced spend per agent (UTC day) for context.
+func (s *Server) limitsJSON(r *http.Request, c sdkconfig.Config) map[string]any {
+	limits, over := c.Limits, c.OverBudget
+	if limits == nil {
+		limits = []sdkconfig.Limit{}
+	}
+	if over == nil {
+		over = []string{}
+	}
+	out := map[string]any{"version": c.Version, "limits": limits, "over_budget": over}
+	now := s.now().UTC()
+	day := now.Truncate(24 * time.Hour)
+	if spend, err := s.Store.CostByAgent(r.Context(), tenantFrom(r.Context()), day, now); err == nil {
+		out["spend_today"] = spend
+		out["spend_since"] = day
+	} else {
+		s.logger().Warn("spend lookup failed", "err", err)
+	}
+	return out
+}
+
+func (s *Server) getLimits(w http.ResponseWriter, r *http.Request) {
+	if s.Config == nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "remote config is not configured")
+		return
+	}
+	c, err := s.Config.GetSDKConfig(r.Context(), tenantFrom(r.Context()))
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.limitsJSON(r, c))
+}
+
+func (s *Server) putLimits(w http.ResponseWriter, r *http.Request) {
+	p := principalFrom(r.Context())
+	if s.Config == nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "remote config is not configured")
+		return
+	}
+	if !p.CanManageKeys() {
+		writeError(w, http.StatusForbidden, "forbidden", "only owners and admins can change agent limits")
+		return
+	}
+	var body struct {
+		Version *int64            `json:"version"`
+		Limits  []sdkconfig.Limit `json:"limits"`
+	}
+	if !decodeBodyLimit(w, r, &body, maxLimitsBodyBytes) {
+		return
+	}
+	if body.Version == nil || body.Limits == nil {
+		badRequest(w, "version and limits are required")
+		return
+	}
+	if err := sdkconfig.ValidateLimits(body.Limits); err != nil {
+		badRequest(w, err.Error())
+		return
+	}
+	saved, err := s.Config.PutLimits(r.Context(), p.TenantID, p.UserID, *body.Version, body.Limits)
+	if errors.Is(err, control.ErrVersionConflict) {
+		writeError(w, http.StatusConflict, "conflict", "settings were changed by someone else; reload and try again")
+		return
+	}
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.limitsJSON(r, saved))
+}
+
+// ---- model prices ------------------------------------------------------------
+
+const maxPricesBodyBytes = 64 << 10 // 100 prices with notes
+
+func pricesJSON(c sdkconfig.Config) map[string]any {
+	ps := c.Prices
+	if ps == nil {
+		ps = []sdkconfig.PriceOverride{}
+	}
+	return map[string]any{"version": c.Version, "prices": ps}
+}
+
+func (s *Server) getPrices(w http.ResponseWriter, r *http.Request) {
+	if s.Config == nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "remote config is not configured")
+		return
+	}
+	c, err := s.Config.GetSDKConfig(r.Context(), tenantFrom(r.Context()))
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, pricesJSON(c))
+}
+
+func (s *Server) putPrices(w http.ResponseWriter, r *http.Request) {
+	p := principalFrom(r.Context())
+	if s.Config == nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "remote config is not configured")
+		return
+	}
+	if !p.CanManageKeys() {
+		writeError(w, http.StatusForbidden, "forbidden", "only owners and admins can change model prices")
+		return
+	}
+	var body struct {
+		Version *int64                    `json:"version"`
+		Prices  []sdkconfig.PriceOverride `json:"prices"`
+	}
+	if !decodeBodyLimit(w, r, &body, maxPricesBodyBytes) {
+		return
+	}
+	if body.Version == nil || body.Prices == nil {
+		badRequest(w, "version and prices are required")
+		return
+	}
+	if err := sdkconfig.ValidatePrices(body.Prices); err != nil {
+		badRequest(w, err.Error())
+		return
+	}
+	saved, err := s.Config.PutPrices(r.Context(), p.TenantID, p.UserID, *body.Version, body.Prices)
+	if errors.Is(err, control.ErrVersionConflict) {
+		writeError(w, http.StatusConflict, "conflict", "settings were changed by someone else; reload and try again")
+		return
+	}
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, pricesJSON(saved))
+}
+
+// models lists the models used in a window, with how many calls were
+// priced: what the model prices page needs to suggest overrides.
+func (s *Server) models(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("window")
+	if name == "" {
+		name = "7d"
+	}
+	win, ok := overviewWindows[name]
+	if !ok {
+		badRequest(w, "window must be 24h, 7d or 30d")
+		return
+	}
+	to := s.now()
+	ms, err := s.Store.Models(r.Context(), tenantFrom(r.Context()), to.Add(-win.window), to)
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"window": name, "models": ms})
+}
+
+// ---- tools and agent versions --------------------------------------------------
+
+func (s *Server) window(w http.ResponseWriter, r *http.Request, def string) (string, time.Time, time.Time, bool) {
+	name := r.URL.Query().Get("window")
+	if name == "" {
+		name = def
+	}
+	win, ok := overviewWindows[name]
+	if !ok {
+		badRequest(w, "window must be 24h, 7d or 30d")
+		return "", time.Time{}, time.Time{}, false
+	}
+	to := s.now()
+	return name, to.Add(-win.window), to, true
+}
+
+func (s *Server) tools(w http.ResponseWriter, r *http.Request) {
+	name, from, to, ok := s.window(w, r, "7d")
+	if !ok {
+		return
+	}
+	ts, err := s.Store.Tools(r.Context(), tenantFrom(r.Context()), from, to)
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"window": name, "tools": ts})
+}
+
+func (s *Server) agentVersions(w http.ResponseWriter, r *http.Request) {
+	agent := r.URL.Query().Get("agent")
+	if len(agent) > maxFilterLen {
+		badRequest(w, "agent is too long")
+		return
+	}
+	name, from, to, ok := s.window(w, r, "7d")
+	if !ok {
+		return
+	}
+	vs, err := s.Store.AgentVersions(r.Context(), tenantFrom(r.Context()), agent, from, to)
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"window": name, "agent": agent, "versions": vs})
 }

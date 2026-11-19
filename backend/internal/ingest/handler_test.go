@@ -133,3 +133,34 @@ func TestBadPayload(t *testing.T) {
 		t.Fatalf("want 400, got %d", rec.Code)
 	}
 }
+
+func TestLogsEndpointKeepsEvaluations(t *testing.T) {
+	c := &capture{}
+	h := newHandler(c, 0)
+	h.Logs = true
+	body := otlptest.LogsRequest(nil, "evals",
+		otlptest.LogRecord{TraceID: "0af7651916cd43dd8448eb211c80319c", SpanID: "b7ad6b7169203331", Time: 1, EventName: "gen_ai.evaluation.result",
+			Attrs: []otlptest.KV{{Key: "gen_ai.evaluation.name", Value: "Groundedness"}, {Key: "gen_ai.evaluation.score.value", Value: 0.9}}},
+		otlptest.LogRecord{TraceID: "0af7651916cd43dd8448eb211c80319c", Time: 2, EventName: "app.log"})
+	rec := post(h, body, map[string]string{"Authorization": "Bearer bd_test_good"})
+	if rec.Code != 200 || len(c.steps) != 1 {
+		t.Fatalf("%d %+v", rec.Code, c.steps)
+	}
+	st := c.steps[0]
+	if st.TenantID != "acme" || st.Type != model.StepEval || st.ScoreName != "Groundedness" || *st.ScoreValue != 0.9 || st.ParentStepID != "b7ad6b7169203331" ||
+		st.AgentVersion != "" {
+		t.Errorf("step %+v", st)
+	}
+	if rec := post(h, body, nil); rec.Code != 401 {
+		t.Errorf("logs need a key: %d", rec.Code)
+	}
+	// Span events on traces become eval steps too.
+	tr := newHandler(c, 0)
+	c.steps = nil
+	span := otlptest.Span{TraceID: "0af7651916cd43dd8448eb211c80319c", SpanID: "00f067aa0ba902b7", Name: "chat", Start: 1, End: 2,
+		Events: []otlptest.Event{{Name: "gen_ai.evaluation.result", Time: 2, Attrs: []otlptest.KV{{Key: "gen_ai.evaluation.name", Value: "Relevance"}, {Key: "gen_ai.evaluation.score.label", Value: "pass"}}}}}
+	if rec := post(tr, otlptest.Request(nil, "x", span), map[string]string{"Authorization": "Bearer bd_test_good"}); rec.Code != 200 || len(c.steps) != 2 ||
+		c.steps[1].ScorePass != "pass" || c.steps[1].ParentStepID != "00f067aa0ba902b7" {
+		t.Errorf("span events: %d %+v", rec.Code, c.steps)
+	}
+}

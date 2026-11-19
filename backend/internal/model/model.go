@@ -87,9 +87,17 @@ type Step struct {
 	DurationMs    float64
 
 	ErrorMessage string
-	Input        string
-	Output       string
-	Reasoning    string
+	// ErrorPattern is ErrorMessage with IDs, numbers and quoted values
+	// replaced, so the same failure groups together across runs.
+	ErrorPattern string
+	// Scores (eval steps from bindle.score()).
+	ScoreName   string
+	ScoreValue  *float64
+	ScorePass   string // "pass", "fail" or ""
+	ScoreSource string // "user" for bindle.feedback(), else ""
+	Input       string
+	Output      string
+	Reasoning   string
 
 	Attributes map[string]string
 	Links      []string // "traceid:spanid"

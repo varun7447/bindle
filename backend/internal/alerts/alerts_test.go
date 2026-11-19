@@ -246,6 +246,39 @@ type fakeDetector struct {
 	loops    []query.Loop
 	costly   []query.Run
 	tenants  []string
+	insights *query.Insights
+	spend    map[string]float64
+	versions []query.VersionStats
+	feedback map[string]query.FeedbackSummary
+	patterns []query.ErrorPatternCount
+	before   []query.ErrorPatternCount
+}
+
+func (f *fakeDetector) Insights(_ context.Context, t string, _, _ time.Time) (*query.Insights, error) {
+	f.tenants = append(f.tenants, t)
+	if f.insights == nil {
+		return &query.Insights{}, nil
+	}
+	return f.insights, nil
+}
+func (f *fakeDetector) CostByAgent(_ context.Context, t string, _, _ time.Time) (map[string]float64, error) {
+	f.tenants = append(f.tenants, t)
+	return f.spend, nil
+}
+func (f *fakeDetector) AgentVersions(_ context.Context, t, _ string, _, _ time.Time) ([]query.VersionStats, error) {
+	f.tenants = append(f.tenants, t)
+	return f.versions, nil
+}
+func (f *fakeDetector) RecentFeedback(_ context.Context, t string, _, _ time.Time) (map[string]query.FeedbackSummary, error) {
+	f.tenants = append(f.tenants, t)
+	return f.feedback, nil
+}
+func (f *fakeDetector) ErrorPatterns(_ context.Context, t string, from, to time.Time) ([]query.ErrorPatternCount, error) {
+	f.tenants = append(f.tenants, t)
+	if to.Sub(from) > 24*time.Hour { // the 7 days before
+		return f.before, nil
+	}
+	return f.patterns, nil
 }
 
 func (f *fakeDetector) Overview(_ context.Context, t string, _, _ time.Time, _ time.Duration) (*query.Overview, error) {
@@ -319,5 +352,58 @@ func TestEvaluatorFiresOnceAndDelivers(t *testing.T) {
 	_ = e.RunOnce(context.Background())
 	if len(st.events) != 0 {
 		t.Fatalf("fired below min_runs: %v", st.events)
+	}
+}
+
+func TestQualityAndDigestRules(t *testing.T) {
+	monday := time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC)
+	det := &fakeDetector{
+		feedback: map[string]query.FeedbackSummary{"a": {Negative: 3, Count: 3}, "b": {Positive: 2, Count: 2}},
+		spend:    map[string]float64{"refunds": 5},
+		versions: []query.VersionStats{{Version: "v2", Runs: 10, CostUSD: 2}, {Version: "v1", Runs: 10, CostUSD: 1}},
+		patterns: []query.ErrorPatternCount{{Pattern: "timeout after <n>s", StepName: "lookup", Failures: 4, SampleTrace: "t1"}, {Pattern: "old", Failures: 9}},
+		before:   []query.ErrorPatternCount{{Pattern: "old", Failures: 1}},
+		overview: &query.Overview{Runs: 100, FailedRuns: 5, CostUSD: 12.5},
+		insights: &query.Insights{Previous: query.PeriodTotals{Runs: 80, FailedRuns: 8, CostUSD: 10},
+			Issues: []query.Issue{{StepName: "lookup", StepType: "tool_call", Failures: 4}}},
+	}
+	e := &Evaluator{Detect: det, Now: func() time.Time { return monday }}
+	ev := func(r Rule) []Event {
+		t.Helper()
+		if err := ValidateRule(r); err != nil {
+			t.Fatalf("%s: %v", r.Kind, err)
+		}
+		out, err := e.detect(context.Background(), "t", r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if got := ev(Rule{Kind: KindNegativeFeedback, Threshold: 0.5, WindowMinutes: 60}); len(got) != 1 || !strings.Contains(got[0].Summary, "60%") {
+		t.Errorf("negative feedback: %+v", got)
+	}
+	if got := ev(Rule{Kind: KindNegativeFeedback, Threshold: 0.5, WindowMinutes: 60, MinRuns: 10}); len(got) != 0 {
+		t.Errorf("too little feedback: %+v", got)
+	}
+	if got := ev(Rule{Kind: KindCostRegression, Threshold: 0.5, WindowMinutes: 1440}); len(got) != 1 || !strings.Contains(got[0].Summary, "100% more than v1") {
+		t.Errorf("cost regression: %+v", got)
+	}
+	if got := ev(Rule{Kind: KindCostRegression, Threshold: 1.5, WindowMinutes: 1440}); len(got) != 0 {
+		t.Errorf("below threshold: %+v", got)
+	}
+	if got := ev(Rule{Kind: KindNewError, Threshold: 3, WindowMinutes: 60}); len(got) != 1 || got[0].TraceID != "t1" || !strings.Contains(got[0].Summary, "New error in lookup") {
+		t.Errorf("new error: %+v", got)
+	}
+	got := ev(Rule{Kind: KindWeeklyDigest, Threshold: 1, WindowMinutes: 1440})
+	if len(got) != 1 || got[0].Fingerprint != "digest:2026-W47" || !strings.Contains(got[0].Summary, "100 runs (80 the week before), 5% failed (10% before)") ||
+		!strings.Contains(got[0].Summary, "lookup (4 failures)") {
+		t.Errorf("digest: %+v", got)
+	}
+	e.Now = func() time.Time { return monday.Add(24 * time.Hour) }
+	if got := ev(Rule{Kind: KindWeeklyDigest, Threshold: 1, WindowMinutes: 1440}); len(got) != 0 {
+		t.Errorf("digest only on Mondays: %+v", got)
+	}
+	if ValidateRule(Rule{Kind: KindWeeklyDigest, Threshold: 2, WindowMinutes: 1440}) == nil || ValidateRule(Rule{Kind: KindNewError, Threshold: 0.5, WindowMinutes: 60}) == nil {
+		t.Error("validation")
 	}
 }

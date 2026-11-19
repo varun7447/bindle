@@ -134,3 +134,42 @@ func mustHex(s string) []byte {
 	}
 	return b
 }
+
+// LogRecord is a test log record.
+type LogRecord struct {
+	TraceID, SpanID string // hex
+	Time            uint64
+	EventName       string
+	Attrs           []KV
+}
+
+// LogsRequest encodes one ResourceLogs with one ScopeLogs.
+func LogsRequest(resource []KV, scopeName string, records ...LogRecord) []byte {
+	var scope []byte
+	scope = appendBytes(scope, 1, appendBytes(nil, 1, []byte(scopeName)))
+	for _, r := range records {
+		var b []byte
+		b = appendFixed64(b, 1, r.Time)
+		for _, kv := range r.Attrs {
+			b = appendBytes(b, 6, encodeKV(kv))
+		}
+		if r.TraceID != "" {
+			b = appendBytes(b, 9, mustHex(r.TraceID))
+		}
+		if r.SpanID != "" {
+			b = appendBytes(b, 10, mustHex(r.SpanID))
+		}
+		if r.EventName != "" {
+			b = appendBytes(b, 12, []byte(r.EventName))
+		}
+		scope = appendBytes(scope, 2, b)
+	}
+	var res []byte
+	for _, kv := range resource {
+		res = appendBytes(res, 1, encodeKV(kv))
+	}
+	var rl []byte
+	rl = appendBytes(rl, 1, res)
+	rl = appendBytes(rl, 2, scope)
+	return appendBytes(nil, 1, rl)
+}

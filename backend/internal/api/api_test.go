@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bindle-ai/bindle/backend/internal/control"
+	"github.com/bindle-ai/bindle/backend/internal/evals"
 	"github.com/bindle-ai/bindle/backend/internal/query"
 	"github.com/bindle-ai/bindle/backend/internal/ratelimit"
 	"github.com/bindle-ai/bindle/backend/internal/sdkconfig"
@@ -22,19 +23,22 @@ import (
 
 // fakeStore records the tenant and arguments of every call.
 type fakeStore struct {
-	mu      sync.Mutex
-	tenants []string
-	filter  query.RunFilter
-	runs    []query.Run
-	trace   *query.Trace
-	step    *query.StepDetail
-	ov      *query.Overview
-	loops   []query.Loop
-	from    time.Time
-	to      time.Time
-	bucket  time.Duration
-	minRep  int
-	err     error
+	mu       sync.Mutex
+	tenants  []string
+	filter   query.RunFilter
+	runs     []query.Run
+	trace    *query.Trace
+	step     *query.StepDetail
+	ov       *query.Overview
+	loops    []query.Loop
+	versions []query.VersionStats
+	feedback map[string]query.FeedbackSummary
+	search   query.SearchFilter
+	from     time.Time
+	to       time.Time
+	bucket   time.Duration
+	minRep   int
+	err      error
 }
 
 func (f *fakeStore) rec(t string) {
@@ -67,6 +71,60 @@ func (f *fakeStore) Overview(_ context.Context, t string, from, to time.Time, b 
 func (f *fakeStore) Insights(_ context.Context, t string, from, to time.Time) (*query.Insights, error) {
 	f.rec(t)
 	return &query.Insights{Agents: []query.AgentSummary{{Agent: "a", Runs: 3}}, Issues: []query.Issue{}}, f.err
+}
+func (f *fakeStore) CostByAgent(_ context.Context, t string, from, to time.Time) (map[string]float64, error) {
+	f.rec(t)
+	f.from, f.to = from, to
+	return map[string]float64{"refunds": 1.25}, f.err
+}
+func (f *fakeStore) Models(_ context.Context, t string, from, to time.Time) ([]query.ModelUsage, error) {
+	f.rec(t)
+	f.from, f.to = from, to
+	return []query.ModelUsage{{Provider: "openai", Model: "gpt-x", Calls: 3, Unpriced: 3}}, f.err
+}
+func (f *fakeStore) Tools(_ context.Context, t string, from, to time.Time) ([]query.ToolHealth, error) {
+	f.rec(t)
+	return []query.ToolHealth{{ToolName: "search", Calls: 4, Failures: 1}}, f.err
+}
+func (f *fakeStore) AgentVersions(_ context.Context, t, agent string, from, to time.Time) ([]query.VersionStats, error) {
+	f.rec(t)
+	if f.versions != nil {
+		return f.versions, f.err
+	}
+	return []query.VersionStats{{Version: agent + "-v2", Runs: 3}}, f.err
+}
+func (f *fakeStore) RunsForEval(_ context.Context, t string, ids []string) ([]evals.Run, error) {
+	f.rec(t)
+	out := []evals.Run{}
+	for _, id := range ids {
+		out = append(out, evals.Run{TraceID: id, Agent: "refunds", Version: "v2", Output: "refund issued for " + id, Tools: []string{"lookup_order"}, Steps: 4})
+	}
+	return out, f.err
+}
+func (f *fakeStore) Scores(_ context.Context, t, agent string, from, to time.Time) ([]query.VersionScore, error) {
+	f.rec(t)
+	return []query.VersionScore{{Version: "v2", Name: "helpful", Count: 2, Passed: 1, Failed: 1}}, f.err
+}
+func (f *fakeStore) ListSessions(_ context.Context, t string, sf query.SessionFilter) ([]query.Session, error) {
+	f.rec(t)
+	return []query.Session{{SessionID: "s1", Runs: 2}, {SessionID: "s2", Runs: 1}}, f.err
+}
+func (f *fakeStore) Feedback(_ context.Context, t string, ids []string) (map[string]query.FeedbackSummary, error) {
+	f.rec(t)
+	return f.feedback, f.err
+}
+func (f *fakeStore) RecentFeedback(_ context.Context, t string, from, to time.Time) (map[string]query.FeedbackSummary, error) {
+	f.rec(t)
+	return f.feedback, f.err
+}
+func (f *fakeStore) RunsByIDs(_ context.Context, t string, ids []string) ([]query.Run, error) {
+	f.rec(t)
+	return f.runs, f.err
+}
+func (f *fakeStore) Search(_ context.Context, t string, sf query.SearchFilter) ([]query.SearchHit, error) {
+	f.rec(t)
+	f.search = sf
+	return []query.SearchHit{{TraceID: strings.Repeat("a", 32), Snippet: "\ue000timeout\ue001 after 30s", Field: "error"}}, f.err
 }
 func (f *fakeStore) Loops(_ context.Context, t string, from, to time.Time, n int) ([]query.Loop, error) {
 	f.rec(t)
@@ -565,6 +623,26 @@ func (f *fakeConfig) PutSDKConfig(_ context.Context, t, _ string, c sdkconfig.Co
 	return c, nil
 }
 
+func (f *fakeConfig) PutLimits(_ context.Context, t, _ string, v int64, ls []sdkconfig.Limit) (sdkconfig.Config, error) {
+	f.tenants = append(f.tenants, t)
+	if f.err != nil {
+		return f.stored, f.err
+	}
+	f.stored.Version = v + 1
+	f.stored.Limits = ls
+	return f.stored, nil
+}
+
+func (f *fakeConfig) PutPrices(_ context.Context, t, _ string, v int64, ps []sdkconfig.PriceOverride) (sdkconfig.Config, error) {
+	f.tenants = append(f.tenants, t)
+	if f.err != nil {
+		return f.stored, f.err
+	}
+	f.stored.Version = v + 1
+	f.stored.Prices = ps
+	return f.stored, nil
+}
+
 func configServerAPI(f *fakeConfig) http.Handler {
 	return (&Server{Store: &fakeStore{}, Config: f,
 		Sessions: tokenResolver{"tok-a": "tenant-a", "member-tok": "tenant-a"},
@@ -622,6 +700,98 @@ func TestInsights(t *testing.T) {
 	}
 	if w, _ := get(t, h, "/api/insights?window=2d", "tok-a"); w.Code != 400 {
 		t.Fatalf("bad window: %d", w.Code)
+	}
+	for _, tn := range st.tenants {
+		if tn != "tenant-a" {
+			t.Fatalf("tenant %q", tn)
+		}
+	}
+}
+
+func TestLimitsEndpoints(t *testing.T) {
+	f := &fakeConfig{stored: sdkconfig.Default()}
+	f.stored.OverBudget = []string{"refunds"}
+	h := configServerAPI(f)
+	w, body := send(t, h, "GET", "/api/limits", "tok-a", "")
+	if w.Code != 200 || body["version"] != float64(0) || len(body["limits"].([]any)) != 0 ||
+		body["over_budget"].([]any)[0] != "refunds" || body["spend_today"].(map[string]any)["refunds"] != 1.25 {
+		t.Fatalf("get %d %v", w.Code, body)
+	}
+	w, body = send(t, h, "PUT", "/api/limits", "tok-a", `{"version":0,"limits":[{"agent":"*","max_steps_per_run":100},{"agent":"refunds","paused":true,"daily_budget_usd":5,"pause_over_budget":true}]}`)
+	if w.Code != 200 || body["version"] != float64(1) || len(body["limits"].([]any)) != 2 {
+		t.Fatalf("put %d %v", w.Code, body)
+	}
+	for _, bad := range []string{
+		`{"version":1}`,
+		`{"limits":[]}`,
+		`{"version":1,"limits":[{"agent":""}]}`,
+		`{"version":1,"limits":[{"agent":"a","daily_budget_usd":-1}]}`,
+		`{"version":1,"limits":[{"agent":"a","pause_over_budget":true}]}`,
+		`{"version":1,"limits":[],"tenant_id":"other"}`,
+	} {
+		if w, _ := send(t, h, "PUT", "/api/limits", "tok-a", bad); w.Code != 400 {
+			t.Errorf("%s: %d", bad, w.Code)
+		}
+	}
+	if w, _ := send(t, h, "PUT", "/api/limits", "member-tok", `{"version":1,"limits":[]}`); w.Code != 403 {
+		t.Errorf("member put: %d", w.Code)
+	}
+	f.err = control.ErrVersionConflict
+	if w, _ := send(t, h, "PUT", "/api/limits", "tok-a", `{"version":1,"limits":[]}`); w.Code != 409 {
+		t.Errorf("conflict: %d", w.Code)
+	}
+	for _, tn := range f.tenants {
+		if tn != "tenant-a" {
+			t.Fatalf("config store got tenant %q", tn)
+		}
+	}
+}
+
+func TestPricesEndpoints(t *testing.T) {
+	f := &fakeConfig{stored: sdkconfig.Default()}
+	h := configServerAPI(f)
+	w, body := send(t, h, "GET", "/api/prices", "tok-a", "")
+	if w.Code != 200 || body["version"] != float64(0) || len(body["prices"].([]any)) != 0 {
+		t.Fatalf("get %d %v", w.Code, body)
+	}
+	w, body = send(t, h, "PUT", "/api/prices", "tok-a", `{"version":0,"prices":[{"model":"gpt-x","input_per_mtok":1,"output_per_mtok":2,"cached_input_per_mtok":0.1,"note":"contract"}]}`)
+	if w.Code != 200 || body["version"] != float64(1) || body["prices"].([]any)[0].(map[string]any)["note"] != "contract" {
+		t.Fatalf("put %d %v", w.Code, body)
+	}
+	for _, bad := range []string{`{"version":1}`, `{"version":1,"prices":[{"model":""}]}`, `{"version":1,"prices":[{"model":"m","input_per_mtok":-1}]}`} {
+		if w, _ := send(t, h, "PUT", "/api/prices", "tok-a", bad); w.Code != 400 {
+			t.Errorf("%s: %d", bad, w.Code)
+		}
+	}
+	if w, _ := send(t, h, "PUT", "/api/prices", "member-tok", `{"version":1,"prices":[]}`); w.Code != 403 {
+		t.Errorf("member put: %d", w.Code)
+	}
+	// The SDK never sees prices.
+	if b, _ := json.Marshal(f.stored); strings.Contains(string(b), "gpt-x") {
+		t.Errorf("prices leak into the SDK config JSON: %s", b)
+	}
+	w, body = send(t, h, "GET", "/api/models?window=24h", "tok-a", "")
+	if w.Code != 200 || body["models"].([]any)[0].(map[string]any)["unpriced_calls"] != float64(3) {
+		t.Fatalf("models %d %v", w.Code, body)
+	}
+}
+
+func TestToolsAndVersions(t *testing.T) {
+	st := &fakeStore{}
+	h := newServer(st)
+	w, body := get(t, h, "/api/tools?window=30d", "tok-a")
+	if w.Code != 200 || body["tools"].([]any)[0].(map[string]any)["tool_name"] != "search" {
+		t.Fatalf("tools %d %v", w.Code, body)
+	}
+	w, body = get(t, h, "/api/agents/versions?agent=refunds", "tok-a")
+	if w.Code != 200 || body["versions"].([]any)[0].(map[string]any)["version"] != "refunds-v2" || body["window"] != "7d" {
+		t.Fatalf("versions %d %v", w.Code, body)
+	}
+	if w, _ := get(t, h, "/api/tools?window=1y", "tok-a"); w.Code != 400 {
+		t.Errorf("bad window: %d", w.Code)
+	}
+	if w, _ := get(t, h, "/api/agents/versions?agent="+strings.Repeat("a", 300), "tok-a"); w.Code != 400 {
+		t.Errorf("long agent: %d", w.Code)
 	}
 	for _, tn := range st.tenants {
 		if tn != "tenant-a" {

@@ -20,6 +20,15 @@ const (
 	KindErrorRate   = "error_rate"   // threshold: failed-run fraction (0-1]
 	KindRunawayLoop = "runaway_loop" // threshold: repeats of the same tool+input in a trace
 	KindRunCost     = "run_cost"     // threshold: USD for one run
+	// threshold: share (0-1] of user feedback that is negative; min_runs: feedback needed
+	KindNegativeFeedback = "negative_feedback"
+	// threshold: cost-per-run increase (0.25 = +25%) of an agent's newest
+	// version over the previous one; min_runs: runs needed per version
+	KindCostRegression = "cost_regression"
+	// threshold: failures of an error pattern not seen in the 7 days before
+	KindNewError = "new_error"
+	// a Monday summary of the last 7 days; threshold and window are fixed
+	KindWeeklyDigest = "weekly_digest"
 )
 
 // Rule is one alert condition.
@@ -97,6 +106,22 @@ func ValidateRule(r Rule) error {
 		if r.Threshold <= 0 || r.Threshold > 1e6 {
 			return invalid("cost threshold must be above $0 and at most $1,000,000")
 		}
+	case KindNegativeFeedback:
+		if r.Threshold <= 0 || r.Threshold > 1 {
+			return invalid("negative-feedback threshold must be above 0 and at most 1")
+		}
+	case KindCostRegression:
+		if r.Threshold <= 0 || r.Threshold > 100 {
+			return invalid("cost-regression threshold must be above 0 (0.25 = 25%% more per run)")
+		}
+	case KindNewError:
+		if r.Threshold < 1 || r.Threshold > 100000 || r.Threshold != float64(int(r.Threshold)) {
+			return invalid("new-error threshold must be a whole number of failures, at least 1")
+		}
+	case KindWeeklyDigest:
+		if r.Threshold != 1 || r.WindowMinutes != 1440 {
+			return invalid("the weekly digest has no threshold or window to set")
+		}
 	default:
 		return invalid("unknown rule kind %q", r.Kind)
 	}
@@ -170,6 +195,11 @@ type Store interface {
 
 // Detector reads trace data (search.Store).
 type Detector interface {
+	Insights(ctx context.Context, tenant string, from, to time.Time) (*query.Insights, error)
+	CostByAgent(ctx context.Context, tenant string, from, to time.Time) (map[string]float64, error)
+	AgentVersions(ctx context.Context, tenant, agent string, from, to time.Time) ([]query.VersionStats, error)
+	RecentFeedback(ctx context.Context, tenant string, from, to time.Time) (map[string]query.FeedbackSummary, error)
+	ErrorPatterns(ctx context.Context, tenant string, from, to time.Time) ([]query.ErrorPatternCount, error)
 	Overview(ctx context.Context, tenant string, from, to time.Time, bucket time.Duration) (*query.Overview, error)
 	Loops(ctx context.Context, tenant string, from, to time.Time, minRepeats int) ([]query.Loop, error)
 	CostlyRuns(ctx context.Context, tenant string, from, to time.Time, minCostUSD float64, limit int) ([]query.Run, error)

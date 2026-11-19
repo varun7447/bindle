@@ -3,6 +3,7 @@ package normalize
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/bindle-ai/bindle/backend/internal/cost"
 	"github.com/bindle-ai/bindle/backend/internal/model"
@@ -241,5 +242,71 @@ func TestAgentCoreServiceSpans(t *testing.T) {
 	st := n.Normalize("t1", model.Span{Name: "chat", ScopeName: "strands.telemetry.tracer", Attributes: map[string]any{"gen_ai.operation.name": "chat"}})
 	if st.Framework != "Strands" || st.Type != model.StepLLM {
 		t.Errorf("strands span: got %s/%s", st.Type, st.Framework)
+	}
+}
+
+func TestErrorPattern(t *testing.T) {
+	cases := map[string]string{
+		"timeout after 30s on order 1234":                            "timeout after <n>s on order <n>",
+		"timeout after 31.5s on order 99\nTraceback ...":             "timeout after <n>s on order <n>",
+		`tool "lookup_order" failed: id 6a1f0c2b9d3e4f5a`:            "tool <str> failed: id <id>",
+		"request 123e4567-e89b-12d3-a456-426614174000 was throttled": "request <id> was throttled",
+		"   rate   limited  ":                                        "rate limited",
+		"user [REDACTED:EMAIL] not found":                            "user [REDACTED:EMAIL] not found",
+		"":                                                           "",
+	}
+	for in, want := range cases {
+		if got := ErrorPattern(in); got != want {
+			t.Errorf("ErrorPattern(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := ErrorPattern(strings.Repeat("é", 300)); len(got) > maxErrorPattern || !utf8.ValidString(got) {
+		t.Errorf("long pattern not cut cleanly: %d bytes", len(got))
+	}
+	st := newN().Normalize("t1", model.Span{StatusCode: 2, StatusMessage: "HTTP 503 from 10.0.0.12"})
+	if st.ErrorPattern != "HTTP <n> from <n>.<n>" {
+		t.Errorf("step pattern: %q", st.ErrorPattern)
+	}
+}
+
+func TestScores(t *testing.T) {
+	n := newN()
+	st := n.Normalize("t1", model.Span{Name: "score helpful", Attributes: map[string]any{
+		"bindle.step.type": "eval", "bindle.score.name": "helpful", "bindle.score.value": 0.8, "bindle.score.passed": true,
+	}, ResourceAttrs: map[string]any{"bindle.agent.name": "refunds"}})
+	if st.Type != model.StepEval || st.ScoreName != "helpful" || st.ScoreValue == nil || *st.ScoreValue != 0.8 || st.ScorePass != "pass" || st.AgentName != "refunds" {
+		t.Errorf("in-run score: %+v", st)
+	}
+	ext := n.Normalize("t1", model.Span{Attributes: map[string]any{
+		"bindle.score.name": "judge", "bindle.score.value": int64(3), "bindle.score.passed": false, "bindle.score.external": true,
+	}, ResourceAttrs: map[string]any{"bindle.agent.name": "ci-runner", "bindle.agent.version": "ci"}})
+	if ext.Type != model.StepEval || *ext.ScoreValue != 3 || ext.ScorePass != "fail" || ext.AgentName != "" || ext.AgentVersion != "" {
+		t.Errorf("external score must not carry the sender's agent: %+v", ext)
+	}
+	if plain := n.Normalize("t1", model.Span{Attributes: map[string]any{"gen_ai.operation.name": "chat"}}); plain.ScoreName != "" {
+		t.Error("non-score span")
+	}
+}
+
+func TestEvaluationEvents(t *testing.T) {
+	n := newN()
+	span := model.Span{TraceID: strings.Repeat("a", 32), SpanID: "b7ad6b7169203331", EndUnixNano: 50, Events: []model.Event{
+		{Name: "gen_ai.evaluation.result", TimeUnixNano: 40, Attributes: map[string]any{
+			"gen_ai.evaluation.name": "Relevance", "gen_ai.evaluation.score.value": 4.0, "gen_ai.evaluation.score.label": "relevant",
+			"gen_ai.evaluation.explanation": "Answers the question."}},
+		{Name: "exception"},
+	}}
+	evs := EvaluationSpans(span)
+	if len(evs) != 1 || evs[0].ParentSpanID != span.SpanID || evs[0].StartUnixNano != 40 {
+		t.Fatalf("%+v", evs)
+	}
+	st := n.Normalize("t1", evs[0])
+	if st.Type != model.StepEval || st.ScoreName != "Relevance" || st.ScoreValue == nil || *st.ScoreValue != 4 || st.ScorePass != "pass" ||
+		st.Output != "Answers the question." {
+		t.Errorf("step %+v", st)
+	}
+	odd := n.Normalize("t1", model.Span{Attributes: map[string]any{"bindle.step.type": "eval", "gen_ai.evaluation.name": "Tone", "gen_ai.evaluation.score.label": "friendly"}})
+	if odd.ScorePass != "" || odd.ScoreName != "Tone" {
+		t.Errorf("unknown labels stay unlabelled: %+v", odd)
 	}
 }
