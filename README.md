@@ -11,9 +11,9 @@ bindle.init(agent="support-triage")   # reads BINDLE_API_KEY; a no-op without it
 
 ## The console
 
-Three places to look (**Home**, **Runs**, **Alerts**) and one to configure (**Settings**: connect an agent, ingest keys, SDK settings). `⌘K` jumps to any page, a pasted trace ID, or an agent's runs. Light and dark themes follow your OS, with a toggle in the sidebar.
+Five places to look (**Home**, **Runs**, **Agents**, **Evals**, **Alerts**) and one to configure (**Settings**: connect an agent, ingest keys, SDK settings, agent limits, model prices). `⌘K` jumps to any page, a pasted trace ID, or an agent's runs. Light and dark themes follow your OS, with a toggle in the sidebar.
 
-**Home** answers "is anything wrong?" in one line, then lists what needs attention, most severe first: steps that keep failing (grouped, with the latest error), agents with a high failure rate, runaway loops, and model calls with no known price. Each item links to the exact run or step to open. Key numbers are compared with the previous period, and every metric has a plain-language definition behind its `?`.
+**Home** answers "is anything wrong?" in one line, then lists what needs attention, most severe first: steps that keep failing (grouped, with each distinct error), agents with a high failure rate, runaway loops, runs with far more steps or cost than that agent's typical run, and model calls with no known price. Each item links to the exact run or step to open. Key numbers are compared with the previous period, and every metric has a plain-language definition behind its `?`.
 
 ![Bindle console: Home (light theme)](docs/images/console-home.png)
 
@@ -21,11 +21,23 @@ Three places to look (**Home**, **Runs**, **Alerts**) and one to configure (**Se
 
 ![Bindle console: Run details (dark theme)](docs/images/console-trace.png)
 
+**Context and cache** (on runs with several LLM calls) shows each call's prompt size and how much came from the prompt cache, the largest tool results, and plain hints: the prompt grew 25×, only 5% was cached, a 64 KB tool result is carried in every later prompt.
+
+**Agents** compares an agent's versions (failure rate, cost per run, p95, steps, cache share, tool errors, each against the previous version) and lists tool health: failures, bad-argument errors (the model misread the schema), latency and result size, for SDK tools, MCP tools and AgentCore Gateway tools alike.
+
+**Sessions** group a conversation's runs (one session ID) into a chat view with how it ended and what the user said (`bindle.feedback()` thumbs and ratings); Home flags conversations where users were unhappy. **Search** finds runs by what was said, what a tool returned, or the error.
+
+**Evals** grade runs without calling a model: checks such as "output contains", "matches a pattern", "valid JSON", "tool was (not) called", "at most N steps", "costs at most" or "no step failed". They run on **datasets** saved from runs (copies that outlive trace retention) and on a sample of each version's recent runs, shown per version on the Agents page. Model-graded scores run in your own environment: export a dataset as JSON Lines, grade it with your judge, and send results with `bindle.score(name, value, trace_id=…)`. Bindle never holds your model keys. `bindle eval` runs an agent on a dataset in CI and fails the pull request when the pass rate drops (`examples/ci/`). Scores from any OpenTelemetry evaluator arrive as the standard `gen_ai.evaluation.result` event ([`docs/integrations/evaluations.md`](docs/integrations/evaluations.md): Azure AI Foundry, Vertex AI, AgentCore).
+
+**Replay** re-runs one captured LLM call with an edited prompt or another model, using a provider key you paste for that request only (never stored), and shows the answer, tokens, cost and latency next to the original.
+
+**Agent limits** pause an agent, cap steps or tokens per run, or set a daily budget. They take effect where the agent calls `bindle.check_limits()` (Python) or `checkLimits()` (TypeScript), which raises an error the agent can handle; Bindle never stops an agent anywhere else. Budgets use priced spend since 00:00 UTC and notify your alert channels once a day.
+
 **Step inputs and outputs** show as a conversation (system, user, assistant and tool messages, tool calls with their arguments) for every supported framework, with the raw text one click away. Sensitive values are redacted before storage. When content is missing, the console says why: content capture is off for the workspace, off in the agent's code, or the framework doesn't send it by default (with the exact setting to turn on).
 
 ![Bindle console: a step as a conversation](docs/images/console-conversation.png)
 
-**Cost** comes from published list prices only (`backend/pricing.json`: Anthropic and OpenAI, with each entry's source and date, including long-prompt tiers). Models without a known price are shown as unknown, never estimated.
+**Cost** comes from published list prices (`backend/pricing.json`: Anthropic and OpenAI, with each entry's source and date, including long-prompt tiers), or from **Model prices** in Settings, where a workspace enters what it actually pays (discounts, batch, Bedrock, Vertex, Azure or self-hosted models). For Bedrock it shows AWS's public list prices for a region (global and in-region tiers) to copy from. A weekly job (`bindle-prices check`) compares `pricing.json` with the providers' pricing pages and opens an issue when one changes. Cost is computed when a step arrives, so price changes never rewrite history. Models without a known price are shown as unknown, never estimated.
 
 Design rationale, colors and accessibility checks: [`docs/design/console.md`](docs/design/console.md).
 
@@ -88,10 +100,17 @@ Verified locally: all test suites, the Docker stack end to end, framework agents
 - [x] Framework support checked end to end: LangGraph, Strands, Google ADK, Microsoft Agent Framework (Foundry Agent Service from source)
 - [x] Console redesign: Home with what needs attention, run summaries, conversations, light and dark themes
 - [x] Published prices for Anthropic and OpenAI models; CI on every pull request
+- [x] Error grouping by shape, unusual-run detection, context and cache view, version comparison, tool health
+- [x] Agent limits (kill switch, per-run caps, daily budgets) in both SDKs; workspace model prices
+- [x] Amazon Bedrock AgentCore example and CloudWatch span connector (connector not yet run against real `aws/spans` data)
 - [ ] Google Gemini prices (needs effective-dated entries for scheduled price changes)
 - [ ] Contract tests per framework release for the normalizer mappings
-- [ ] Hosted LLM gateway, evals, step replay, SOC 2: scoped plans in [`docs/plans/`](docs/plans/)
+- [x] Evals (checks, datasets, per-version results, `bindle.score()`), step replay (Anthropic and OpenAI), Bedrock list prices, pricing-page change detection
+- [x] Sessions and user feedback, search across runs, quality and cost alerts with a weekly digest, `bindle eval` for CI, OpenTelemetry evaluation events (`/v1/logs` and span events)
+- [ ] Forwarding Azure AI Foundry continuous-evaluation results from Application Insights, and AgentCore Evaluations results from CloudWatch (need cloud accounts to verify)
+- [ ] Gemini prices (needs a Google Cloud API key for the Cloud Billing Catalog API, and effective-dated entries)
+- [ ] Hosted LLM gateway, SOC 2: scoped plans in [`docs/plans/`](docs/plans/)
 
 ## License
 
-Bindle is licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) for attributions, including the vendored PostgreSQL driver (MIT). Contributions are accepted under the same license; see [CONTRIBUTING.md](CONTRIBUTING.md).
+Bindle is licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) for attributions of the backend's dependencies, such as the PostgreSQL driver (MIT) and the Anthropic Go SDK (Apache 2.0). Contributions are accepted under the same license; see [CONTRIBUTING.md](CONTRIBUTING.md).

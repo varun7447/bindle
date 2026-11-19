@@ -461,6 +461,7 @@ export class BindleStack extends cdk.Stack {
         ...dbEnv,
         PGUSER: 'bindle_api',
         BINDLE_API_LISTEN: ':8080',
+        BINDLE_PRICING_FILE: '/etc/bindle/pricing.json', // prices step replays
         BINDLE_SEARCH_URL: searchUrl,
         BINDLE_SEARCH_USER: 'bindle_reader',
         BINDLE_PAYLOAD_STORE: `s3://${payloads.bucketName}`,

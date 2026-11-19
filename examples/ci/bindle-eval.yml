@@ -1,0 +1,42 @@
+# Example: block a pull request when the agent gets worse.
+#
+# Copy to .github/workflows/ in your agent's repository. Commit a dataset and
+# the checks file from Bindle (Evals → dataset → Export JSONL, and Evals →
+# Download checks) under evals/. The agent runs here with your own model
+# credentials (repository secrets); Bindle never sees them. With
+# BINDLE_API_KEY set, the runs and any judge scores are also recorded in
+# Bindle under the commit's version.
+name: Agent eval
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write # to comment the report
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt "bindle-sdk @ git+https://github.com/varun7447/bindle#subdirectory=sdks/python"
+      - name: Run the dataset
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }} # whatever your agent and judge use
+          BINDLE_API_KEY: ${{ secrets.BINDLE_API_KEY }}       # optional
+          BINDLE_AGENT: refunds                                # your agent's name in Bindle
+          BINDLE_AGENT_VERSION: ${{ github.event.pull_request.head.sha }}
+          BINDLE_ENVIRONMENT: ci
+        run: |
+          bindle eval --dataset evals/refunds.jsonl --checks evals/bindle-checks.json \
+            --agent my_app.agent:answer --judge my_app.judge:grade \
+            --max-drop 0.05 --report eval-report.md
+      - name: Comment the report
+        if: always() && hashFiles('eval-report.md') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment ${{ github.event.pull_request.number }} --body-file eval-report.md --edit-last || gh pr comment ${{ github.event.pull_request.number }} --body-file eval-report.md

@@ -1,6 +1,6 @@
 # Plan: evals
 
-Status: proposal, not started.
+Status: v1 built (see docs/architecture.md, "Evals and replay"). Model keys are never stored: LLM judging runs in the customer's environment, and replay uses a key for one request.
 
 ## Problem
 

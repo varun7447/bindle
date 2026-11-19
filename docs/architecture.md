@@ -51,7 +51,42 @@ The control plane lives in PostgreSQL, with row-level security per tenant:
 
 Owners and admins can change, from **Settings → SDK settings**, without a redeploy: the sample rate, whether prompts and outputs are captured, and extra redaction patterns. The SDK polls `GET /v1/config` with its ingest key; agents pick changes up within two minutes. These settings are a ceiling: code can only be stricter. Ingest enforces them on every batch too, including from apps the SDK doesn't control. Extra patterns must compile as RE2 without nested repetition, and the built-in redaction can't be turned off.
 
+## Agent limits and budgets
+
+**Settings → Agent limits** stores a list of limits with the SDK settings (same version, separate API: `PUT /api/limits`). Each limit names an agent, or `*` for every agent without its own row, and sets any of: paused, max steps per run, max tokens per run, daily budget in USD, pause when over budget.
+
+- **Enforcement is in the agent, at a call the agent makes.** The SDKs count steps (spans started in the trace) and LLM tokens per run in-process, and `bindle.check_limits()` / `checkLimits()` raises when a limit applies. Nothing else in the SDK raises, so an agent is never stopped halfway through something it didn't expect.
+- **Budgets are evaluated by `bindle-alerts`** every minute from priced spend since 00:00 UTC. The first time an agent goes over on a day, the worker records it in `control.budget_state` (insert-once) and notifies the workspace's alert channels. Ingest serves the day's over-budget agents with the config (`over_budget`), and the config's ETag changes with that list so polling SDKs see it.
+- Unpriced models don't count toward a budget.
+
+## Model prices
+
+Costs are computed at ingest, when a step arrives, from `backend/pricing.json` (published list prices with source and date) or from the workspace's own prices (**Settings → Model prices**, `PUT /api/prices`). Workspace prices win and are marked on the step (`bindle.price_source=workspace`). They match models like the list does (exact provider/model, then model, then model plus a date or version suffix), never reach the SDK, and apply only to steps that arrive after they're saved. Without a cached-input price, calls that used cached tokens stay unpriced.
+
+## Sessions, feedback and search
+
+- A **session** is the runs sharing a session ID (`bindle.set_session()` / `withSession()` tags every span started inside it, framework spans included). Sessions are aggregated from the run rollups on request.
+- **Feedback** (`bindle.feedback()`) is an eval step with `score_source=user`, usually sent later with the run's trace ID (`bindle.current_trace_id()`); it rolls up to the run's session.
+- **Search** is OpenSearch full-text over step input, output, errors and names (simple query syntax), one hit per run, with highlighted snippets. Redacted values stay redacted; offloaded fields are searched in their preview.
+
+## Evals and replay
+
+- **Checks** (`internal/evals`) are deterministic: they read a run's final output (root step, else last LLM call), the tools it called, its steps, cost and duration. Results that can't apply (no output captured, unpriced model) are skipped, not failed.
+- **Datasets** live in the control plane with copies of each run (input and output up to 64 KB each, 500 runs per dataset), so they outlive trace retention. Running checks on a dataset stores the tallies and failures.
+- **Per-version results** grade up to 100 recent runs of each of an agent's 5 latest versions when the Agents page asks; nothing is precomputed.
+- **Scores** from `bindle.score()` are eval steps. A score sent later carries the run's trace ID and `bindle.score.external`; its agent fields are cleared at ingest so the sender (a CI job) never relabels the run.
+- **`bindle eval`** (Python SDK) runs the agent on an exported dataset in CI with the same checks (shared test vectors keep the Go and Python checks identical), compares with the dataset's original answers, and exits non-zero on a drop.
+- **OpenTelemetry evaluation events** (`gen_ai.evaluation.result`) are read from span events on `/v1/traces` and from log records on `/v1/logs` (other log records are dropped) and stored as scores of the evaluated run.
+- **Replay** (`internal/replay`) calls the provider from bindle-api with the key the user pasted, for that request only: it isn't stored, logged, or echoed in errors, and providers are reached at fixed hosts. Replays are rate-limited (10 a minute per workspace) and not saved. Anthropic calls go through Anthropic's official Go SDK with environment defaults off, so nothing in the server's environment can change the key or host; OpenAI calls use the standard library.
+
+## Price sources
+
+- `bindle-prices check` fetches every source page in `pricing.json`, compares the page's prices with the baseline in `pricing-sources.json`, and checks each entry's prices are still on its page (matched to the model's row where the page has structured data). A weekly workflow opens an issue on a change. Prices are only ever edited by a person.
+- Bedrock list prices come from AWS's public price list files (no credentials), cached for 6 hours, and are offered for copying into workspace prices: which tier applies depends on how a model is called, so Bindle doesn't pick one.
+
 ## Alerts
+
+Rule kinds: runaway loop, failure rate, expensive run, unhappy users (share of negative feedback), cost regression (an agent's newest version vs the previous one, per run), new error (a pattern not seen in the 7 days before), and a weekly digest (Mondays 09:00 UTC).
 
 `bindle-alerts` checks every workspace's rules once a minute. New workspaces start with a runaway-loop rule (the same tool called 5+ times with the same input in one run) and a failure-rate rule (20%+ of runs over an hour, at least 20 runs). An expensive-run rule can be added on the **Alerts** page.
 
