@@ -1,5 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { toolFlags, verdict, versionRows, type ToolHealth, type VersionStats } from './agents';
+import { toolFlags, toolUsageChanges, verdict, versionRows, type ToolHealth, type VersionStats } from './agents';
+
+describe('tool usage per version', () => {
+  const usage = [
+    { version: 'v2', runs: 10, tools: [{ tool_name: 'search', calls: 24, runs: 9, failures: 0 }, { tool_name: 'escalate', calls: 12, runs: 6, failures: 0 }, { tool_name: 'lookup', calls: 10, runs: 10, failures: 0 }] },
+    { version: 'v1', runs: 10, tools: [{ tool_name: 'search', calls: 8, runs: 8, failures: 0 }, { tool_name: 'refund', calls: 5, runs: 5, failures: 0 }, { tool_name: 'lookup', calls: 11, runs: 10, failures: 0 }] },
+    { version: 'v0', runs: 2, tools: [] },
+  ];
+  it('says how call rates changed', () => {
+    const c = toolUsageChanges(usage)!;
+    expect(c.version).toBe('v2');
+    expect(c.previous).toBe('v1');
+    expect(c.rows.map((r) => r.note).filter(Boolean)).toEqual([
+      'v2 calls search 3.0× as often per run (2.4 vs 0.8).',
+      'v2 calls escalate, which v1 never called (1.2 per run).',
+      'v2 no longer calls refund (0.5 per run in v1).',
+    ]);
+    expect(c.rows.at(-1)).toEqual({ tool: 'lookup', now: 1, before: 1.1 });
+  });
+  it('needs enough runs on both sides', () => {
+    expect(toolUsageChanges(usage, 'v1')).toBeNull();
+    expect(toolUsageChanges(usage, 'nope')).toBeNull();
+    expect(toolUsageChanges(usage.slice(0, 1))).toBeNull();
+  });
+});
 
 const v = (o: Partial<VersionStats>): VersionStats => ({
   version: 'v1', runs: 20, failed_runs: 2, cost_usd: 2, cost_partial: false, p50_run_ms: 100, p95_run_ms: 1000, avg_steps: 8, avg_llm_calls: 3,

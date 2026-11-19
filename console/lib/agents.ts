@@ -97,6 +97,66 @@ export function verdict(rows: VersionRow[]): string | null {
   return `${name(top.v.version)} vs ${name(top.vs.version)}: ${parts.join(', ')}.`;
 }
 
+export interface ToolUse {
+  tool_name: string;
+  calls: number;
+  runs: number;
+  failures: number;
+}
+
+export interface VersionToolUsage {
+  version: string;
+  runs: number;
+  tools: ToolUse[];
+}
+
+export interface ToolUsageRow {
+  tool: string;
+  /** Average calls per run in the newer version. */
+  now: number;
+  /** Average calls per run in the older version. */
+  before: number;
+  /** Plain sentence when the change is notable. */
+  note?: string;
+}
+
+/** Changes smaller than this many calls per run are noise. */
+const MIN_CALLS_DELTA = 0.3;
+
+const fmtPer = (x: number) => (x >= 10 ? x.toFixed(0) : x.toFixed(1));
+
+/**
+ * Per tool, average calls per run in a version against the version before
+ * it (versions arrive most recent first). Notable changes get a sentence,
+ * e.g. "v2 calls search 3.1× as often per run (2.4 vs 0.8)". Null when there
+ * is no older version or either has fewer than MIN_COMPARE_RUNS runs.
+ */
+export function toolUsageChanges(usage: VersionToolUsage[], version?: string): { version: string; previous: string; rows: ToolUsageRow[] } | null {
+  const at = version === undefined ? 0 : usage.findIndex((u) => u.version === version);
+  const cur = usage[at];
+  const prev = usage[at + 1];
+  if (at < 0 || !cur || !prev || cur.runs < MIN_COMPARE_RUNS || prev.runs < MIN_COMPARE_RUNS) return null;
+  const name = (v: string) => v || 'unversioned';
+  const per = (u: VersionToolUsage) => new Map(u.tools.map((t) => [t.tool_name, t.calls / u.runs]));
+  const a = per(cur);
+  const b = per(prev);
+  const rows: ToolUsageRow[] = [...new Set([...a.keys(), ...b.keys()])].map((tool) => {
+    const now = a.get(tool) ?? 0;
+    const before = b.get(tool) ?? 0;
+    const row: ToolUsageRow = { tool, now, before };
+    if (Math.abs(now - before) < MIN_CALLS_DELTA) return row;
+    const v = name(cur.version);
+    const p = name(prev.version);
+    if (before === 0) row.note = `${v} calls ${tool}, which ${p} never called (${fmtPer(now)} per run).`;
+    else if (now === 0) row.note = `${v} no longer calls ${tool} (${fmtPer(before)} per run in ${p}).`;
+    else if (now / before >= 1.5) row.note = `${v} calls ${tool} ${(now / before).toFixed(1)}× as often per run (${fmtPer(now)} vs ${fmtPer(before)}).`;
+    else if (now / before <= 2 / 3) row.note = `${v} calls ${tool} ${Math.round((1 - now / before) * 100)}% less often per run (${fmtPer(now)} vs ${fmtPer(before)}).`;
+    return row;
+  });
+  rows.sort((x, y) => Number(!!y.note) - Number(!!x.note) || Math.abs(y.now - y.before) - Math.abs(x.now - x.before) || x.tool.localeCompare(y.tool));
+  return { version: cur.version, previous: prev.version, rows };
+}
+
 /** Tools that need a look, worst first. */
 export function toolFlags(t: ToolHealth): string[] {
   const flags: string[] = [];

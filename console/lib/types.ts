@@ -53,6 +53,8 @@ export interface StepSummary {
   output_bytes: number;
   reasoning_bytes: number;
   redacted: boolean;
+  /** Why an LLM call stopped ("stop", "length", "max_tokens"…), when the framework reports it. */
+  finish_reason?: string;
 }
 
 export interface TraceResponse {

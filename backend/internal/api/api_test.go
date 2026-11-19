@@ -93,6 +93,10 @@ func (f *fakeStore) AgentVersions(_ context.Context, t, agent string, from, to t
 	}
 	return []query.VersionStats{{Version: agent + "-v2", Runs: 3}}, f.err
 }
+func (f *fakeStore) ToolUsage(_ context.Context, t, agent string, from, to time.Time) ([]query.VersionToolUsage, error) {
+	f.rec(t)
+	return []query.VersionToolUsage{{Version: agent + "-v2", Runs: 4, Tools: []query.ToolUse{{ToolName: "search", Calls: 8, Runs: 3}}}}, f.err
+}
 func (f *fakeStore) RunsForEval(_ context.Context, t string, ids []string) ([]evals.Run, error) {
 	f.rec(t)
 	out := []evals.Run{}
@@ -290,6 +294,12 @@ func TestRunsDefaultsAndPagination(t *testing.T) {
 
 	if _, _ = get(t, h, "/api/runs?limit=100000", "tok-a"); st.filter.Limit != maxLimit+1 {
 		t.Errorf("limit not clamped: %d", st.filter.Limit)
+	}
+	if _, _ = get(t, h, "/api/runs?agent=refunds&version=v2", "tok-a"); st.filter.Version != "v2" || st.filter.Agent != "refunds" {
+		t.Errorf("version filter not passed: %+v", st.filter)
+	}
+	if w, _ := get(t, h, "/api/runs?version="+strings.Repeat("v", 300), "tok-a"); w.Code != 400 {
+		t.Errorf("long version: %d", w.Code)
 	}
 }
 
@@ -792,6 +802,16 @@ func TestToolsAndVersions(t *testing.T) {
 	}
 	if w, _ := get(t, h, "/api/agents/versions?agent="+strings.Repeat("a", 300), "tok-a"); w.Code != 400 {
 		t.Errorf("long agent: %d", w.Code)
+	}
+	w, body = get(t, h, "/api/agents/tool-usage?agent=refunds&window=30d", "tok-a")
+	if w.Code != 200 || body["window"] != "30d" {
+		t.Fatalf("tool usage %d %v", w.Code, body)
+	}
+	if v := body["versions"].([]any)[0].(map[string]any); v["version"] != "refunds-v2" || v["tools"].([]any)[0].(map[string]any)["calls"] != float64(8) {
+		t.Fatalf("tool usage body %v", body)
+	}
+	if w, _ := get(t, h, "/api/agents/tool-usage?agent="+strings.Repeat("a", 300), "tok-a"); w.Code != 400 {
+		t.Errorf("tool usage long agent: %d", w.Code)
 	}
 	for _, tn := range st.tenants {
 		if tn != "tenant-a" {

@@ -10,7 +10,7 @@
 import { sessionToken } from './auth';
 import type { AgentLimit, LimitsResponse } from './limits';
 import type { AWSPrice, ModelUsage, PriceOverride, PricesResponse } from './prices';
-import type { ToolHealth, VersionStats } from './agents';
+import type { ToolHealth, VersionStats, VersionToolUsage } from './agents';
 import type { ReplayMessage, ReplayResponse } from './replay';
 import type { AgentChecks, Dataset, DatasetItem, EvalRun, Scorer } from './evals';
 import type { Session, SessionDetail } from './sessions';
@@ -114,7 +114,7 @@ function keyPath(id: string, action: 'rotate' | 'revoke'): string {
 }
 
 export const api = {
-  runs: (p: { from?: string; to?: string; status?: string; agent?: string; environment?: string; limit?: string; cursor?: string }) =>
+  runs: (p: { from?: string; to?: string; status?: string; agent?: string; version?: string; environment?: string; limit?: string; cursor?: string }) =>
     get<RunsResponse>('/api/runs', p),
   trace: async (id: string) => {
     if (!isTraceId(id)) throw new ApiError(400, 'bad_request', 'Invalid trace ID');
@@ -142,6 +142,7 @@ export const api = {
   models: (window: string) => get<{ window: string; models: ModelUsage[] }>('/api/models', { window }),
   tools: (window: string) => get<{ window: string; tools: ToolHealth[] }>('/api/tools', { window }),
   agentVersions: (agent: string, window: string) => get<{ window: string; agent: string; versions: VersionStats[] }>('/api/agents/versions', { agent, window }),
+  toolUsage: (agent: string, window: string) => get<{ window: string; agent: string; versions: VersionToolUsage[] }>('/api/agents/tool-usage', { agent, window }),
   replay: async (traceId: string, stepId: string, body: { provider: string; model: string; api_key: string; messages: ReplayMessage[]; max_tokens: number }) => {
     if (!isTraceId(traceId) || !isStepId(stepId)) throw new ApiError(400, 'bad_request', 'Invalid step ID');
     return post<ReplayResponse>(`/api/traces/${traceId}/steps/${stepId}/replay`, body);

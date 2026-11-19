@@ -38,6 +38,9 @@ type Store interface {
 	// RunsByIDs returns run summaries for trace IDs (at most 1000).
 	RunsByIDs(ctx context.Context, tenant string, traceIDs []string) ([]Run, error)
 	AgentVersions(ctx context.Context, tenant, agent string, from, to time.Time) ([]VersionStats, error)
+	// ToolUsage returns per-version tool call counts for one agent, most
+	// recent version first (at most 20 versions, 50 tools each).
+	ToolUsage(ctx context.Context, tenant, agent string, from, to time.Time) ([]VersionToolUsage, error)
 }
 
 // ---- insights (the console's home page) ------------------------------------
@@ -180,6 +183,9 @@ type StepSummary struct {
 	OutputBytes    uint64  `json:"output_bytes"`
 	ReasoningBytes uint64  `json:"reasoning_bytes"`
 	Redacted       bool    `json:"redacted"`
+	// FinishReason is why an LLM call stopped ("stop", "length", "max_tokens",
+	// "tool_calls"…), from gen_ai.response.finish_reasons; empty if unknown.
+	FinishReason string `json:"finish_reason,omitempty"`
 }
 
 // Trace is a run summary plus its steps.
@@ -304,6 +310,22 @@ type VersionStats struct {
 	ToolFailures  uint64  `json:"tool_failures"`
 	FirstRunStart Time    `json:"first_run_start"`
 	LastRunStart  Time    `json:"last_run_start"`
+}
+
+// VersionToolUsage is how often each tool is called in one agent version's
+// runs, so versions can be compared per run ("v2 calls search 3x as often").
+type VersionToolUsage struct {
+	Version string    `json:"version"`
+	Runs    uint64    `json:"runs"`
+	Tools   []ToolUse `json:"tools"`
+}
+
+// ToolUse is one tool's calls within one agent version.
+type ToolUse struct {
+	ToolName string `json:"tool_name"`
+	Calls    uint64 `json:"calls"`
+	Runs     uint64 `json:"runs"` // runs that called it at least once
+	Failures uint64 `json:"failures"`
 }
 
 // VersionScore is one score name's results for one agent version

@@ -17,13 +17,15 @@ Five places to look (**Home**, **Runs**, **Agents**, **Evals**, **Alerts**) and 
 
 ![Bindle console: Home (light theme)](docs/images/console-home.png)
 
-**Run details** opens with a summary of what the run did: how many LLM and tool calls, what failed and why, whether a retry worked, possible loops, where the time went, and what it cost. Every line links to its step; the waterfall and the selected step's inputs and outputs are below, with the root-cause step selected by default.
+**Run details** opens with a summary of what the run did: how many LLM and tool calls, what failed and why, whether a retry worked, possible loops, where the time went, and what it cost. Every line links to its step; the waterfall and the selected step's inputs and outputs are below, with the root-cause step selected by default. When the failure traces back to an earlier step, the summary names it ("Likely cause: step 3 — lookup_order returned nothing, and step 4 answered without it") and selects it: a tool result that came back empty or failed and a later LLM call carried on without it, a tool the model called with arguments it rejected, the same call failing the same way on every retry, an answer cut off at the model's output token limit, or a prompt that grew too large (often after one huge tool result).
+
+**Compare runs** (`Compare with…` on any run) lines up two runs' steps and says where their paths first diverge ("The runs match for the first 4 steps, then diverge: A calls refund, B calls escalate"), which steps only one run took, how often each tool was called in each, and what changed in the steps both took: status, duration, tokens, cost, model and tool arguments.
 
 ![Bindle console: Run details (dark theme)](docs/images/console-trace.png)
 
 **Context and cache** (on runs with several LLM calls) shows each call's prompt size and how much came from the prompt cache, the largest tool results, and plain hints: the prompt grew 25×, only 5% was cached, a 64 KB tool result is carried in every later prompt.
 
-**Agents** compares an agent's versions (failure rate, cost per run, p95, steps, cache share, tool errors, each against the previous version) and lists tool health: failures, bad-argument errors (the model misread the schema), latency and result size, for SDK tools, MCP tools and AgentCore Gateway tools alike.
+**Agents** compares an agent's versions (failure rate, cost per run, p95, steps, cache share, tool errors, each against the previous version), shows how the newest version's path changed ("v2 calls search 3.0× as often per run (2.4 vs 0.8)", tools it started or stopped calling) with a link to compare a recent run of each version, and lists tool health: failures, bad-argument errors (the model misread the schema), latency and result size, for SDK tools, MCP tools and AgentCore Gateway tools alike.
 
 **Sessions** group a conversation's runs (one session ID) into a chat view with how it ended and what the user said (`bindle.feedback()` thumbs and ratings); Home flags conversations where users were unhappy. **Search** finds runs by what was said, what a tool returned, or the error.
 

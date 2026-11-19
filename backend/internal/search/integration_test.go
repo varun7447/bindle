@@ -168,6 +168,14 @@ func TestIntegrationOpenSearch(t *testing.T) {
 	if err != nil || len(vs) != 1 || vs[0].Runs != 1 || vs[0].ToolCalls != 5 || vs[0].ToolFailures != 5 || vs[0].AvgSteps != 7 {
 		t.Errorf("versions = %+v %v", vs, err)
 	}
+	tu, err := store.ToolUsage(ctx, "tenant-a", "agent-a", from, to)
+	if err != nil || len(tu) != 1 || tu[0].Runs != 1 || len(tu[0].Tools) != 1 || tu[0].Tools[0].ToolName != "search" || tu[0].Tools[0].Calls != 5 ||
+		tu[0].Tools[0].Runs != 1 || tu[0].Tools[0].Failures != 5 {
+		t.Errorf("tool usage = %+v %v", tu, err)
+	}
+	if got, _ := store.ToolUsage(ctx, "tenant-b", "agent-a", from, to); len(got) != 0 {
+		t.Errorf("tenant-b saw tenant-a's tool usage: %+v", got)
+	}
 
 	er, err := store.RunsForEval(ctx, "tenant-a", []string{traceA, randHex(16)})
 	if err != nil || len(er) != 1 || er[0].TraceID != traceA || len(er[0].Tools) != 1 || er[0].Tools[0] != "search" || er[0].Steps != 7 ||

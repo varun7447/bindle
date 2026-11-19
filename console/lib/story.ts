@@ -2,6 +2,7 @@
 // the time went. Deterministic (no model call); unit-tested.
 
 import { formatCost, formatDuration, formatPercent } from './format';
+import { likelyCause } from './blame';
 import { stepKind } from './steps';
 import type { Run, StepSummary } from './types';
 
@@ -28,6 +29,8 @@ export interface RunStory {
   /** Where the time went, by step type, over leaf steps (no double counting of parents). */
   time: KindTime[];
   firstFailureId?: string;
+  /** The step the failure most likely traces back to (see blame.ts); selected by default. */
+  causeId?: string;
 }
 
 /** Tools called this often in one run are flagged as a possible loop. */
@@ -86,6 +89,10 @@ export function buildStory(run: Run, steps: StepSummary[]): RunStory {
     if (others.size) lines.push({ tone: 'critical', text: `Also failed: ${joinList([...others].slice(0, 4))}.` });
   }
 
+  // 2b. Likely cause: the step the failure traces back to, when it isn't simply the first failure.
+  const cause = likelyCause(run, steps);
+  if (cause) lines.push({ tone: failed ? 'critical' : 'warning', text: cause.text, stepId: cause.stepId });
+
   // 3. Possible loops: the same tool called many times.
   const tools = new Map<string, StepSummary[]>();
   for (const s of steps) if (s.type === 'tool_call') tools.set(s.tool_name || s.name, [...(tools.get(s.tool_name || s.name) ?? []), s]);
@@ -137,5 +144,6 @@ export function buildStory(run: Run, steps: StepSummary[]): RunStory {
     lines,
     time,
     firstFailureId: rootCause?.step_id,
+    ...(cause ? { causeId: cause.stepId } : {}),
   };
 }

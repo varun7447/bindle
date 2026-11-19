@@ -340,3 +340,62 @@ func TestWriteSplitsLargeBulks(t *testing.T) {
 		t.Errorf("every step written once: %d creates", creates)
 	}
 }
+
+func TestToolUsage(t *testing.T) {
+	f, c := newFake(t)
+	f.answers["-traces/_search"] = `{"aggregations":{"versions":{"buckets":[{"key":"v2","doc_count":10},{"key":"v1","doc_count":5},{"key":"v0","doc_count":2}]}}}`
+	f.answers["-steps-*/_search"] = `{"aggregations":{"versions":{"buckets":[
+		{"key":"v2","tools":{"buckets":[{"key":"search","doc_count":24,"runs":{"value":9},"failed":{"doc_count":2}}]}},
+		{"key":"v1","tools":{"buckets":[{"key":"search","doc_count":4,"runs":{"value":4},"failed":{"doc_count":0}}]}}]}}}`
+	s := &Store{Client: c}
+	got, err := s.ToolUsage(context.Background(), "tenant-1", "refunds", t0, t0.Add(time.Hour))
+	if err != nil || len(got) != 3 {
+		t.Fatalf("got %+v %v", got, err)
+	}
+	if got[0].Version != "v2" || got[0].Runs != 10 || got[0].Tools[0] != (query.ToolUse{ToolName: "search", Calls: 24, Runs: 9, Failures: 2}) {
+		t.Errorf("v2 = %+v", got[0])
+	}
+	if got[2].Version != "v0" || got[2].Tools == nil || len(got[2].Tools) != 0 {
+		t.Errorf("a version without tool calls has an empty list: %+v", got[2])
+	}
+	for _, r := range f.all() {
+		if !strings.Contains(r.Query, "routing=tenant-1") || !bytes.Contains(r.Body, []byte(`{"term":{"tenant_id":"tenant-1"}}`)) ||
+			!bytes.Contains(r.Body, []byte(`"agent_name":"refunds"`)) {
+			t.Errorf("request not scoped: %s %s", r.Query, r.Body)
+		}
+	}
+	if _, err := s.ToolUsage(context.Background(), "", "refunds", t0, t0); !errors.Is(err, query.ErrNoTenant) {
+		t.Errorf("no tenant: %v", err)
+	}
+}
+
+func TestTraceFinishReasons(t *testing.T) {
+	f, c := newFake(t)
+	f.answers["-traces/_search"] = `{"hits":{"hits":[{"_source":{"trace_id":"t1","steps":2}}]}}`
+	f.answers["-steps-*/_search"] = `{"hits":{"hits":[
+		{"_source":{"step_id":"a","type":"llm_call","attributes":{"gen_ai.response.finish_reasons":"[\"length\"]"}}},
+		{"_source":{"step_id":"b","type":"tool_call"}}]}}`
+	s := &Store{Client: c}
+	tr, err := s.GetTrace(context.Background(), "tenant-1", "t1", 10)
+	if err != nil || tr == nil || len(tr.Steps) != 2 {
+		t.Fatalf("trace %+v %v", tr, err)
+	}
+	if tr.Steps[0].FinishReason != "length" || tr.Steps[1].FinishReason != "" {
+		t.Errorf("finish reasons: %q %q", tr.Steps[0].FinishReason, tr.Steps[1].FinishReason)
+	}
+	reqs := f.all()
+	last := reqs[len(reqs)-1]
+	if !bytes.Contains(last.Body, []byte(`"includes":["step_id","attributes.gen_ai.response.finish_reasons","attributes.gen_ai.response.finish_reason"]`)) ||
+		!bytes.Contains(last.Body, []byte(`{"term":{"tenant_id":"tenant-1"}}`)) {
+		t.Errorf("finish reason request: %s", last.Body)
+	}
+}
+
+func TestParseFinishReason(t *testing.T) {
+	for in, want := range map[string]string{`["length"]`: "length", `["", "STOP"]`: "stop", "max_tokens": "max_tokens", " end_turn ": "end_turn",
+		"": "", `[`: "", `[]`: "", strings.Repeat("x", 65): ""} {
+		if got := parseFinishReason(in); got != want {
+			t.Errorf("parseFinishReason(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

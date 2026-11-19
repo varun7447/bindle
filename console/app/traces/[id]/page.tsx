@@ -43,7 +43,7 @@ export default async function TracePage({
   const datasets = await settle(api.datasets());
   const requested = one((await searchParams).step)?.toLowerCase();
   const selectedId =
-    isStepId(requested) && steps.some((s) => s.step_id === requested) ? requested : (story.firstFailureId ?? defaultStepId(wf.rows));
+    isStepId(requested) && steps.some((s) => s.step_id === requested) ? requested : (story.causeId ?? story.firstFailureId ?? defaultStepId(wf.rows));
   const detail = selectedId ? await settle(api.step(id, selectedId)) : undefined;
   const kinds = KIND_ORDER.filter((k) => steps.some((s) => s.type === k)).concat(
     [...new Set(steps.map((s) => s.type))].filter((t) => !KIND_ORDER.includes(t)),
@@ -56,7 +56,10 @@ export default async function TracePage({
         <div className="story-head">
           <StatusBadge status={trace.status} />
           <h2 id="story-h">{story.headline}</h2>
-          <span style={{ marginLeft: 'auto' }}>
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Link href={`/traces/compare?a=${id}`} className="btn btn-sm">
+              Compare with…
+            </Link>
             <AddToDataset traceId={id} datasets={datasets.ok ? datasets.data.datasets.map((d) => ({ id: d.id, name: d.name })) : []} />
           </span>
           {story.firstFailureId && story.firstFailureId !== selectedId ? (

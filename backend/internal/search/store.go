@@ -10,9 +10,11 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/bindle-ai/bindle/backend/internal/evals"
+	"github.com/bindle-ai/bindle/backend/internal/model"
 	"github.com/bindle-ai/bindle/backend/internal/payload"
 	"github.com/bindle-ai/bindle/backend/internal/query"
 )
@@ -196,7 +198,74 @@ func (s *Store) GetTrace(ctx context.Context, tenant, traceID string, maxSteps i
 	if len(t.Steps) > maxSteps {
 		t.Steps, t.Truncated = t.Steps[:maxSteps], true
 	}
+	s.addFinishReasons(ctx, tenant, traceID, t.Steps)
 	return t, nil
+}
+
+// finishReasonKeys are the span attributes that say why an LLM call stopped.
+var finishReasonKeys = []string{"gen_ai.response.finish_reasons", "gen_ai.response.finish_reason"}
+
+// addFinishReasons fills FinishReason on LLM steps. Summaries exclude the
+// attributes map (it can be large), so this reads just those keys. Best
+// effort: on error, steps keep an empty FinishReason.
+func (s *Store) addFinishReasons(ctx context.Context, tenant, traceID string, steps []query.StepSummary) {
+	idx := map[string]int{}
+	for i, st := range steps {
+		if st.Type == model.StepLLM {
+			idx[st.StepID] = i
+		}
+	}
+	if len(idx) == 0 {
+		return
+	}
+	includes := []string{"step_id"}
+	for _, k := range finishReasonKeys {
+		includes = append(includes, "attributes."+k)
+	}
+	var resp hits[struct {
+		StepID     string            `json:"step_id"`
+		Attributes map[string]string `json:"attributes"`
+	}]
+	body := map[string]any{"size": len(idx), "_source": map[string]any{"includes": includes}}
+	clauses := []map[string]any{term("trace_id", traceID), term("type", model.StepLLM)}
+	if err := s.search(ctx, tenant, s.Names.StepsPattern(), clauses, body, &resp); err != nil {
+		return
+	}
+	for _, h := range resp.Hits.Hits {
+		i, ok := idx[h.Source.StepID]
+		if !ok {
+			continue
+		}
+		for _, k := range finishReasonKeys {
+			if r := parseFinishReason(h.Source.Attributes[k]); r != "" {
+				steps[i].FinishReason = r
+				break
+			}
+		}
+	}
+}
+
+// parseFinishReason reads the first reason from a JSON array (`["length"]`,
+// how array attributes are stored) or a plain string, lowercased.
+func parseFinishReason(v string) string {
+	v = strings.TrimSpace(v)
+	if strings.HasPrefix(v, "[") {
+		var arr []string
+		if json.Unmarshal([]byte(v), &arr) != nil {
+			return ""
+		}
+		v = ""
+		for _, a := range arr {
+			if a = strings.TrimSpace(a); a != "" {
+				v = a
+				break
+			}
+		}
+	}
+	if len(v) > 64 {
+		return ""
+	}
+	return strings.ToLower(v)
 }
 
 // GetStep implements query.Store; nil, nil when not found for this tenant.
@@ -921,6 +990,80 @@ func (s *Store) AgentVersions(ctx context.Context, tenant, agent string, from, t
 			ToolCalls: tc[0], ToolFailures: tc[1],
 			FirstRunStart: nsTime(int64(b.First.get())), LastRunStart: nsTime(int64(b.Last.get())),
 		})
+	}
+	return out, nil
+}
+
+// ToolUsage implements query.Store: per version of agent (most recent
+// first, at most 20), its run count and each tool's calls, runs and failures
+// (at most 50 tools, most calls first).
+func (s *Store) ToolUsage(ctx context.Context, tenant, agent string, from, to time.Time) ([]query.VersionToolUsage, error) {
+	var runs struct {
+		Aggregations struct {
+			Versions struct {
+				Buckets []struct {
+					Key      string `json:"key"`
+					DocCount uint64 `json:"doc_count"`
+				} `json:"buckets"`
+			} `json:"versions"`
+		} `json:"aggregations"`
+	}
+	body := map[string]any{"size": 0, "aggs": map[string]any{"versions": map[string]any{
+		"terms": map[string]any{"field": "agent_version", "size": 20, "missing": "", "order": map[string]any{"last": "desc"}},
+		"aggs":  map[string]any{"last": map[string]any{"max": map[string]any{"field": "first_start_ns"}}},
+	}}}
+	clauses := []map[string]any{rangeNs("first_start_ns", from, to), term("agent_name", agent)}
+	if err := s.search(ctx, tenant, s.Names.Traces(), clauses, body, &runs); err != nil {
+		return nil, err
+	}
+	var tools struct {
+		Aggregations struct {
+			Versions struct {
+				Buckets []struct {
+					Key   string `json:"key"`
+					Tools struct {
+						Buckets []struct {
+							Key      string   `json:"key"`
+							DocCount uint64   `json:"doc_count"`
+							Runs     numValue `json:"runs"`
+							Failed   struct {
+								DocCount uint64 `json:"doc_count"`
+							} `json:"failed"`
+						} `json:"buckets"`
+					} `json:"tools"`
+				} `json:"buckets"`
+			} `json:"versions"`
+		} `json:"aggregations"`
+	}
+	tbody := map[string]any{"size": 0, "aggs": map[string]any{"versions": map[string]any{
+		"terms": map[string]any{"field": "agent_version", "size": 20, "missing": ""},
+		"aggs": map[string]any{"tools": map[string]any{
+			"terms": map[string]any{"field": "tool_name", "size": 50, "exclude": []string{""}},
+			"aggs": map[string]any{
+				"runs":   map[string]any{"cardinality": map[string]any{"field": "trace_id"}},
+				"failed": map[string]any{"filter": term("status", "failure")},
+			},
+		}},
+	}}}
+	tclauses := []map[string]any{term("type", "tool_call"), term("agent_name", agent), rangeNs("start_ns", from, to)}
+	if err := s.search(ctx, tenant, s.Names.StepsPattern(), tclauses, tbody, &tools); err != nil {
+		return nil, err
+	}
+	byVersion := map[string][]query.ToolUse{}
+	for _, v := range tools.Aggregations.Versions.Buckets {
+		uses := []query.ToolUse{}
+		for _, t := range v.Tools.Buckets {
+			uses = append(uses, query.ToolUse{ToolName: t.Key, Calls: t.DocCount, Runs: uint64(t.Runs.get()), Failures: t.Failed.DocCount})
+		}
+		byVersion[v.Key] = uses
+	}
+	out := []query.VersionToolUsage{}
+	for _, b := range runs.Aggregations.Versions.Buckets {
+		uses := byVersion[b.Key]
+		if uses == nil {
+			uses = []query.ToolUse{}
+		}
+		out = append(out, query.VersionToolUsage{Version: b.Key, Runs: b.DocCount, Tools: uses})
 	}
 	return out, nil
 }

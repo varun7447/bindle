@@ -485,3 +485,7 @@ h2.h-icon svg { color: var(--muted); width: 15px; height: 15px; flex: none; }
 .hit-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
 .hit-snippet { font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
 .hit-snippet mark { background: var(--warning-bg); color: var(--text); border-radius: 3px; padding: 0 2px; }
+
+/* Run compare: rows only one run took, and shared steps that changed. Text labels carry the meaning; color only helps scan. */
+tr.cmp-only-a td, tr.cmp-only-b td { background: var(--surface-2); }
+tr.cmp-changed td { background: var(--warning-bg); }

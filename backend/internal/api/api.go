@@ -109,6 +109,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/search", s.search)
 	api.HandleFunc("GET /api/sessions/{id}", s.getSession)
 	api.HandleFunc("GET /api/agents/versions", s.agentVersions)
+	api.HandleFunc("GET /api/agents/tool-usage", s.toolUsage)
 	s.evalRoutes(api)
 	api.HandleFunc("POST /api/traces/{id}/steps/{step}/replay", s.replayStep)
 	api.HandleFunc("GET /api/alert-rules", s.listAlertRules)
@@ -346,8 +347,8 @@ func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
 		}
 		f.Limit = min(n, maxLimit)
 	}
-	f.Agent, f.Environment = q.Get("agent"), q.Get("environment")
-	if len(f.Agent) > maxFilterLen || len(f.Environment) > maxFilterLen {
+	f.Agent, f.Environment, f.Version = q.Get("agent"), q.Get("environment"), q.Get("version")
+	if len(f.Agent) > maxFilterLen || len(f.Environment) > maxFilterLen || len(f.Version) > maxFilterLen {
 		badRequest(w, "filter value too long")
 		return
 	}
@@ -1031,6 +1032,25 @@ func (s *Server) agentVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	vs, err := s.Store.AgentVersions(r.Context(), tenantFrom(r.Context()), agent, from, to)
+	if err != nil {
+		s.storeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"window": name, "agent": agent, "versions": vs})
+}
+
+// toolUsage: per agent version, how often each tool is called per run.
+func (s *Server) toolUsage(w http.ResponseWriter, r *http.Request) {
+	agent := r.URL.Query().Get("agent")
+	if len(agent) > maxFilterLen {
+		badRequest(w, "agent is too long")
+		return
+	}
+	name, from, to, ok := s.window(w, r, "7d")
+	if !ok {
+		return
+	}
+	vs, err := s.Store.ToolUsage(r.Context(), tenantFrom(r.Context()), agent, from, to)
 	if err != nil {
 		s.storeError(w, r, err)
 		return

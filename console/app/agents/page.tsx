@@ -4,11 +4,11 @@ import { ApiErrorPanel, Help, settle } from '@/components/ui';
 import { type Delta } from '@/lib/insights';
 import { api } from '@/lib/api';
 import { requireSession } from '@/lib/auth';
-import { toolFlags, verdict, versionRows } from '@/lib/agents';
+import { toolFlags, toolUsageChanges, verdict, versionRows } from '@/lib/agents';
 import { checkMatrix, passRate } from '@/lib/evals';
 import { fmtBytes } from '@/lib/context';
 import { formatCost, formatCount, formatDuration, formatPercent, formatRelative } from '@/lib/format';
-import { WINDOWS, asWindow, one } from '@/lib/ids';
+import { WINDOWS, WINDOW_MS, asWindow, one } from '@/lib/ids';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,8 +28,19 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
   const agents = ins.ok ? ins.data.agents : [];
   const requested = one(sp.agent);
   const agent = requested !== undefined && agents.some((a) => a.agent === requested) ? requested : agents[0]?.agent;
-  const [versions, checks] =
-    agent !== undefined ? await Promise.all([settle(api.agentVersions(agent, window)), settle(api.agentChecks(agent, window))]) : [undefined, undefined];
+  const [versions, checks, usage] =
+    agent !== undefined
+      ? await Promise.all([settle(api.agentVersions(agent, window)), settle(api.agentChecks(agent, window)), settle(api.toolUsage(agent, window))])
+      : [undefined, undefined, undefined];
+  const usageChange = usage?.ok ? toolUsageChanges(usage.data.versions) : null;
+  // A recent run of each compared version, to open side by side.
+  const from = new Date(Date.now() - WINDOW_MS[window]).toISOString();
+  const latest = async (version: string) => {
+    if (!agent || !version) return undefined;
+    const r = await settle(api.runs({ agent, version, from, limit: '1' }));
+    return r.ok ? r.data.runs[0]?.trace_id : undefined;
+  };
+  const [runNow, runBefore] = usageChange ? await Promise.all([latest(usageChange.version), latest(usageChange.previous)]) : [undefined, undefined];
   const matrix = checks?.ok ? checkMatrix(checks.data) : null;
   const scoreVersions = checks?.ok ? [...new Set(checks.data.scores.map((s) => s.version))] : [];
   const scoreNames = checks?.ok ? [...new Set(checks.data.scores.map((s) => s.name))] : [];
@@ -150,6 +161,53 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
                 </table>
               </div>
             )}
+            {usageChange ? (
+              <div style={{ padding: '12px 18px 0' }} aria-labelledby="paths-h">
+                <h3 id="paths-h" style={{ margin: '0 0 6px', fontSize: 14 }}>
+                  Tool calls per run: {usageChange.version || 'unversioned'} vs {usageChange.previous || 'unversioned'}
+                </h3>
+                {usageChange.rows.some((r) => r.note) ? (
+                  <ul className="story-lines">
+                    {usageChange.rows
+                      .filter((r) => r.note)
+                      .slice(0, 5)
+                      .map((r) => (
+                        <li key={r.tool} className="t-neutral">
+                          <span className="dot" aria-hidden="true">
+                            •
+                          </span>
+                          <span>{r.note}</span>
+                        </li>
+                      ))}
+                  </ul>
+                ) : (
+                  <div className="sub">Both versions call their tools about as often per run.</div>
+                )}
+                <table style={{ marginTop: 6 }}>
+                  <thead>
+                    <tr>
+                      <th>Tool</th>
+                      <th className="num">{usageChange.version || 'unversioned'}</th>
+                      <th className="num">{usageChange.previous || 'unversioned'}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {usageChange.rows.slice(0, 8).map((r) => (
+                      <tr key={r.tool}>
+                        <td className="mono">{r.tool}</td>
+                        <td className="num">{r.now.toFixed(1)}</td>
+                        <td className="num">{r.before.toFixed(1)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {runNow && runBefore ? (
+                  <Link href={`/traces/compare?a=${runBefore}&b=${runNow}`} className="btn btn-sm" style={{ marginTop: 8 }}>
+                    Compare a recent run of each
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
             <p className="sub" style={{ padding: '8px 18px 14px', margin: 0 }}>
               Versions come from <code>bindle.init(version=…)</code>. Changes are shown when both versions have at least 5 runs.
             </p>
