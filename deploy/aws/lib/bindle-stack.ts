@@ -18,6 +18,17 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 
 export interface BindleStackProps extends cdk.StackProps {
   /**
+   * If set, only these IPv4 ranges (for example your VPN or office egress)
+   * can reach the ingest and console load balancers; otherwise they are open
+   * to the internet. Each must be /8 or narrower; 0.0.0.0/0 is rejected.
+   */
+  readonly allowedCidrs?: string[];
+  /**
+   * Whether anyone can create a console account (Cognito self sign-up).
+   * Default true. With false, only users an admin creates can sign in.
+   */
+  readonly selfSignUp?: boolean;
+  /**
    * Where the backend image build downloads Go modules (GOPROXY). Default:
    * Go's public proxy with a direct fallback. Use "direct" on networks that
    * can't reach proxy.golang.org.
@@ -89,6 +100,16 @@ export class BindleStack extends cdk.Stack {
         'BindleStack: pass -c certificateArn=arn:aws:acm:... (HTTPS). For a dev-only plain-HTTP ' +
           'stack reachable from one address, pass -c insecureDevCidr=<your-ip>/32 instead.',
       );
+    }
+    const allowed = props.allowedCidrs ?? [];
+    for (const c of allowed) {
+      const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/.exec(c);
+      if (!m || m.slice(1, 5).some((o) => Number(o) > 255) || Number(m[5]) < 8 || Number(m[5]) > 32) {
+        throw new Error(`BindleStack: allowedCidrs entry ${c} must be an IPv4 range from /8 to /32 (0.0.0.0/0 is not allowed)`);
+      }
+    }
+    if (allowed.length && props.insecureDevCidr) {
+      throw new Error('BindleStack: allowedCidrs applies to the HTTPS stack; insecureDevCidr already limits the dev stack');
     }
     if (props.certificateArn && props.insecureDevCidr) {
       throw new Error('BindleStack: certificateArn and insecureDevCidr are mutually exclusive');
@@ -212,7 +233,7 @@ export class BindleStack extends cdk.Stack {
     const consoleUrl = (props.consoleUrl ?? 'https://app.bindle.ai').replace(/\/+$/, '');
     const userPool = new cognito.UserPool(this, 'Users', {
       userPoolName: 'bindle-users',
-      selfSignUpEnabled: true,
+      selfSignUpEnabled: props.selfSignUp ?? true,
       signInAliases: { email: true },
       autoVerify: { email: true },
       standardAttributes: { email: { required: true, mutable: true } },
@@ -294,8 +315,9 @@ export class BindleStack extends cdk.Stack {
       certificate,
       protocol: certificate ? elbv2.ApplicationProtocol.HTTPS : elbv2.ApplicationProtocol.HTTP,
       redirectHTTP: false,
-      // In insecure dev mode the listener is opened to one CIDR below, not 0.0.0.0/0.
-      openListener: !!certificate,
+      // In insecure dev mode the listener is opened to one CIDR below, not
+      // 0.0.0.0/0; with allowedCidrs, only to those ranges.
+      openListener: !!certificate && allowed.length === 0,
       circuitBreaker: { rollback: true },
       taskImageOptions: {
         image,
@@ -324,6 +346,10 @@ export class BindleStack extends cdk.Stack {
         ec2.Port.tcp(80),
         'Dev-only plain HTTP ingest from one address',
       );
+    }
+
+    for (const c of allowed) {
+      ingest.loadBalancer.connections.allowFrom(ec2.Peer.ipv4(c), ec2.Port.tcp(443), `Ingest (HTTPS) from ${c}`);
     }
 
     ingest.targetGroup.configureHealthCheck({ path: '/healthz', healthyHttpCodes: '200' });
@@ -542,6 +568,7 @@ export class BindleStack extends cdk.Stack {
         certificate: consoleCert,
         protocol: elbv2.ApplicationProtocol.HTTPS,
         redirectHTTP: true, // browsers: port 80 only redirects to 443
+        openListener: allowed.length === 0,
         circuitBreaker: { rollback: true },
         taskImageOptions: {
           image: ecs.ContainerImage.fromAsset(path.join(__dirname, '../../../console'), { platform: Platform.LINUX_ARM64 }),
@@ -562,6 +589,10 @@ export class BindleStack extends cdk.Stack {
       });
       consoleSvc.targetGroup.configureHealthCheck({ path: '/healthz', healthyHttpCodes: '200' });
       api.connections.allowFrom(consoleSvc.service, ec2.Port.tcp(8080), 'console -> api');
+      for (const c of allowed) {
+        consoleSvc.loadBalancer.connections.allowFrom(ec2.Peer.ipv4(c), ec2.Port.tcp(443), `Console (HTTPS) from ${c}`);
+        consoleSvc.loadBalancer.connections.allowFrom(ec2.Peer.ipv4(c), ec2.Port.tcp(80), `Console (redirect to HTTPS) from ${c}`);
+      }
       new cdk.CfnOutput(this, 'ConsoleEndpoint', {
         value: `https://${consoleSvc.loadBalancer.loadBalancerDnsName}`,
         description: `Point ${consoleUrl.replace(/^https?:\/\//, '')} (a CNAME) here`,

@@ -48,3 +48,19 @@ docker compose -f deploy/local/compose.yaml logs opensearch | grep -i -A2 OutOfM
 - **`Direct buffer memory`**: very large write requests. Ingest splits writes at 8 MiB, so update to the latest `main` and rebuild (`make up`).
 
 Heap dumps after an out-of-memory error are written to `/tmp` inside the container, not to the data volume.
+
+## Troubleshooting: `compile: signal: killed` during `make up`
+
+The Go compiler ran out of memory while building the backend image; compiling the Anthropic SDK alone needs about 2.3 GB. The build runs inside the container VM, so give the VM at least 4 GB (6 GB to also run the stack comfortably):
+
+- **Docker Desktop**: Settings → Resources → Memory.
+- **Podman**: the VM defaults to 2 GB, and Docker Desktop's setting doesn't apply to it.
+
+  ```bash
+  podman machine inspect --format '{{.Resources.Memory}}'   # current MiB
+  podman machine stop
+  podman machine set --memory 6144
+  podman machine start
+  ```
+
+Then run `make up` again.

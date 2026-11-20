@@ -23,6 +23,8 @@ new BindleStack(app, 'BindleDataPlane', {
   consoleCertificateArn: app.node.tryGetContext('consoleCertificateArn'),
   ingestUrl: app.node.tryGetContext('ingestUrl'),
   goproxy: app.node.tryGetContext('goproxy') ?? process.env.BINDLE_GOPROXY,
+  allowedCidrs: (app.node.tryGetContext('allowedCidrs') as string | undefined)?.split(',').map((c) => c.trim()).filter(Boolean),
+  selfSignUp: app.node.tryGetContext('selfSignUp') === undefined ? undefined : String(app.node.tryGetContext('selfSignUp')) !== 'false',
 });
 
 cdk.Tags.of(app).add('project', 'bindle');

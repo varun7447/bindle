@@ -23,6 +23,8 @@ Synth fails without a certificate: ingest carries API keys and agent payloads, s
 | `ingestUrl` | `https://ingest.bindle.ai` | shown on the console's Connect page |
 | `alertsEmailFrom` | none | sender for email alerts; its domain must be a verified SES identity (not created by the stack) |
 | `minTasks`, `maxTasks` | 2, 20 | ingest autoscaling |
+| `allowedCidrs` | none (open to the internet) | comma-separated IPv4 ranges (/8 to /32) that may reach the ingest and console load balancers, e.g. your VPN egress |
+| `selfSignUp` | `true` | `false`: only users an admin creates (`aws cognito-idp admin-create-user`) can sign in |
 | `goproxy` | `https://proxy.golang.org,direct` | where the backend image build downloads Go modules; use `direct` on networks that block proxy.golang.org (or set `BINDLE_GOPROXY`) |
 
 All services run on ARM (Graviton) Fargate tasks; `cdk deploy` builds the images for `linux/arm64`, natively on Apple Silicon and with emulation on x86 machines. Docker must be running. Go dependencies are downloaded during the image build (nothing is vendored).
