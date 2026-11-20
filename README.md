@@ -68,7 +68,7 @@ Design rationale, colors and accessibility checks: [`docs/design/console.md`](do
 | [`deploy/connectors/cloudwatch-spans/`](deploy/connectors/cloudwatch-spans/) | Customer-deployed forwarder for AWS service spans (AgentCore Gateway, Policy, Identity) from CloudWatch to Bindle |
 | [`deploy/otel-collector/`](deploy/otel-collector/) | Optional OpenTelemetry Collector config for regulated tenants |
 | [`examples/`](examples/) | `sdk/`: quickstart, demo agent and linked runs (approval, handoff, MCP). `frameworks/`: LangGraph, Strands, Google ADK and Microsoft Agent Framework agents with stub models. `agentcore/`: a Strands agent for Amazon Bedrock AgentCore Runtime. `ci/`: a GitHub workflow that runs `bindle eval` on pull requests |
-| [`docs/`](docs/) | [Architecture](docs/architecture.md), [console design](docs/design/console.md), [evaluation integrations](docs/integrations/evaluations.md) (Azure AI Foundry, Vertex AI, AgentCore), [multi-agent tracing](docs/integrations/multi-agent.md) (queues, approvals, handoffs, MCP), [plans](docs/plans/) |
+| [`docs/`](docs/) | [Architecture](docs/architecture.md), [console design](docs/design/console.md), [evaluation integrations](docs/integrations/evaluations.md) (Azure AI Foundry, Vertex AI, AgentCore), [multi-agent tracing](docs/integrations/multi-agent.md) (queues, approvals, handoffs, MCP), [plans and open items](docs/plans/) |
 | [`.github/workflows/`](.github/workflows/) | CI: every test suite, container builds and `cdk synth` on each pull request; a weekly check of the model pricing pages |
 
 ## Run it locally
@@ -104,26 +104,6 @@ Each part can also be run alone (`make test-backend`, `test-python`, `test-types
 ## Deploy
 
 See [`deploy/aws/`](deploy/aws/): ingest, a private API, the console behind HTTPS with Cognito sign-in, and the data stores, all on ARM (Graviton) Fargate tasks. `cdk deploy` builds the images locally, so Docker must be running; pass `-c goproxy=direct` on networks that block `proxy.golang.org`. Deploying creates paid AWS resources.
-
-## Status
-
-Verified locally: all test suites, the Docker stack end to end, framework agents (LangGraph, Strands, ADK, Agent Framework), and `cdk synth`. Not yet run on AWS.
-
-- [x] Ingest, query API, console, alerts, control plane, payload offload, Kinesis pipeline
-- [x] Python and TypeScript SDKs, `bindle init`, MCP server, `llms.txt`
-- [x] Framework support checked end to end: LangGraph, Strands, Google ADK, Microsoft Agent Framework (Foundry Agent Service from source)
-- [x] Console redesign: Home with what needs attention, run summaries, conversations, light and dark themes
-- [x] Published prices for Anthropic and OpenAI models; CI on every pull request
-- [x] Error grouping by shape, unusual-run detection, context and cache view, version comparison, tool health
-- [x] Agent limits (kill switch, per-run caps, daily budgets) in both SDKs; workspace model prices
-- [x] Amazon Bedrock AgentCore example and CloudWatch span connector (connector not yet run against real `aws/spans` data)
-- [ ] Google Gemini prices (needs effective-dated entries for scheduled price changes)
-- [ ] Contract tests per framework release for the normalizer mappings
-- [x] Evals (checks, datasets, per-version results, `bindle.score()`), step replay (Anthropic and OpenAI), Bedrock list prices, pricing-page change detection
-- [x] Sessions and user feedback, search across runs, quality and cost alerts with a weekly digest, `bindle eval` for CI, OpenTelemetry evaluation events (`/v1/logs` and span events)
-- [ ] Forwarding Azure AI Foundry continuous-evaluation results from Application Insights, and AgentCore Evaluations results from CloudWatch (need cloud accounts to verify)
-- [ ] Gemini prices (needs a Google Cloud API key for the Cloud Billing Catalog API, and effective-dated entries)
-- [ ] Hosted LLM gateway, SOC 2: scoped plans in [`docs/plans/`](docs/plans/)
 
 ## License
 

@@ -32,3 +32,6 @@ deploy/connectors/*/**/*.d.ts
 
 # Go dependencies are fetched by go.mod/go.sum (module cache), not committed.
 backend/vendor/
+
+# Agent worktrees (local only)
+.claude/worktrees/
