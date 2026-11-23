@@ -27,7 +27,7 @@ from typing import Any, Callable, Iterator, List, Optional, Sequence, Union
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
-from . import _config, _instrument
+from . import _config, _correlate, _instrument
 from ._redact import Redactor
 
 from ._cassette import Cassette, RecordedToolError, UnrecordedCall
@@ -36,7 +36,7 @@ from ._links import inject_mcp_meta, mcp_server_context
 
 __all__ = [
     "init", "flush", "shutdown", "step", "trace_step", "trace_tool",
-    "decision", "handoff", "score", "feedback", "outcome", "current_trace_id", "set_session", "check_limits", "limits_status",
+    "decision", "handoff", "score", "feedback", "outcome", "correlate", "current_trace_id", "set_session", "check_limits", "limits_status",
     "LimitExceeded", "Redactor", "context_token", "resume", "inject_mcp_meta", "mcp_server_context",
     "Cassette", "UnrecordedCall", "RecordedToolError",
 ]
@@ -488,6 +488,39 @@ def outcome(name: str, success: bool = True, value: Optional[float] = None, *,
     if not isinstance(success, bool):
         return False
     return score(name, value, passed=success, comment=comment, trace_id=trace_id, _source="outcome")
+
+
+_run_keys = _correlate.RunKeys()
+
+
+def correlate(key: str, value: Union[str, int]) -> bool:
+    """Tag the current run with a business identifier, so an event reported
+    later without the run's trace ID still finds it. For example
+    ``bindle.correlate("ticket_id", ticket.id)``; when the ticket is reopened,
+    your helpdesk reports ``{"correlation": {"ticket_id": "T-123"},
+    "name": "ticket_reopened", "success": false}`` to Bindle.
+
+    ``key``: lowercase letters, digits and ``_``, starting with a letter, at
+    most 32 characters. ``value``: at most 256 bytes. A run keeps at most 8
+    keys. Only a digest of the key and value is sent; Bindle never stores
+    the value. Returns True if recorded. Never raises.
+    """
+    try:
+        attr = _correlate.attribute(key, value)
+        if attr is None:
+            log.debug("bindle: correlate(%r) ignored: invalid key or value", key)
+            return False
+        span = trace.get_current_span()
+        ctx = span.get_span_context()
+        if not ctx.is_valid or not span.is_recording():
+            return False
+        if not _run_keys.admit(ctx.trace_id, key):
+            log.debug("bindle: correlate(%r) ignored: a run keeps at most %d keys", key, _correlate.MAX_KEYS)
+            return False
+        span.set_attribute(attr[0], attr[1])
+        return True
+    except Exception:  # noqa: BLE001 - never break the host app
+        return False
 
 
 def current_trace_id() -> Optional[str]:
