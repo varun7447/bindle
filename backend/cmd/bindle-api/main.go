@@ -114,6 +114,7 @@ func run(log *slog.Logger) error {
 		Stops:    stopStore(store),
 		Features: featureLister(controlDB),
 		Ledger:   ledgerReader(controlDB),
+		Outcomes: outcomeAdmin(store),
 		Prices:   prices,
 		// Public AWS price list (no credentials), for Settings → Model prices.
 		AWSPrices: &api.AWSPriceList{},
@@ -204,6 +205,13 @@ func ledgerReader(db *sql.DB) api.LedgerReader {
 		return nil
 	}
 	return &ledger.Reader{DB: db}
+}
+
+func outcomeAdmin(s *control.Store) api.OutcomeAdmin {
+	if s == nil {
+		return nil
+	}
+	return s
 }
 
 func stopStore(s *control.Store) api.RunStopStore {

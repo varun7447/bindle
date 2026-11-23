@@ -10,6 +10,7 @@ const (
 	SourceNegativeFeedback = "negative_feedback" // users gave a thumbs down
 	SourceFailedScore      = "failed_score"      // a score or check result failed
 	SourceFailedRuns       = "failed_runs"       // any failed run of an agent
+	SourceReversed         = "reversed"          // passed evals, then reversed (outcome grading)
 )
 
 // ProblemFilter selects problem runs. StepName and Pattern narrow failures
