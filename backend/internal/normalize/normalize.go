@@ -18,6 +18,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/bindle-ai/bindle/backend/internal/correlate"
 	"github.com/bindle-ai/bindle/backend/internal/cost"
 	"github.com/bindle-ai/bindle/backend/internal/model"
 	"github.com/bindle-ai/bindle/backend/internal/otlp"
@@ -168,6 +169,13 @@ func (n *Normalizer) Normalize(tenantID string, s model.Span) model.Step {
 	}
 
 	st.Attributes = flatten(a)
+	// Correlation values are hashed (bound to the tenant) and the attributes
+	// that carried them are never stored.
+	corr, drop := correlate.FromAttributes(tenantID, a)
+	st.Correlations = corr
+	for _, k := range drop {
+		delete(st.Attributes, k)
+	}
 	for _, l := range s.Links {
 		st.Links = append(st.Links, l.TraceID+":"+l.SpanID)
 	}
