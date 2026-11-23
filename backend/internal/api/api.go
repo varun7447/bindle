@@ -58,9 +58,12 @@ type Server struct {
 	// Features lists the workspace's operator-set feature flags; nil means
 	// every flagged feature is off.
 	Features FeatureLister
-	Ledger   LedgerReader   // the ledger (feature "ledger"); nil hides it (404)
-	Replay   *replay.Runner // nil disables step replay (503)
-	Prices   *cost.Table    // list prices, for replay cost
+	Ledger   LedgerReader // the ledger (feature "ledger"); nil hides it (404)
+	// Passports and management keys (feature "passports"); nil: 503.
+	Passports PassportStore
+	MgmtKeys  MgmtKeyStore
+	Replay    *replay.Runner // nil disables step replay (503)
+	Prices    *cost.Table    // list prices, for replay cost
 	// AWSPrices serves Bedrock list prices; nil disables (503).
 	AWSPrices *AWSPriceList
 	// ReplayLimiter caps replays per tenant; nil uses 10 a minute.
@@ -124,6 +127,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/agents/topics", s.agentTopics)
 	api.HandleFunc("GET /api/security", s.securitySignals)
 	s.evalRoutes(api)
+	s.passportRoutes(api)
 	api.HandleFunc("POST /api/traces/{id}/steps/{step}/replay", s.replayStep)
 	api.HandleFunc("GET /api/traces/{id}/stop", s.getRunStop)
 	api.HandleFunc("POST /api/traces/{id}/stop", s.stopRun)

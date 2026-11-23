@@ -114,7 +114,11 @@ func run(log *slog.Logger) error {
 		Stops:    stopStore(store),
 		Features: featureLister(controlDB),
 		Ledger:   ledgerReader(controlDB),
-		Prices:   prices,
+		// Passports are pushed through ingest (management keys); the API
+		// reads them and manages the keys.
+		Passports: passportStore(store),
+		MgmtKeys:  mgmtKeyStore(store),
+		Prices:    prices,
 		// Public AWS price list (no credentials), for Settings → Model prices.
 		AWSPrices: &api.AWSPriceList{},
 		// Step replay calls providers at fixed hosts with the caller's key.
@@ -204,6 +208,20 @@ func ledgerReader(db *sql.DB) api.LedgerReader {
 		return nil
 	}
 	return &ledger.Reader{DB: db}
+}
+
+func passportStore(s *control.Store) api.PassportStore {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
+func mgmtKeyStore(s *control.Store) api.MgmtKeyStore {
+	if s == nil {
+		return nil
+	}
+	return s
 }
 
 func stopStore(s *control.Store) api.RunStopStore {

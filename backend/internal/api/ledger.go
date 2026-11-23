@@ -41,7 +41,7 @@ func (s *Server) features(w http.ResponseWriter, r *http.Request) {
 // featureOn answers 404 (as if the route didn't exist) unless the feature
 // is on for the caller's workspace.
 func (s *Server) featureOn(w http.ResponseWriter, r *http.Request, feature string) bool {
-	if s.Features != nil && s.Ledger != nil {
+	if s.Features != nil && (feature != ledger.Feature || s.Ledger != nil) {
 		got, err := s.Features.List(r.Context(), tenantFrom(r.Context()))
 		if err != nil {
 			s.storeError(w, r, err)
