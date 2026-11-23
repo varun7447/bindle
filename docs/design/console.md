@@ -31,12 +31,13 @@ All of them show the data well; none answers "is anything wrong, and what should
 
 ## Visual system
 
-- **Logo:** three staggered bars on a teal tile, like a trace waterfall: the steps of one run, bundled. `console/components/Logo.tsx`, `console/app/icon.svg` (favicon), `docs/images/logo.svg`.
+- **Logo:** three staggered white bars on an indigo (`#4c56d8`) tile, like a trace waterfall: the steps of one run, bundled. Wordmark: lowercase “bindle” in Geist 600. `console/components/Logo.tsx`, `console/app/icon.svg` (favicon), `docs/images/logo.svg`.
 - **Icons:** one 16px stroke set (`console/components/Icons.tsx`), always next to a text label: sidebar, page titles, section headings, KPI tiles, Settings tabs, Runs status filter, alert channel types.
-- **Dark theme:** cool slate in three depths (page `#0b0d12` < sidebar `#0f1218` < card `#141821`), hairline slate borders, a calmer teal accent (`#3cc3a6`), and list actions in neutral text that turn teal on hover. Body text contrast 8-15:1, muted text 5.8:1; the data palette re-validated on the new card color.
+- **Dark theme (Midnight):** navy in three depths (page `#0a0f1e` < sidebar `#0d1326` < card `#111831`), hairline indigo-slate borders, indigo accent: `#8e98ff` for links, focus and current items, `#4c56d8` fill with white text for primary buttons. Type: Geist and Geist Mono.
+- **Light theme:** cool white (page `#f7f8fb`, card `#ffffff`), ink `#0a0f1e`, indigo `#4c56d8` for links and buttons.
 - **Themes:** light and dark from the reference data-viz palette, following the OS, with a sidebar toggle (saved per browser, applied before first paint).
 - **Color roles:** a brand accent for links and actions only; status colors (good, warning, critical) only for state, always with an icon and label; data colors from the categorical palette.
-- **Step types** use categorical slots in a fixed order: LLM blue, tool orange, retrieval aqua, decision violet, eval yellow, handoff magenta, agent and other neutral gray. Validated with the dataviz validator in both themes (adjacent CVD ΔE ≥ 9.2, normal-vision ΔE ≥ 19.3). Light-mode contrast for three slots is below 3:1, so every step also prints its type label.
+- **Step types** use categorical slots in a fixed order: LLM blue, tool orange, retrieval aqua, decision plum, eval yellow, handoff magenta, agent and other neutral gray. Decision moved from violet to plum (light `#77307c`, dark `#983dbc`) with the indigo rebrand: violet sat on top of the indigo accent (CVD ΔE 0.6 light, 4.6 dark). Plum clears the accent (CVD ΔE 14.8 light, 17.2 dark; normal-vision 17.5 / 21.3) and every other step type (CVD ≥ 8.1, normal-vision ≥ 15). Validated with the dataviz validator in both themes (adjacent CVD ΔE ≥ 9.2, normal-vision ΔE ≥ 19.3). Light-mode contrast for three slots is below 3:1, so every step also prints its type label.
 - **Charts:** the runs chart stacks OK runs (series blue) under failed runs (critical red, also marked ✕), with hover details and a table view.
 
 ## Code map
