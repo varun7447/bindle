@@ -6,30 +6,33 @@
  * wins either way.
  *
  * Color roles:
- *   --accent        brand (links, primary buttons, focus). Never data.
+ *   --accent        brand: links, focus, current-item marks. Never data.
+ *   --accent-fill   brand fill for primary buttons (with --accent-fill-ink).
  *   --good/--warning/--critical  status only, always with an icon + label.
  *   --series-1, --k-*            data (charts, step types).
  */
 
 :root {
   color-scheme: light;
-  --bg: #f9f9f7;
-  --surface: #fcfcfb;
-  --side: #fcfcfb;
-  --surface-2: #f1f0ec;
-  --surface-3: #e9e8e3;
-  --border: rgba(11, 11, 11, 0.1);
-  --border-strong: rgba(11, 11, 11, 0.18);
-  --grid: #e1e0d9;
-  --axis: #c3c2b7;
-  --text: #0b0b0b;
-  --text-2: #52514e;
-  --muted: #6f6d68;
-  --accent: #0b7d62;
+  --bg: #f7f8fb;
+  --surface: #ffffff;
+  --side: #fbfbfd;
+  --surface-2: #eff1f7;
+  --surface-3: #e4e7f0;
+  --border: rgba(10, 15, 30, 0.1);
+  --border-strong: rgba(10, 15, 30, 0.18);
+  --grid: #e2e5ee;
+  --axis: #c2c7d6;
+  --text: #0a0f1e;
+  --text-2: #4a5068;
+  --muted: #636a82;
+  --accent: #4c56d8;
   --accent-ink: #ffffff;
-  --accent-soft: rgba(11, 125, 98, 0.1);
-  --shadow: 0 1px 2px rgba(11, 11, 11, 0.04), 0 1px 1px rgba(11, 11, 11, 0.03);
-  --shadow-lg: 0 12px 40px rgba(11, 11, 11, 0.18);
+  --accent-fill: #4c56d8;
+  --accent-fill-ink: #ffffff;
+  --accent-soft: rgba(76, 86, 216, 0.1);
+  --shadow: 0 1px 2px rgba(10, 15, 30, 0.04), 0 1px 1px rgba(10, 15, 30, 0.03);
+  --shadow-lg: 0 12px 40px rgba(10, 15, 30, 0.18);
 
   --good: #0ca30c;
   --good-text: #006300;
@@ -47,7 +50,7 @@
   --k-llm: #2a78d6;
   --k-tool: #eb6834;
   --k-retrieval: #1baf7a;
-  --k-decision: #6250d6;
+  --k-decision: #77307c;
   --k-eval: #eda100;
   --k-handoff: #e87ba4;
   --k-neutral: #898781;
@@ -61,22 +64,25 @@
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme='light'])) {
     color-scheme: dark;
-    /* Cool slate, three depths: page < sidebar < card. */
-    --bg: #0b0d12;
-    --side: #0f1218;
-    --surface: #141821;
-    --surface-2: #1b2030;
-    --surface-3: #252b3b;
-    --border: rgba(148, 163, 184, 0.12);
-    --border-strong: rgba(148, 163, 184, 0.22);
-    --grid: #222838;
-    --axis: #2f3647;
-    --text: #e6e9ef;
-    --text-2: #aab2c0;
-    --muted: #8a93a5;
-    --accent: #3cc3a6;
-    --accent-ink: #0b0d12;
-    --accent-soft: rgba(60, 195, 166, 0.12);
+    /* Midnight: navy in three depths: page < sidebar < card. */
+    --bg: #0a0f1e;
+    --side: #0d1326;
+    --surface: #111831;
+    --surface-2: #18203d;
+    --surface-3: #222b4b;
+    --border: rgba(142, 152, 214, 0.13);
+    --border-strong: rgba(142, 152, 214, 0.24);
+    --grid: #1f2945;
+    --axis: #2b365a;
+    --text: #e8ecf7;
+    --text-2: #aeb6cf;
+    --muted: #8a94b0;
+    /* Indigo: light tint for links and focus, deep fill for primary buttons. */
+    --accent: #8e98ff;
+    --accent-ink: #0a0f1e;
+    --accent-fill: #4c56d8;
+    --accent-fill-ink: #ffffff;
+    --accent-soft: rgba(142, 152, 255, 0.14);
     --shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
     --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.55);
     --good-text: #4cc38a;
@@ -91,30 +97,33 @@
     --k-llm: #3987e5;
     --k-tool: #d95926;
     --k-retrieval: #199e70;
-    --k-decision: #9085e9;
+    --k-decision: #983dbc;
     --k-eval: #c98500;
     --k-handoff: #d55181;
-    --k-neutral: #6b7486;
+    --k-neutral: #66708f;
   }
 }
 :root[data-theme='dark'] {
   color-scheme: dark;
-  /* Cool slate, three depths: page < sidebar < card. */
-  --bg: #0b0d12;
-  --side: #0f1218;
-  --surface: #141821;
-  --surface-2: #1b2030;
-  --surface-3: #252b3b;
-  --border: rgba(148, 163, 184, 0.12);
-  --border-strong: rgba(148, 163, 184, 0.22);
-  --grid: #222838;
-  --axis: #2f3647;
-  --text: #e6e9ef;
-  --text-2: #aab2c0;
-  --muted: #8a93a5;
-  --accent: #3cc3a6;
-  --accent-ink: #0b0d12;
-  --accent-soft: rgba(60, 195, 166, 0.12);
+  /* Midnight: navy in three depths: page < sidebar < card. */
+  --bg: #0a0f1e;
+  --side: #0d1326;
+  --surface: #111831;
+  --surface-2: #18203d;
+  --surface-3: #222b4b;
+  --border: rgba(142, 152, 214, 0.13);
+  --border-strong: rgba(142, 152, 214, 0.24);
+  --grid: #1f2945;
+  --axis: #2b365a;
+  --text: #e8ecf7;
+  --text-2: #aeb6cf;
+  --muted: #8a94b0;
+  /* Indigo: light tint for links and focus, deep fill for primary buttons. */
+  --accent: #8e98ff;
+  --accent-ink: #0a0f1e;
+  --accent-fill: #4c56d8;
+  --accent-fill-ink: #ffffff;
+  --accent-soft: rgba(142, 152, 255, 0.14);
   --shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.55);
   --good-text: #4cc38a;
@@ -129,10 +138,10 @@
   --k-llm: #3987e5;
   --k-tool: #d95926;
   --k-retrieval: #199e70;
-  --k-decision: #9085e9;
+  --k-decision: #983dbc;
   --k-eval: #c98500;
   --k-handoff: #d55181;
-  --k-neutral: #6b7486;
+  --k-neutral: #66708f;
 }
 
 * { box-sizing: border-box; }
@@ -222,8 +231,8 @@ button:hover { background: var(--surface-2); }
 button:disabled { opacity: 0.55; cursor: default; }
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text); font-size: 13px; font-weight: 500; }
 .btn:hover { text-decoration: none; background: var(--surface-2); }
-.btn-primary, button.btn-primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
-.btn-primary:hover, button.btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
+.btn-primary, button.btn-primary { background: var(--accent-fill); color: var(--accent-fill-ink); border-color: var(--accent-fill); font-weight: 600; }
+.btn-primary:hover, button.btn-primary:hover { background: var(--accent-fill); filter: brightness(1.1); }
 .btn-sm { padding: 3px 9px; font-size: 12px; }
 
 /* ---- status banner (the one-line answer) ---- */
@@ -431,7 +440,7 @@ div.payload.empty-payload { margin: 0; background: var(--bg); border: 1px dashed
 /* ---- logo & icons ---- */
 .logo { display: inline-flex; align-items: center; gap: 9px; }
 .logo svg { flex: none; display: block; }
-.logo-word { font-weight: 700; font-size: 17px; letter-spacing: -0.02em; color: var(--text); }
+.logo-word { font-weight: 600; font-size: 17px; letter-spacing: -0.04em; color: var(--text); }
 h1.title { display: flex; align-items: center; gap: 10px; }
 .title-icon { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); flex: none; }
 .title-icon svg { width: 17px; height: 17px; }
