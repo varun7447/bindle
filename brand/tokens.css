@@ -1,0 +1,96 @@
+/*
+ * Bindle brand tokens: Midnight + Indigo, Geist.
+ * Light theme is the default; dark applies with [data-theme="dark"] or the OS
+ * setting. The console's console/app/globals.css uses the same names.
+ *
+ * Rules:
+ *   --accent       links, focus rings, current-item marks. Never data.
+ *   --accent-fill  primary button fill, paired with --accent-fill-ink.
+ *   --k-*          step types in charts and the waterfall. Data only, never brand.
+ *   status colours always ship with an icon and a label, never colour alone.
+ */
+
+:root {
+  /* Type */
+  --font-sans: 'Geist', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Brand constants (theme-independent) */
+  --brand-indigo: #4c56d8;      /* logo tile, primary buttons */
+  --brand-indigo-light: #8e98ff; /* links and highlights on dark */
+  --brand-midnight: #0a0f1e;    /* darkest background, light-theme ink */
+
+  /* Light theme */
+  --bg: #f7f8fb;
+  --surface: #ffffff;
+  --side: #fbfbfd;
+  --surface-2: #eff1f7;
+  --surface-3: #e4e7f0;
+  --border: rgba(10, 15, 30, 0.1);
+  --border-strong: rgba(10, 15, 30, 0.18);
+  --grid: #e2e5ee;
+  --axis: #c2c7d6;
+  --text: #0a0f1e;
+  --text-2: #4a5068;
+  --muted: #636a82;
+  --accent: #4c56d8;
+  --accent-ink: #ffffff;
+  --accent-fill: #4c56d8;
+  --accent-fill-ink: #ffffff;
+  --accent-soft: rgba(76, 86, 216, 0.1);
+
+  --good: #0ca30c;      --good-text: #006300;
+  --warning: #fab219;   --warning-text: #7a5000;
+  --critical: #d03b3b;  --critical-text: #b32f2f;
+  --info: #2a78d6;
+
+  --k-llm: #2a78d6;
+  --k-tool: #eb6834;
+  --k-retrieval: #1baf7a;
+  --k-decision: #77307c;  /* plum: kept apart from the indigo accent */
+  --k-eval: #eda100;
+  --k-handoff: #e87ba4;
+  --k-neutral: #898781;
+
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+}
+
+/* Dark theme (Midnight). Apply with <html data-theme="dark">. To follow the
+   OS setting too, repeat this block inside
+   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { … } },
+   as console/app/globals.css does. The marketing site is dark only. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0a0f1e;
+  --side: #0d1326;
+  --surface: #111831;
+  --surface-2: #18203d;
+  --surface-3: #222b4b;
+  --border: rgba(142, 152, 214, 0.13);
+  --border-strong: rgba(142, 152, 214, 0.24);
+  --grid: #1f2945;
+  --axis: #2b365a;
+  --text: #e8ecf7;
+  --text-2: #aeb6cf;
+  --muted: #8a94b0;
+  --accent: #8e98ff;
+  --accent-ink: #0a0f1e;
+  --accent-fill: #4c56d8;
+  --accent-fill-ink: #ffffff;
+  --accent-soft: rgba(142, 152, 255, 0.14);
+
+  --good-text: #4cc38a;     --good-bg: rgba(76, 195, 138, 0.12);
+  --warning-text: #f2c14e;  --warning-bg: rgba(242, 193, 78, 0.1);
+  --critical-text: #f07a7a; --critical-bg: rgba(240, 122, 122, 0.12);
+  --info: #6aa5ef;          --info-bg: rgba(106, 165, 239, 0.12);
+
+  --k-llm: #3987e5;
+  --k-tool: #d95926;
+  --k-retrieval: #199e70;
+  --k-decision: #983dbc;
+  --k-eval: #c98500;
+  --k-handoff: #d55181;
+  --k-neutral: #66708f;
+}
