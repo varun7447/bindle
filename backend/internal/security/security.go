@@ -78,6 +78,10 @@ const (
 	minTagChars      = 4 // invisible Unicode tag characters (ASCII smuggling)
 )
 
+// IsOutboundTool reports whether a tool's name suggests it sends data out
+// of the agent (email, HTTP, webhooks, uploads, messaging).
+func IsOutboundTool(name string) bool { return outboundToolRe.MatchString(name) }
+
 // Detect inspects one normalized step. input and output must already be
 // redacted; toolName is the tool's name for tool steps.
 func Detect(stepType, toolName, input, output string) Result {

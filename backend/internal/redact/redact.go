@@ -5,6 +5,7 @@ package redact
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -33,6 +34,35 @@ func Default() *Redactor {
 		{label: "EMAIL", re: regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)},
 		{label: "PHONE", re: regexp.MustCompile(`(?:\+?1[\-. ]?)?\(?\b\d{3}\)?[\-. ]?\d{3}[\-. ]?\d{4}\b`)},
 	}}
+}
+
+// Labels are the built-in redaction labels. They are the data classes a
+// step can carry, as [REDACTED:<LABEL>] markers.
+var Labels = []string{"PRIVATE_KEY", "SECRET", "CARD", "SSN", "EMAIL", "PHONE"}
+
+var markerRe = regexp.MustCompile(`\[REDACTED:([A-Z][A-Z0-9_]{0,31})\]`)
+
+// Found returns the distinct labels of the redaction markers in already
+// redacted texts, sorted. It sees labels only; values are already gone.
+func Found(texts ...string) []string {
+	seen := map[string]bool{}
+	for _, t := range texts {
+		if !strings.Contains(t, "[REDACTED:") {
+			continue
+		}
+		for _, m := range markerRe.FindAllStringSubmatch(t, -1) {
+			seen[m[1]] = true
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(seen))
+	for l := range seen {
+		out = append(out, l)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Apply returns s with every match replaced.
