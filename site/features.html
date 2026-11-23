@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bindle — Features</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="styles.css">
+<script src="main.js" defer></script>
+</head>
+<body class="page-features">
+
+<div class="page">
+
+<header class="site-header">
+<div class="wrap nav-bar">
+<a href="index.html" class="brand-link" aria-label="Bindle home">
+<svg width="32" height="32" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="5" class="logo-tile"></rect><rect x="5" y="6.5" width="14" height="2.6" rx="1.3" class="logo-bar"></rect><rect x="8" y="10.7" width="9" height="2.6" rx="1.3" class="logo-bar"></rect><rect x="11" y="14.9" width="8" height="2.6" rx="1.3" class="logo-bar"></rect></svg>
+<span class="brand-word">bindle</span>
+</a>
+<nav class="navlinks nav-links-row" aria-label="Main">
+<a class="navlink navlink-current" href="features.html">Features</a>
+<a class="navlink" href="index.html">Overview</a>
+<a class="navlink" href="docs.html">Docs</a>
+<a class="navlink" href="https://github.com/varun7447/bindle">GitHub</a>
+</nav>
+<a class="btn btn-primary" href="docs.html">Get started</a>
+</div>
+</header>
+
+<section class="hero-features">
+<div class="wrap hero-center">
+<p class="eyebrow eyebrow-flush">Features</p>
+<h1 class="h1 features-title">Debug, evaluate and control your agents — in one place.</h1>
+<p class="features-lead">Every capability below works from the same trace your agent already sends. Filter by what you're trying to do.</p>
+<div role="tablist" aria-label="Filter features" class="tabs-center">
+
+<button role="tab" class="tab on" data-filter="All" aria-selected="true" tabindex="0" type="button" aria-controls="feature-list">All <span class="tab-count">14</span></button>
+
+<button role="tab" class="tab " data-filter="Debug" aria-selected="false" tabindex="-1" type="button" aria-controls="feature-list">Debug <span class="tab-count">5</span></button>
+
+<button role="tab" class="tab " data-filter="Agents" aria-selected="false" tabindex="-1" type="button" aria-controls="feature-list">Agents <span class="tab-count">1</span></button>
+
+<button role="tab" class="tab " data-filter="Tracing" aria-selected="false" tabindex="-1" type="button" aria-controls="feature-list">Tracing <span class="tab-count">1</span></button>
+
+<button role="tab" class="tab " data-filter="Evaluate" aria-selected="false" tabindex="-1" type="button" aria-controls="feature-list">Evaluate <span class="tab-count">3</span></button>
+
+<button role="tab" class="tab " data-filter="Control" aria-selected="false" tabindex="-1" type="button" aria-controls="feature-list">Control <span class="tab-count">1</span></button>
+
+<button role="tab" class="tab " data-filter="Cost" aria-selected="false" tabindex="-1" type="button" aria-controls="feature-list">Cost <span class="tab-count">2</span></button>
+
+<button role="tab" class="tab " data-filter="Security" aria-selected="false" tabindex="-1" type="button" aria-controls="feature-list">Security <span class="tab-count">1</span></button>
+
+</div>
+</div>
+</section>
+
+<section class="features-list-sec">
+<div class="wrap features-list" id="feature-list">
+
+<article class="card fgrid feature" data-group="Debug">
+<div class="stack-16">
+<span class="feature-group">Debug</span>
+<h2 class="feature-title">Home: what needs attention</h2>
+<p class="text-16">Home answers “is anything wrong?” in one line, then ranks what needs attention, most severe first. Key numbers compare with the previous period, and every metric has a plain-language definition behind its ?.</p>
+<div class="stack-10">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Repeated step failures grouped with each distinct error</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Failure-rate spikes, runaway loops, unusually expensive runs</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Agents spending budget on runs that didn’t succeed; unpriced models</span></div>
+
+</div>
+</div>
+<div class="stack-10">
+<span class="mono mono-12">Home banner</span>
+<pre class="code mono">✕  5 issues need attention
+   44 runs from 14 agents, 14% failed · p95 900 ms
+
+CRITICAL  refund_payment is failing
+          Failed 4 times in 4 runs.
+          Latest error: payments API timed out after 20ms
+          → Open latest failure
+
+WARNING   refund_agent: 33% of runs failed
+          → See failed runs
+
+INFO      Some model calls have no known price
+          cost is a lower bound → See runs</pre>
+</div>
+</article>
+
+<article class="card fgrid feature" data-group="Debug">
+<div class="stack-16">
+<span class="feature-group">Debug</span>
+<h2 class="feature-title">Run details with root cause</h2>
+<p class="text-16">Opens with a summary of what the run did — calls, failures, retries, loops, time and cost. When a failure traces back to an earlier step, the summary names it and selects it.</p>
+<div class="stack-10">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Empty or failed tool result that a later LLM call carried on without</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Rejected tool arguments; the same call failing the same way on every retry</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Answers cut off at the output token limit; prompts grown too large</span></div>
+
+</div>
+</div>
+<div class="stack-10">
+<span class="mono mono-12">Run summary</span>
+<pre class="code mono">refund-agent failed after 180 ms.
+
+• 2 LLM calls, 3 tool calls, 1 retrieval,
+  1 decision and 1 eval.
+✕ refund_payment failed: “payments API timed
+  out after 20ms”. A retry succeeded.
+• Most time went to 2 LLM calls (50%).
+
+Likely cause: step 3 — lookup_order returned
+nothing, and step 4 answered without it</pre>
+</div>
+</article>
+
+<article class="card fgrid feature" data-group="Debug">
+<div class="stack-16">
+<span class="feature-group">Debug</span>
+<h2 class="feature-title">Compare runs</h2>
+<p class="text-16">Lines up two runs’ steps and says where their paths first diverge, which steps only one run took, how often each tool was called, and what changed in the steps both took.</p>
+<div class="stack-10">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Status, duration, tokens, cost, model and tool arguments</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Available on any run via “Compare with…”</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Link from Agents to compare a recent run of each version</span></div>
+
+</div>
+</div>
+<div class="stack-10">
+<span class="mono mono-12">Compare with…</span>
+<pre class="code mono">The runs match for the first 4 steps, then diverge:
+  A calls refund, B calls escalate.
+
+             A      B
+search_kb    1      1
+refund       1      —
+escalate     —      1</pre>
+</div>
+</article>
+
+<article class="card fgrid feature" data-group="Debug">
+<div class="stack-16">
+<span class="feature-group">Debug</span>
+<h2 class="feature-title">Context and cache</h2>
+<p class="text-16">Shows each call’s prompt size and how much came from the prompt cache, the largest tool results, and plain hints about where context is going.</p>
+<div class="stack-10">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Prompt growth across a run</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Cache share per call</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Huge tool results that ride along in every later prompt</span></div>
+
+</div>
+</div>
+<div class="stack-10">
+<span class="mono mono-12">Hints on runs with several LLM calls</span>
+<pre class="code mono">• The prompt grew 25× during this run.
+• Only 5% was cached.
+• A 64 KB tool result is carried in every
+  later prompt.</pre>
+</div>
+</article>
+
+<article class="card fgrid feature" data-group="Debug">
+<div class="stack-16">
+<span class="feature-group">Debug</span>
+<h2 class="feature-title">Sessions, feedback and search</h2>
+<p class="text-16">Sessions group a conversation’s runs into a chat view with how it ended and what the user said. Home flags conversations where users were unhappy. Search finds runs by what was said, what a tool returned, or the error.</p>
+<div class="stack-10">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Thumbs and ratings via bindle.feedback()</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Full-text search with highlighted snippets</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Redacted values stay redacted in search</span></div>
+
+</div>
+</div>
+<div class="stack-10">
+<span class="mono mono-12">Python</span>
+<pre class="code mono">bindle.set_session("conversation-42")
+trace_id = bindle.current_trace_id()
+
+# later, from your UI
+bindle.feedback(trace_id=trace_id,
+                thumbs_up=False,
+                comment="wrong order")</pre>
+</div>
+</article>
+
+<article class="card fgrid feature" data-group="Agents">
+<div class="stack-16">
+<span class="feature-group">Agents</span>
+<h2 class="feature-title">Agent versions and tool health</h2>
+<p class="text-16">Compares an agent’s versions on failure rate, cost per run, p95, steps, cache share and tool errors — each against the previous version — and shows how the newest version’s path changed.</p>
+<div class="stack-10">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Tool health: failures, bad-argument errors, latency, result size</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Works for SDK tools, MCP tools and AgentCore Gateway tools alike</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>“What users ask about”: new and rising topics, via OpenSearch word statistics — not a model</span></div>
+
+</div>
+</div>
+<div class="stack-10">
+<span class="mono mono-12">Agents page</span>
+<pre class="code mono">v2 calls search 3.0× as often per run
+   (2.4 vs 0.8)
+v2 started calling: lookup_order
+v2 stopped calling: escalate
+
+→ Compare a recent run of each version</pre>
+</div>
+</article>
+
+<article class="card fgrid feature" data-group="Security">
+<div class="stack-16">
+<span class="feature-group">Security</span>
+<h2 class="feature-title">Security signals</h2>
+<p class="text-16">Flags steps worth a second look, on Home, in the run summary and as a badge on the step — each with a plain explanation. A Security signal alert rule notifies your channels.</p>
+<div class="stack-10">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Possible prompt injection: instructions to ignore rules, reveal the system prompt, chat control tokens, invisible text</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Credentials surfacing in a result — redacted before storage, only a count kept</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Possible exfiltration: very long URL queries, encoded blobs, sensitive data to messaging tools</span></div>
+
+</div>
+</div>
+<div class="stack-10">
+<span class="mono mono-12">Signals</span>
+<pre class="code mono">⚠ Possible prompt injection
+  A retrieved document tells the model to
+  ignore its instructions.
+
+⚠ Credential in tool result (redacted)
+
+Detectors are deliberately conservative:
+signals to review, not verdicts.</pre>
+</div>
+</article>
+
+<article class="card fgrid feature" data-group="Tracing">
+<div class="stack-16">
+<span class="feature-group">Tracing</span>
+<h2 class="feature-title">Linked runs across queues, approvals, handoffs and MCP</h2>
+<p class="text-16">Connect work that doesn’t fit in one trace: a run that waits in a queue or for a human’s approval, hands over to another agent, or calls tools on an MCP server. The run page lists what it continued from, continued in, or handed off to.</p>
+<div class="stack-10">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Store context_token() with the job; resume(token) wherever it continues</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>MCP calls carry the trace in params._meta</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>HTTP calls between agents use the standard traceparent header</span></div>
+
+</div>
+</div>
+<div class="stack-10">
+<span class="mono mono-12">Python</span>
+<pre class="code mono">token = bindle.context_token()   # store with the job
+
+# hours later, in another service
+with bindle.resume(token, name="after approval"):
+    ...
+
+# another agent takes over
+with bindle.resume(token, kind="handoff"): ...
+
+# MCP client / server
+params = bindle.inject_mcp_meta(params)
+with bindle.mcp_server_context(params): ...</pre>
+</div>
+</article>
+
+<article class="card fgrid feature" data-group="Evaluate">
+<div class="stack-16">
+<span class="feature-group">Evaluate</span>
+<h2 class="feature-title">Evals without calling a model</h2>
+<p class="text-16">Deterministic checks run on datasets saved from runs and on a sample of each version’s recent runs. Model-graded scores run in your own environment and come back with bindle.score(). Bindle never holds your model keys.</p>
+<div class="stack-10">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Output contains / matches, valid JSON, tool (not) called, at most N steps, cost limit, no step failed</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>bindle eval fails the pull request when the pass rate drops</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>OpenTelemetry gen_ai.evaluation.result events from Azure AI Foundry, Vertex AI, AgentCore</span></div>
+
+</div>
+</div>
+<div class="stack-10">
+<span class="mono mono-12">GitHub Actions</span>
+<pre class="code mono">bindle eval \
+  --dataset evals/refunds.jsonl \
+  --checks evals/bindle-checks.json \
+  --agent my_app.agent:answer \
+  --judge my_app.judge:grade \
+  --max-drop 0.05 \
+  --report eval-report.md</pre>
+</div>
+</article>
+
+<article class="card fgrid feature" data-group="Evaluate">
+<div class="stack-16">
+<span class="feature-group">Evaluate</span>
+<h2 class="feature-title">Production problems become eval cases</h2>
+<p class="text-16">From a failure group on Home, disliked conversations, failed scores or an agent’s failed runs, one click copies up to 50 recent matching runs into a dataset. Bindle proposes checks that would have caught them and saves only the ones you keep.</p>
+<div class="stack-10">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Each item labelled with where it came from</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Shows how many of the runs each proposed check fails</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Datasets outlive trace retention</span></div>
+
+</div>
+</div>
+<div class="stack-10">
+<span class="mono mono-12">Proposed checks</span>
+<pre class="code mono">Proposed checks for 12 problem runs
+
+☐ No step fails
+☐ The error text doesn’t reach the user
+☐ lookup_order is called (good runs always do)
+☐ At most N steps (runaway-loop guard)
+☐ Output is valid JSON
+
+Each shows how many problem runs it fails.
+Nothing is saved until you confirm.</pre>
+</div>
+</article>
+
+<article class="card fgrid feature" data-group="Evaluate">
+<div class="stack-16">
+<span class="feature-group">Evaluate</span>
+<h2 class="feature-title">Replay and recorded-tool cassettes</h2>
+<p class="text-16">Replay re-runs one captured LLM call with an edited prompt or another model, side by side with the original. Cassettes save a run’s input and every tool call so you can re-run your agent on a real failure without touching live systems.</p>
+<div class="stack-10">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Provider key pasted per request, never stored</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>cassette.report() shows where the new run took a different path</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Python Cassette and TypeScript Cassette</span></div>
+
+</div>
+</div>
+<div class="stack-10">
+<span class="mono mono-12">Python</span>
+<pre class="code mono">cassette = bindle.Cassette.load(
+    "run-0af7….cassette.json")
+
+@cassette.tool
+def lookup_order(order_id: str) -&gt; dict: ...
+
+answer = my_agent(cassette.input)
+print(cassette.report())</pre>
+</div>
+</article>
+
+<article class="card fgrid feature" data-group="Control">
+<div class="stack-16">
+<span class="feature-group">Control</span>
+<h2 class="feature-title">Agent limits and budgets</h2>
+<p class="text-16">Pause an agent, cap steps or tokens per run, stop a run that repeats the same tool call (a loop guard), set a daily budget, or Stop run from the console. Limits take effect only where your agent calls check_limits() — Bindle never stops an agent anywhere else.</p>
+<div class="stack-10">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Settings refresh about once a minute</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Budgets use priced spend since 00:00 UTC and notify once a day</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>LimitExceeded.reason tells you exactly why</span></div>
+
+</div>
+</div>
+<div class="stack-10">
+<span class="mono mono-12">Python</span>
+<pre class="code mono">while not done:
+    bindle.check_limits()
+    step()
+
+# LimitExceeded.reason:
+#   paused | over_budget | stopped
+#   max_steps_per_run | max_tokens_per_run
+#   max_repeat_calls</pre>
+</div>
+</article>
+
+<article class="card fgrid feature" data-group="Cost">
+<div class="stack-16">
+<span class="feature-group">Cost</span>
+<h2 class="feature-title">Outcome economics</h2>
+<p class="text-16">Answers “what does one good result cost?”. The Agents page shows each version’s cost per successful outcome and its wasted spend on failed runs and failed outcomes.</p>
+<div class="stack-10">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Send outcomes inside a run or later, from elsewhere</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Fallback definition: no failed step and no thumbs-down</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Amounts with unpriced calls are shown as lower bounds</span></div>
+
+</div>
+</div>
+<div class="stack-10">
+<span class="mono mono-12">Python</span>
+<pre class="code mono">bindle.outcome("ticket_resolved")
+
+bindle.outcome("refund_issued",
+               success=False,
+               trace_id=trace_id)</pre>
+</div>
+</article>
+
+<article class="card fgrid feature" data-group="Cost">
+<div class="stack-16">
+<span class="feature-group">Cost</span>
+<h2 class="feature-title">Honest cost</h2>
+<p class="text-16">Cost comes from published list prices in backend/pricing.json (Anthropic and OpenAI, each with source and date, including long-prompt tiers), or from what your workspace actually pays. A weekly job checks the providers’ pricing pages and opens an issue on change.</p>
+<div class="stack-10">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Workspace prices for discounts, batch, Bedrock, Vertex, Azure or self-hosted</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>AWS public Bedrock list prices per region to copy from</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Computed on arrival — price changes never rewrite history</span></div>
+
+</div>
+</div>
+<div class="stack-10">
+<span class="mono mono-12">Model prices</span>
+<pre class="code mono">claude-…      $ list price · source · date
+bedrock/…     workspace price  (marked)
+my-local-llm  unknown — never estimated</pre>
+</div>
+</article>
+
+</div>
+</section>
+
+<section class="cta-sec">
+<div class="wrap">
+<div class="cta-features">
+<h2 class="cta-features-title">Try it on your own agent in minutes.</h2>
+<p class="cta-features-lead">Run the local stack, send the demo runs — including a runaway loop — and open the console.</p>
+<div class="cta-actions">
+<a class="btn btn-primary" href="docs.html">Read the quickstart</a>
+<a class="btn btn-ghost" href="https://github.com/varun7447/bindle">View on GitHub</a>
+</div>
+</div>
+</div>
+</section>
+
+<footer class="footer-slim">
+<div class="wrap footer-slim-inner">
+<span>© Bindle contributors · Apache-2.0</span>
+<div class="footer-slim-links"><a class="navlink footer-slim-link" href="index.html">Overview</a><a class="navlink footer-slim-link" href="docs.html">Docs</a><a class="navlink footer-slim-link" href="https://github.com/varun7447/bindle">GitHub</a></div>
+</div>
+</footer>
+</div>
+
+</body></html>
