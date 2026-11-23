@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bindle — Observability for AI agents</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="styles.css">
+<script src="main.js" defer></script>
+</head>
+<body class="page-index">
+
+<div class="page">
+
+<header class="site-header">
+<div class="wrap nav-bar">
+<a href="index.html" class="brand-link" aria-label="Bindle home">
+<svg width="32" height="32" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="5" class="logo-tile"></rect><rect x="5" y="6.5" width="14" height="2.6" rx="1.3" class="logo-bar"></rect><rect x="8" y="10.7" width="9" height="2.6" rx="1.3" class="logo-bar"></rect><rect x="11" y="14.9" width="8" height="2.6" rx="1.3" class="logo-bar"></rect></svg>
+<span class="brand-word">bindle</span>
+</a>
+<nav class="navlinks nav-links-row" aria-label="Main">
+<a class="navlink" href="features.html">Features</a>
+<a class="navlink" href="#tour">Console</a>
+<a class="navlink" href="#how">How it works</a>
+<a class="navlink" href="#integrations">Integrations</a>
+<a class="navlink" href="docs.html">Docs</a>
+<a class="navlink" href="#faq">FAQ</a>
+</nav>
+<div class="nav-actions">
+<a class="btn btn-ghost" href="https://github.com/varun7447/bindle">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+GitHub
+</a>
+<a class="btn btn-primary" href="docs.html">Get started</a>
+</div>
+</div>
+</header>
+
+<section class="sec hero">
+<div class="wrap hero-grid hero-layout">
+<div class="hero-copy">
+<a href="https://github.com/varun7447/bindle" class="hero-pill">
+<span class="hero-pill-dot"></span>
+Open source · Apache 2.0 · Self-hostable
+</a>
+<h1 class="h1 hero-title">See every step your agent takes. <span class="hero-title-accent">Know why it failed.</span></h1>
+<p class="lead hero-lead">Bindle puts every LLM call, tool call, retrieval, decision and handoff in one trace — then explains failures, loops, latency and cost in plain language, so you know exactly what to open first.</p>
+<div class="row-wrap-14">
+<a class="btn btn-primary btn-lg" href="docs.html">Start tracing in one line</a>
+<a class="btn btn-ghost btn-lg" href="#tour">Tour the console</a>
+</div>
+<div class="install">
+<span class="mono install-prompt">$</span>
+<code class="mono install-cmd">pip install bindle-sdk</code>
+<button class="btn btn-ghost btn-sm" type="button" aria-label="Copy install command" data-copy="pip install bindle-sdk">Copy</button><span class="sr-only" aria-live="polite" data-copy-status></span>
+</div>
+</div>
+
+<div class="card demo-card">
+<div class="demo-head">
+<span class="fail badge-failed">✕ Failed</span>
+<span class="demo-title">refund-agent failed after 180 ms.</span>
+</div>
+<div class="demo-lines">
+<div>• It made 2 LLM calls, 3 tool calls, 1 retrieval, 1 decision and 1 eval.</div>
+<div><span class="t-failed">✕</span> refund_payment failed: “payments API timed out after 20ms”. A retry succeeded.</div>
+<div>• Most time went to 2 LLM calls (50%).</div>
+</div>
+<div class="wf">
+<div class="wf-row"><span class="wf-name"><span class="wf-type-agent">Agent</span>  refund-agent run</span><div class="wf-track"><div class="wf-bar wf-agent" style="left: 0%; width: 100%; animation-delay: 0s"></div></div><span class="mono wf-dur">180ms</span></div>
+<div class="wf-row"><span class="wf-name"><span class="wf-type-llm">LLM</span>  plan</span><div class="wf-track"><div class="wf-bar wf-llm" style="left: 0%; width: 23%; animation-delay: .1s"></div></div><span class="mono wf-dur">41ms</span></div>
+<div class="wf-row"><span class="wf-name"><span class="wf-type-decision">Decision</span>  route</span><div class="wf-track"><div class="wf-bar wf-decision" style="left: 23%; width: 1.2%; animation-delay: .2s"></div></div><span class="mono wf-dur">40µs</span></div>
+<div class="wf-row"><span class="wf-name"><span class="wf-type-tool">Tool</span>  get_order</span><div class="wf-track"><div class="wf-bar wf-tool" style="left: 24%; width: 6%; animation-delay: .3s"></div></div><span class="mono wf-dur">11ms</span></div>
+<div class="wf-row"><span class="wf-name"><span class="wf-type-retrieval">Retrieval</span>  search_policy</span><div class="wf-track"><div class="wf-bar wf-retrieval" style="left: 30%; width: 10.5%; animation-delay: .4s"></div></div><span class="mono wf-dur">19ms</span></div>
+<div class="wf-row-failed"><span class="wf-name-failed"><span class="wf-type-tool">Tool</span>  refund_payment ✕</span><div class="wf-track"><div class="wf-bar wf-failed" style="left: 41%; width: 16%; animation-delay: .5s"></div></div><span class="mono wf-dur-failed">29ms</span></div>
+<div class="wf-row"><span class="wf-name"><span class="wf-type-tool">Tool</span>  refund_payment ↻</span><div class="wf-track"><div class="wf-bar wf-tool" style="left: 57%; width: 14%; animation-delay: .6s"></div></div><span class="mono wf-dur">25ms</span></div>
+<div class="wf-row"><span class="wf-name"><span class="wf-type-eval">Eval</span>  answer_quality</span><div class="wf-track"><div class="wf-bar wf-eval" style="left: 71%; width: 3%; animation-delay: .7s"></div></div><span class="mono wf-dur">5.5ms</span></div>
+<div class="wf-row"><span class="wf-name"><span class="wf-type-llm">LLM</span>  respond</span><div class="wf-track"><div class="wf-bar wf-llm" style="left: 73%; width: 27%; animation-delay: .8s"></div></div><span class="mono wf-dur">49ms</span></div>
+</div>
+<div class="demo-note">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="demo-note-icon ic"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+<span>Root-cause step selected by default — every line of the summary links to its step.</span>
+</div>
+</div>
+</div>
+</section>
+
+<section id="integrations" class="logos">
+<div class="wrap logos-inner">
+<p class="logos-label">Auto-instruments the frameworks you already use — or anything that speaks OpenTelemetry</p>
+<div class="logos-list">
+
+<span class="logo-chip">LangGraph</span>
+
+<span class="logo-chip">Strands Agents</span>
+
+<span class="logo-chip">Google ADK</span>
+
+<span class="logo-chip">Microsoft Agent Framework</span>
+
+<span class="logo-chip">Amazon Bedrock AgentCore</span>
+
+<span class="logo-chip">OpenTelemetry</span>
+
+<span class="logo-chip">MCP</span>
+
+<span class="logo-chip">Azure AI Foundry</span>
+
+<span class="logo-chip">Vertex AI</span>
+
+</div>
+</div>
+</section>
+
+<section class="sec sec-pad">
+<div class="wrap">
+<p class="eyebrow">Answer first, data second</p>
+<h2 class="h2">Other tools show the data.<br>Bindle tells you what's wrong.</h2>
+<p class="lead">Every page opens with a sentence — “5 issues need attention”, “refund-agent failed after 180 ms.” — then the evidence underneath. Explanations are computed from the trace, not generated by a model, so they're fast, free and never invent facts.</p>
+<div class="g3 grid-3">
+<div class="card feat card-pad-28">
+<div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M7 12h10M10 18h4"></path></svg></div>
+<h3>Group, rank, link</h3>
+<p>The same failure appearing 40 times becomes one row with a count and the latest error. Loops, failing agents and expensive outliers join the same list, most severe first — each row opens the exact run or step.</p>
+</div>
+<div class="card feat card-pad-28">
+<div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"></path><path d="M14 7h7v7"></path></svg></div>
+<h3>Compare with something</h3>
+<p>Key numbers show the change against the previous period and the previous agent version, with direction in an arrow and text — never color alone.</p>
+</div>
+<div class="card feat card-pad-28">
+<div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"></path></svg></div>
+<h3>Explain terms in place</h3>
+<p>“Run”, “p95”, “failure rate” and “cost” each carry a <span class="mono">?</span> with a one-sentence definition. ⌘K jumps to any page, a pasted trace ID, or an agent's runs.</p>
+</div>
+</div>
+</div>
+</section>
+
+<section id="tour" class="sec sec-alt">
+<div class="wrap">
+<div class="sec-head">
+<div>
+<p class="eyebrow">The console</p>
+<h2 class="h2 h2-flush">Five places to look. One to configure.</h2>
+</div>
+<div role="tablist" aria-label="Console views" class="tabs">
+
+<button role="tab" class="tab on" id="tour-tab-0" aria-selected="true" aria-controls="tour-panel-0" tabindex="0" type="button">Home</button>
+
+<button role="tab" class="tab " id="tour-tab-1" aria-selected="false" aria-controls="tour-panel-1" tabindex="-1" type="button">Run details</button>
+
+<button role="tab" class="tab " id="tour-tab-2" aria-selected="false" aria-controls="tour-panel-2" tabindex="-1" type="button">Conversation</button>
+
+</div>
+</div>
+<div class="tour-grid" id="tour-panel-0" role="tabpanel" aria-labelledby="tour-tab-0">
+<div class="card shot-card">
+<img src="images/console-home.png" alt="Bindle console Home page listing issues that need attention, light theme" class="shot">
+</div>
+<div class="tour-copy">
+<h3 class="tour-title">Is anything wrong? One line says so.</h3>
+<p class="text-16">Home answers in a sentence, then lists what needs attention, most severe first. Each item links to the exact run or step to open.</p>
+<div class="points-12">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Steps that keep failing, grouped with each distinct error</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Agents with a high failure rate and runaway loops</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Runs with far more steps or cost than that agent’s typical run</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Model calls with no known price, flagged instead of guessed</span></div>
+
+</div>
+</div>
+</div><div class="tour-grid" id="tour-panel-1" role="tabpanel" aria-labelledby="tour-tab-1" hidden="">
+<div class="card shot-card">
+<img src="images/console-trace.png" alt="Bindle run details page with summary, time breakdown and waterfall, dark theme" class="shot">
+</div>
+<div class="tour-copy">
+<h3 class="tour-title">A summary that names the likely cause.</h3>
+<p class="text-16">Run details opens with what the run did: LLM and tool calls, what failed and why, whether a retry worked, possible loops, where the time went, and what it cost.</p>
+<div class="points-12">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>“Likely cause: step 3 — lookup_order returned nothing, and step 4 answered without it”</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Catches bad tool arguments, identical failing retries and truncated answers</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Waterfall plus the selected step’s inputs and outputs</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Compare with… shows exactly where two runs diverge</span></div>
+
+</div>
+</div>
+</div><div class="tour-grid" id="tour-panel-2" role="tabpanel" aria-labelledby="tour-tab-2" hidden="">
+<div class="card shot-card">
+<img src="images/console-conversation.png" alt="A Bindle step shown as a conversation of system, user, assistant and tool messages" class="shot">
+</div>
+<div class="tour-copy">
+<h3 class="tour-title">Every step reads like a conversation.</h3>
+<p class="text-16">Step inputs and outputs show as system, user, assistant and tool messages — with tool calls and their arguments — for every supported framework. Raw text is one click away.</p>
+<div class="points-12">
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Sensitive values redacted before storage</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>When content is missing, the console says why and which setting to turn on</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Context and cache view: prompt growth, cache share, huge tool results</span></div>
+
+<div class="li"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="tick ic"><path d="M5 12l5 5L20 7"></path></svg><span>Replay any LLM call with an edited prompt or another model</span></div>
+
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<section id="features" class="sec sec-pad">
+<div class="wrap">
+<p class="eyebrow">Everything in one trace</p>
+<h2 class="h2">From “something's wrong” to a fix — without leaving Bindle.</h2>
+<p class="lead">Debug a run, compare versions, turn production failures into eval cases, cap runaway spend, and replay a real failure against your new code.</p>
+<div class="g3 grid-3">
+
+<div class="card feat feat-card">
+<div class="feat-top">
+<div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0"></path></svg></div>
+<span class="feat-group">Debug</span>
+</div>
+<h3>Root-cause summaries</h3>
+<p>Names the step that started the failure — empty tool results, rejected arguments, identical failing retries, truncated answers, oversized prompts.</p>
+</div>
+
+<div class="card feat feat-card">
+<div class="feat-top">
+<div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v18M16 3v18M3 8h5M16 16h5"></path></svg></div>
+<span class="feat-group">Debug</span>
+</div>
+<h3>Compare runs</h3>
+<p>“The runs match for the first 4 steps, then diverge: A calls refund, B calls escalate.” Plus tool counts and step-level diffs.</p>
+</div>
+
+<div class="card feat feat-card">
+<div class="feat-top">
+<div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h6"></path></svg></div>
+<span class="feat-group">Debug</span>
+</div>
+<h3>Context and cache</h3>
+<p>Prompt size per call, prompt-cache share, the largest tool results — “a 64 KB tool result is carried in every later prompt.”</p>
+</div>
+
+<div class="card feat feat-card">
+<div class="feat-top">
+<div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path></svg></div>
+<span class="feat-group">Agents</span>
+</div>
+<h3>Versions and tool health</h3>
+<p>Failure rate, cost per run, p95 and steps against the previous version. Tool health across SDK, MCP and AgentCore Gateway tools.</p>
+</div>
+
+<div class="card feat feat-card">
+<div class="feat-top">
+<div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"></path></svg></div>
+<span class="feat-group">Safety</span>
+</div>
+<h3>Security signals</h3>
+<p>Possible prompt injection, credentials surfacing in results, and data exfiltration — conservative signals to review, not verdicts.</p>
+</div>
+
+<div class="card feat feat-card">
+<div class="feat-top">
+<div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg></div>
+<span class="feat-group">Debug</span>
+</div>
+<h3>Sessions and search</h3>
+<p>A conversation’s runs in one chat view with user feedback. Full-text search over what was said, what tools returned, or the error.</p>
+</div>
+
+<div class="card feat feat-card">
+<div class="feat-top">
+<div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"></path></svg></div>
+<span class="feat-group">Tracing</span>
+</div>
+<h3>Linked runs</h3>
+<p>Follow work across queues, human approvals, agent handoffs and MCP servers with context_token() and resume().</p>
+</div>
+
+<div class="card feat feat-card">
+<div class="feat-top">
+<div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"></path></svg></div>
+<span class="feat-group">Evaluate</span>
+</div>
+<h3>Evals without a model</h3>
+<p>Contains, matches, valid JSON, tool (not) called, step and cost limits. bindle eval fails the PR when the pass rate drops.</p>
+</div>
+
+<div class="card feat feat-card">
+<div class="feat-top">
+<div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16v6H4zM4 14h16v6H4zM12 10v4"></path></svg></div>
+<span class="feat-group">Evaluate</span>
+</div>
+<h3>Production → eval cases</h3>
+<p>Copy up to 50 failing runs into a dataset in one step. Bindle proposes checks that would have caught them and shows how many each fails.</p>
+</div>
+
+<div class="card feat feat-card">
+<div class="feat-top">
+<div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
+<span class="feat-group">Cost</span>
+</div>
+<h3>Outcome economics</h3>
+<p>Cost per successful outcome and wasted spend per agent version — “what does one good result cost?”</p>
+</div>
+
+<div class="card feat feat-card">
+<div class="feat-top">
+<div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4h4v16H6zM14 4h4v16h-4z"></path></svg></div>
+<span class="feat-group">Control</span>
+</div>
+<h3>Agent limits and budgets</h3>
+<p>Pause an agent, cap steps or tokens, guard against loops, set a daily budget, or stop one run from the console.</p>
+</div>
+
+<div class="card feat feat-card">
+<div class="feat-top">
+<div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 4v6h6M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg></div>
+<span class="feat-group">Evaluate</span>
+</div>
+<h3>Replay with recorded tools</h3>
+<p>Download a run as a cassette and re-run your agent with every tool answered from the recording. Safe to try fixes on real failures.</p>
+</div>
+
+</div>
+<div class="more-link">
+<a class="btn btn-ghost" href="features.html">Explore every feature →</a>
+</div>
+</div>
+</section>
+
+<section id="how" class="sec sec-alt">
+<div class="wrap">
+<p class="eyebrow">How it works</p>
+<h2 class="h2">Thin SDK, smart server.</h2>
+<p class="lead">Your agent sends OTLP straight to Bindle — no host agent to install. Normalization, prices and redaction rules live server-side, so you never redeploy to change them.</p>
+<div class="arch">
+<div class="card arch-card"><div class="mono arch-step">01 · YOUR AGENT</div><div class="arch-title">Agent + Bindle SDK</div><div class="text-14">Python or TypeScript. Async export, bounded queue, redaction #1.</div></div>
+<div class="arch-arrow" aria-hidden="true">→</div>
+<div class="card arch-card"><div class="mono arch-step">02 · INGEST</div><div class="arch-title">bindle-ingest</div><div class="text-14">Key → tenant, normalize, redaction #2, cost, tenant settings.</div></div>
+<div class="arch-arrow" aria-hidden="true">→</div>
+<div class="card arch-card"><div class="mono arch-step">03 · STORE</div><div class="arch-title">OpenSearch + PostgreSQL</div><div class="text-14">Traces in OpenSearch; tenants, keys, settings and alerts in Postgres with row-level security.</div></div>
+<div class="arch-arrow" aria-hidden="true">→</div>
+<div class="card arch-card"><div class="mono arch-step">04 · EXPLAIN</div><div class="arch-title">bindle-api + console</div><div class="text-14">Next.js console, Cognito sign-in. bindle-alerts notifies your channels.</div></div>
+</div>
+<div class="g2 rules-layout">
+<div>
+<h3 class="rules-title">Six design rules</h3>
+<div class="stack-16">
+
+<div class="rule">
+<span class="mono rule-num">1</span>
+<div><div class="rule-title">No host agent</div><div class="rule-desc">Apps send OTLP directly. A collector is optional, for regulated tenants.</div></div>
+</div>
+
+<div class="rule">
+<span class="mono rule-num">2</span>
+<div><div class="rule-title">Thin SDK, smart server</div><div class="rule-desc">Normalization, prices and redaction rules live server-side.</div></div>
+</div>
+
+<div class="rule">
+<span class="mono rule-num">3</span>
+<div><div class="rule-title">Never break the agent</div><div class="rule-desc">Async export, bounded queue, swallowed errors, no-op without a key.</div></div>
+</div>
+
+<div class="rule">
+<span class="mono rule-num">4</span>
+<div><div class="rule-title">Tenant from key or session only</div><div class="rule-desc">Never from the payload or a client parameter.</div></div>
+</div>
+
+<div class="rule">
+<span class="mono rule-num">5</span>
+<div><div class="rule-title">Redaction twice, on by default</div><div class="rule-desc">Secrets are dropped, not masked.</div></div>
+</div>
+
+<div class="rule">
+<span class="mono rule-num">6</span>
+<div><div class="rule-title">No invented prices</div><div class="rule-desc">A model without a known price is reported as unknown cost.</div></div>
+</div>
+
+</div>
+</div>
+<div>
+<div class="tabs-code" role="tablist" aria-label="Code examples">
+
+<button role="tab" class="tab on" id="code-tab-0" aria-selected="true" aria-controls="code-panel-0" tabindex="0" type="button">Python</button>
+
+<button role="tab" class="tab " id="code-tab-1" aria-selected="false" aria-controls="code-panel-1" tabindex="-1" type="button">TypeScript</button>
+
+<button role="tab" class="tab " id="code-tab-2" aria-selected="false" aria-controls="code-panel-2" tabindex="-1" type="button">CLI</button>
+
+<button role="tab" class="tab " id="code-tab-3" aria-selected="false" aria-controls="code-panel-3" tabindex="-1" type="button">Limits</button>
+
+</div>
+<div id="code-panel-0" role="tabpanel" aria-labelledby="code-tab-0"><pre class="code mono">import bindle
+
+bindle.init(agent="support-triage", version="v12")
+
+@bindle.trace_tool
+def lookup_customer(email: str) -&gt; dict: ...
+
+with bindle.step("plan", type="decision"):
+    bindle.decision("route", options=["crm", "kb", "human"],
+                    chosen="crm", rationale="needs account data")
+
+bindle.outcome("ticket_resolved")</pre><p class="code-note">Installed frameworks are detected and instrumented automatically.</p></div><div id="code-panel-1" role="tabpanel" aria-labelledby="code-tab-1" hidden=""><pre class="code mono">import * as bindle from '@bindle-ai/sdk';
+
+bindle.init({ agent: 'support-triage', version: 'v12' });
+
+const lookupCustomer = bindle.traceTool(
+  async function lookupCustomer(email: string) {
+    return crm.find(email);
+  });
+
+await bindle.withSession(conversationId, () =&gt;
+  bindle.step('plan', { type: 'agent' }, async () =&gt; {
+    await lookupCustomer(email);
+  }));</pre><p class="code-note">Same behaviour as Python: redaction on, never throws into or blocks your agent.</p></div><div id="code-panel-2" role="tabpanel" aria-labelledby="code-tab-2" hidden=""><pre class="code mono">$ bindle init    # detect framework, save key, send a test trace
+$ bindle check   # verify key and endpoint (sends nothing)
+
+# Let your coding agent set it up over MCP
+$ claude mcp add bindle -- bindle mcp</pre><p class="code-note">bindle init writes .env readable only by you and never prints the full key.</p></div><div id="code-panel-3" role="tabpanel" aria-labelledby="code-tab-3" hidden=""><pre class="code mono">for step in plan:
+    bindle.check_limits()   # raises if paused, over budget,
+                            # over step/token caps or looping
+    run(step)</pre><p class="code-note">Enforced only where your agent calls check_limits() — never anywhere else.</p></div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section class="sec sec-pad">
+<div class="wrap g2 security-layout">
+<div>
+<p class="eyebrow">Security and privacy by default</p>
+<h2 class="h2">Your prompts are evidence. Treat them that way.</h2>
+<p class="lead">Redaction runs twice and is on by default — secrets are dropped, not masked. Bindle never holds your model keys, and the console sets a ceiling your code can only make stricter.</p>
+</div>
+<div class="g2 grid-2-16">
+<div class="card card-pad-22"><div class="card-title">Redaction × 2</div><div class="text-14">In the SDK and again at ingest. The built-in rules can't be turned off.</div></div>
+<div class="card card-pad-22"><div class="card-title">Hashed ingest keys</div><div class="text-14"><span class="mono">bd_live_…</span> keys carry 256 random bits; only a SHA-256 hash is stored.</div></div>
+<div class="card card-pad-22"><div class="card-title">Tenant isolation</div><div class="text-14">Tenant comes from the key or session only — every query goes through one filter.</div></div>
+<div class="card card-pad-22"><div class="card-title">Security signals</div><div class="text-14">Flags possible prompt injection, leaked credentials and data exfiltration for review.</div></div>
+</div>
+</div>
+</section>
+
+<section class="sec sec-alt">
+<div class="wrap">
+<p class="eyebrow">Run it anywhere</p>
+<h2 class="h2">Local in three commands. AWS in one stack.</h2>
+<div class="g2 grid-2-24">
+<div class="card deploy-card">
+<div class="deploy-head"><h3 class="deploy-title">Local stack</h3><span class="mono mono-12">Docker Compose</span></div>
+<p class="text-15">OpenSearch, PostgreSQL, ingest, API and alerts on your laptop — with demo runs, including a runaway loop. Needs Docker, Go 1.25+, Node 20+ and Python 3.9+.</p>
+<pre class="code mono">make up        # local stack
+make console   # http://localhost:3000
+make demo      # send demo runs</pre>
+</div>
+<div class="card deploy-card">
+<div class="deploy-head"><h3 class="deploy-title">Your AWS account</h3><span class="mono mono-12">AWS CDK</span></div>
+<p class="text-15">Ingest, a private API, the console behind HTTPS with Cognito sign-in, and the data stores — all on ARM (Graviton) Fargate, with Kinesis buffering ingest. Deploying creates paid AWS resources.</p>
+<pre class="code mono">cd deploy/aws
+cdk deploy</pre>
+</div>
+</div>
+</div>
+</section>
+
+<section id="faq" class="sec sec-pad">
+<div class="wrap faq-wrap">
+<p class="eyebrow center">FAQ</p>
+<h2 class="h2 faq-title">Questions, answered plainly.</h2>
+<div class="faq-list">
+
+<div class="faq-item">
+<button class="faq-q" aria-expanded="true" aria-controls="faq-0" type="button">
+<span>Is Bindle open source?</span>
+<span class="mono faq-sign" aria-hidden="true">−</span>
+</button>
+
+<p class="faq-a" id="faq-0">Yes. Bindle is licensed under the Apache License 2.0 — the Go backend, Next.js console, Python and TypeScript SDKs and the AWS CDK stack are all in the repository.</p></div>
+
+<div class="faq-item">
+<button class="faq-q" aria-expanded="false" aria-controls="faq-1" type="button">
+<span>Can Bindle slow down or break my agent?</span>
+<span class="mono faq-sign" aria-hidden="true">+</span>
+</button>
+
+<p class="faq-a" id="faq-1" hidden="">It is designed not to. The SDK exports asynchronously with a bounded queue, swallows its own errors and is a no-op without an API key, so the init line is safe to commit. Ingest answers 429 or 503 with Retry-After so exporters back off.</p></div>
+
+<div class="faq-item">
+<button class="faq-q" aria-expanded="false" aria-controls="faq-2" type="button">
+<span>Are the explanations written by an LLM?</span>
+<span class="mono faq-sign" aria-hidden="true">+</span>
+</button>
+
+<p class="faq-a" id="faq-2" hidden="">No. Summaries are computed deterministically from the trace — counts, failures, retries, repeated tools and leaf-step time — so they are fast, free and never invent facts.</p></div>
+
+<div class="faq-item">
+<button class="faq-q" aria-expanded="false" aria-controls="faq-3" type="button">
+<span>Does Bindle need my model provider keys?</span>
+<span class="mono faq-sign" aria-hidden="true">+</span>
+</button>
+
+<p class="faq-a" id="faq-3" hidden="">No. Model-graded evals run in your own environment and report back with bindle.score(). Replay uses a provider key you paste for that one request; it is never stored.</p></div>
+
+<div class="faq-item">
+<button class="faq-q" aria-expanded="false" aria-controls="faq-4" type="button">
+<span>What happens to sensitive data in prompts?</span>
+<span class="mono faq-sign" aria-hidden="true">+</span>
+</button>
+
+<p class="faq-a" id="faq-4" hidden="">Redaction runs twice — in the SDK and at ingest — and is on by default. Secrets are dropped, not masked. You can turn off prompt and output capture entirely, and console settings act as a ceiling your code can only make stricter.</p></div>
+
+<div class="faq-item">
+<button class="faq-q" aria-expanded="false" aria-controls="faq-5" type="button">
+<span>Which frameworks are supported?</span>
+<span class="mono faq-sign" aria-hidden="true">+</span>
+</button>
+
+<p class="faq-a" id="faq-5" hidden="">LangGraph, Strands, Google ADK, Microsoft Agent Framework and Amazon Bedrock AgentCore are auto-instrumented, plus custom code via decorators. Anything that emits OpenTelemetry works through the standard tracer provider.</p></div>
+
+<div class="faq-item">
+<button class="faq-q" aria-expanded="false" aria-controls="faq-6" type="button">
+<span>How is cost calculated?</span>
+<span class="mono faq-sign" aria-hidden="true">+</span>
+</button>
+
+<p class="faq-a" id="faq-6" hidden="">From published list prices in backend/pricing.json, or from the prices your workspace actually pays (discounts, batch, Bedrock, Vertex, Azure, self-hosted). Cost is computed when a step arrives, so price changes never rewrite history. Unknown prices are shown as unknown — never estimated.</p></div>
+
+<div class="faq-item">
+<button class="faq-q" aria-expanded="false" aria-controls="faq-7" type="button">
+<span>Where can I run it?</span>
+<span class="mono faq-sign" aria-hidden="true">+</span>
+</button>
+
+<p class="faq-a" id="faq-7" hidden="">Locally with Docker Compose (make up), or in your own AWS account with the included CDK stack on Graviton Fargate behind Cognito sign-in. Deploying to AWS creates paid resources.</p></div>
+
+</div>
+</div>
+</section>
+
+<section class="cta-sec">
+<div class="wrap">
+<div class="cta">
+<h2 class="h2 cta-title">One line to see what your agent actually did.</h2>
+<div class="cta-code">
+<code class="mono cta-code-text"><span class="code-kw">import</span> bindle
+bindle.init(agent=<span class="code-str">"support-triage"</span>)   <span class="code-comment"># no-op without BINDLE_API_KEY</span></code>
+</div>
+<div class="cta-actions">
+<a class="btn btn-primary btn-lg" href="docs.html">Read the quickstart</a>
+<a class="btn btn-ghost btn-lg" href="https://github.com/varun7447/bindle">View on GitHub</a>
+</div>
+</div>
+</div>
+</section>
+
+<footer class="site-footer">
+<div class="wrap g4 footer-grid">
+<div class="footer-about">
+<div class="footer-brand"><svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="5" class="logo-tile"></rect><rect x="5" y="6.5" width="14" height="2.6" rx="1.3" class="logo-bar"></rect><rect x="8" y="10.7" width="9" height="2.6" rx="1.3" class="logo-bar"></rect><rect x="11" y="14.9" width="8" height="2.6" rx="1.3" class="logo-bar"></rect></svg><span class="footer-word">bindle</span></div>
+<p class="footer-text">Observability for AI agents. Open source under the Apache License 2.0.</p>
+</div>
+<div class="footer-col"><div class="footer-col-title">Product</div><a class="navlink" href="features.html">Features</a><a class="navlink" href="#tour">Console</a><a class="navlink" href="#how">Architecture</a><a class="navlink" href="#faq">FAQ</a></div>
+<div class="footer-col"><div class="footer-col-title">Developers</div><a class="navlink" href="docs.html">Quickstart</a><a class="navlink" href="https://github.com/varun7447/bindle/tree/main/sdks/python">Python SDK</a><a class="navlink" href="https://github.com/varun7447/bindle/tree/main/sdks/typescript">TypeScript SDK</a><a class="navlink" href="https://github.com/varun7447/bindle/tree/main/examples">Examples</a></div>
+<div class="footer-col"><div class="footer-col-title">Project</div><a class="navlink" href="https://github.com/varun7447/bindle">GitHub</a><a class="navlink" href="https://github.com/varun7447/bindle/blob/main/CONTRIBUTING.md">Contributing</a><a class="navlink" href="https://github.com/varun7447/bindle/blob/main/SECURITY.md">Security policy</a><a class="navlink" href="https://github.com/varun7447/bindle/blob/main/LICENSE">License</a></div>
+</div>
+<div class="wrap footer-legal">© Bindle contributors · Apache-2.0</div>
+</footer>
+</div>
+
+</body></html>

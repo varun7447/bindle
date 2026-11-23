@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bindle — Docs: Get started</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="styles.css">
+<script src="main.js" defer></script>
+</head>
+<body class="page-docs">
+
+<div class="page">
+
+<header class="site-header">
+<div class="wrap nav-bar">
+<a href="index.html" class="brand-link" aria-label="Bindle home">
+<svg width="32" height="32" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="5" class="logo-tile"></rect><rect x="5" y="6.5" width="14" height="2.6" rx="1.3" class="logo-bar"></rect><rect x="8" y="10.7" width="9" height="2.6" rx="1.3" class="logo-bar"></rect><rect x="11" y="14.9" width="8" height="2.6" rx="1.3" class="logo-bar"></rect></svg>
+<span class="brand-word">bindle</span>
+<span class="docs-label">Docs</span>
+</a>
+<nav class="navlinks nav-links-row" aria-label="Main">
+<a class="navlink" href="index.html">Overview</a>
+<a class="navlink" href="features.html">Features</a>
+<a class="navlink" href="https://github.com/varun7447/bindle">GitHub</a>
+</nav>
+<a class="btn btn-primary" href="https://github.com/varun7447/bindle">Clone the repo</a>
+</div>
+</header>
+
+<div class="wrap docs-layout">
+<aside class="side" aria-label="On this page">
+<div class="side-group">Get started</div>
+<a href="#quickstart">Quickstart</a>
+<a href="#local">Run the local stack</a>
+<a href="#instrument">Instrument your agent</a>
+<div class="side-group-next">Reference</div>
+<a href="#config">Configuration</a>
+<a href="#api">SDK API</a>
+<a href="#cli">CLI and MCP</a>
+<a href="#make">Make targets</a>
+<div class="side-group-next">Operate</div>
+<a href="#deploy">Deploy to AWS</a>
+<a href="#layout">Repository layout</a>
+</aside>
+
+<main class="doc">
+
+<section id="quickstart">
+<p class="doc-eyebrow">Quickstart</p>
+<h1 class="doc-title">Trace your first agent run</h1>
+<p class="doc-lead">Bindle records every step your agent takes — LLM calls, tool calls, retrievals, decisions and handoffs — in one trace. Add one line, run your agent, and open the console.</p>
+<div role="tablist" aria-label="Language" class="tabs-lang">
+
+<button role="tab" class="tab on" id="lang-tab-0" aria-selected="true" aria-controls="lang-panel-0" tabindex="0" type="button">Python</button>
+
+<button role="tab" class="tab " id="lang-tab-1" aria-selected="false" aria-controls="lang-panel-1" tabindex="-1" type="button">TypeScript</button>
+
+</div>
+<div id="lang-panel-0" role="tabpanel" aria-labelledby="lang-tab-0"><div class="step"><span class="num">1</span><div class="step-body"><h3 class="step-title">Install the SDK</h3><pre class="code mono">pip install bindle-sdk            # core
+pip install 'bindle-sdk[all]'     # + framework auto-instrumentation</pre></div></div><div class="step"><span class="num">2</span><div class="step-body"><h3 class="step-title">Initialise it</h3><pre class="code mono">import bindle
+
+bindle.init(agent="support-triage", version="v12")
+# reads BINDLE_API_KEY and BINDLE_ENDPOINT</pre><p class="mt-12">Python 3.9+. Installed frameworks are detected and instrumented automatically.</p></div></div></div><div id="lang-panel-1" role="tabpanel" aria-labelledby="lang-tab-1" hidden=""><div class="step"><span class="num">1</span><div class="step-body"><h3 class="step-title">Install the SDK</h3><pre class="code mono">npm install @bindle-ai/sdk</pre></div></div><div class="step"><span class="num">2</span><div class="step-body"><h3 class="step-title">Initialise it</h3><pre class="code mono">import * as bindle from '@bindle-ai/sdk';
+
+bindle.init({ agent: 'support-triage', version: 'v12', environment: 'prod' });</pre><p class="mt-12">Node.js 20+. Without a key, init() warns once and does nothing.</p></div></div></div>
+
+<div class="step"><span class="num">3</span><div class="step-body"><h3 class="step-title">Run your agent and open the console</h3><p>Every step lands in one trace. Open <strong class="strong-ink">Runs</strong> to see the summary, the waterfall and the root-cause step selected for you.</p></div></div>
+<div class="callout">Safe to commit: without <code class="i">BINDLE_API_KEY</code> the SDK is a no-op. Prefer the environment variable over a key in code.</div>
+</section>
+
+<section id="local">
+<h2>Run the local stack</h2>
+<p>Needs Docker, Go 1.25+, Node 20+ and Python 3.9+. Go dependencies are downloaded at build time; on networks that block <code class="i">proxy.golang.org</code>, set <code class="i">GOPROXY=direct</code>.</p>
+<pre class="code mono">git clone https://github.com/varun7447/bindle
+cd bindle
+make up          # OpenSearch, PostgreSQL, ingest, API, alerts
+make console     # console at http://localhost:3000
+make demo        # demo runs, including a runaway loop</pre>
+<h3>Point an agent at it</h3>
+<pre class="code mono">set -a; . deploy/local/.env; set +a    # BINDLE_API_KEY and BINDLE_ENDPOINT
+pip install -e sdks/python
+python examples/sdk/quickstart.py</pre>
+</section>
+
+<section id="instrument">
+<h2>Instrument your agent</h2>
+<p>Installed frameworks — LangGraph, Strands, Google ADK, Microsoft Agent Framework, Amazon Bedrock AgentCore — are detected and instrumented automatically. For custom agent code, mark tools and steps yourself:</p>
+<pre class="code mono">@bindle.trace_tool
+def lookup_customer(email: str) -&gt; dict: ...
+
+@bindle.trace_step(type="retrieval")
+async def search_kb(query: str): ...
+
+bindle.decision("route", options=["crm", "kb", "human"],
+                chosen="crm", rationale="needs account data")
+bindle.handoff("human-escalation", reason="eval score below threshold")
+
+with bindle.step("plan", type="decision"):
+    ...</pre>
+<div class="callout mt-20">Serverless? Call <code class="i">bindle.flush()</code> before your handler returns.</div>
+</section>
+
+<section id="config">
+<h2>Configuration</h2>
+<p>Every option can be passed to <code class="i">init()</code> or set as an environment variable. No config file needed.</p>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Env var</th><th>Default</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>BINDLE_API_KEY</td><td class="tbl-mono">(none)</td><td>Ingest key. Without it the SDK is a no-op.</td></tr><tr><td>BINDLE_ENDPOINT</td><td class="tbl-mono">(none)</td><td>Your Bindle ingest URL. Without it the SDK is a no-op.</td></tr><tr><td>BINDLE_AGENT / _VERSION</td><td class="tbl-mono">(none)</td><td>Agent name and version</td></tr><tr><td>BINDLE_ENVIRONMENT</td><td class="tbl-mono">(none)</td><td>e.g. prod, staging</td></tr><tr><td>BINDLE_SAMPLE_RATE</td><td class="tbl-mono">1.0</td><td>Head sampling, 0–1</td></tr><tr><td>BINDLE_REDACT</td><td class="tbl-mono">true</td><td>Redact PII and secrets before export</td></tr><tr><td>BINDLE_CAPTURE_CONTENT</td><td class="tbl-mono">true</td><td>Send prompts and outputs at all</td></tr><tr><td>BINDLE_AUTO_INSTRUMENT</td><td class="tbl-mono">true</td><td>Detect and instrument frameworks</td></tr><tr><td>BINDLE_REMOTE_CONFIG</td><td class="tbl-mono">true</td><td>Fetch sampling, capture and redaction settings from the console</td></tr>
+</tbody>
+</table>
+</div>
+<h3>Remote settings</h3>
+<p>Sample rate, content capture and extra redaction patterns can be changed from the console without a redeploy; agents pick them up within two minutes. The console sets a ceiling — your code can only be stricter.</p>
+</section>
+
+<section id="api">
+<h2>SDK API</h2>
+<p>The same surface exists in TypeScript with camelCase names (<code class="i">traceTool</code>, <code class="i">withSession</code>, <code class="i">checkLimits</code>).</p>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Call</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>init()</td><td>Start tracing. No-op without an API key.</td></tr><tr><td>@trace_tool / @trace_step</td><td>Record a function as a tool call or a typed step (retrieval, decision…).</td></tr><tr><td>step(name, type=)</td><td>Context manager for a custom step.</td></tr><tr><td>decision() / handoff()</td><td>Record a routing decision with options and rationale, or a handoff.</td></tr><tr><td>set_session(id)</td><td>Group runs into one conversation.</td></tr><tr><td>current_trace_id()</td><td>The current run’s trace ID, for feedback or scores sent later.</td></tr><tr><td>feedback()</td><td>User thumbs, ratings and comments for a run.</td></tr><tr><td>score(name, value)</td><td>Record a score inside a run or later with trace_id.</td></tr><tr><td>outcome(name, success=)</td><td>Mark whether a run did its job, for cost per successful outcome.</td></tr><tr><td>context_token() / resume()</td><td>Link runs across queues, approvals and handoffs.</td></tr><tr><td>inject_mcp_meta() / mcp_server_context()</td><td>Carry the trace through MCP params._meta.</td></tr><tr><td>check_limits()</td><td>Raise LimitExceeded when paused, over budget, stopped or over a cap.</td></tr><tr><td>Cassette</td><td>Replay a downloaded run with every tool answered from the recording.</td></tr><tr><td>flush()</td><td>Export pending spans — call before a serverless handler returns.</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="cli">
+<h2>CLI and MCP</h2>
+<pre class="code mono">bindle init      # detect the framework, save the key to .env,
+                 # send a test trace, print the code to add
+bindle check     # verify the key and endpoint (sends nothing)
+bindle eval      # run a dataset in CI, exit 1 on a drop</pre>
+<p class="mt-16"><code class="i">bindle init</code> asks for the key with hidden input, writes <code class="i">.env</code> readable only by you, adds it to <code class="i">.gitignore</code>, and never prints the full key.</p>
+<h3>Let a coding agent set it up</h3>
+<p><code class="i">bindle mcp</code> runs an MCP server on stdio with setup-guide, framework-detection, connection-check and test-trace tools. The key is read from the environment and never returned to the model.</p>
+<pre class="code mono">claude mcp add bindle -- bindle mcp</pre>
+</section>
+
+<section id="make">
+<h2>Make targets</h2>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Target</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>make up</td><td>Local stack: OpenSearch, PostgreSQL, ingest, API, alerts</td></tr>
+<tr><td>make console</td><td>Console at http://localhost:3000, signed in as the local dev workspace</td></tr>
+<tr><td>make demo</td><td>Send demo runs, including one with a runaway loop</td></tr>
+<tr><td>make test</td><td>Go (vet + tests), Python SDK, TypeScript SDK, console (typecheck, tests, build)</td></tr>
+<tr><td>make test-backend</td><td>Go services only (also test-python, test-typescript, test-console)</td></tr>
+<tr><td>make help</td><td>List every target</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="deploy">
+<h2>Deploy to AWS</h2>
+<p><code class="i">deploy/aws/</code> is an AWS CDK stack: ingest, a private API, the console behind HTTPS with Cognito sign-in, and the data stores, all on ARM (Graviton) Fargate tasks. On AWS, ingest buffers through Kinesis and <code class="i">bindle-processor</code> writes OpenSearch.</p>
+<pre class="code mono">cd deploy/aws
+cdk deploy                       # Docker must be running
+cdk deploy -c goproxy=direct     # if proxy.golang.org is blocked</pre>
+<div class="callout mt-20 callout-warn">Deploying creates paid AWS resources.</div>
+<h3>Optional pieces</h3>
+<p><code class="i">deploy/otel-collector/</code> — an OpenTelemetry Collector config for regulated tenants. <code class="i">deploy/connectors/cloudwatch-spans/</code> — forwards AWS service spans (AgentCore Gateway, Policy, Identity) from CloudWatch to Bindle.</p>
+</section>
+
+<section id="layout" class="section-last">
+<h2>Repository layout</h2>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Path</th><th>What it is</th></tr></thead>
+<tbody>
+<tr><td>backend/</td><td>Go services: bindle-ingest, bindle-api, bindle-processor, bindle-alerts, bindle-migrate</td></tr>
+<tr><td>console/</td><td>Next.js console</td></tr>
+<tr><td>sdks/python/</td><td>bindle-sdk for Python, plus the bindle init CLI and bindle mcp server</td></tr>
+<tr><td>sdks/typescript/</td><td>@bindle-ai/sdk for Node.js</td></tr>
+<tr><td>deploy/</td><td>Docker Compose (local), AWS CDK, CloudWatch spans forwarder, OTel Collector config</td></tr>
+<tr><td>examples/</td><td>Quickstart, demo agent, linked runs, framework agents, AgentCore agent, CI workflow</td></tr>
+<tr><td>docs/</td><td>Architecture, console design, evaluation integrations, multi-agent tracing</td></tr>
+</tbody>
+</table>
+</div>
+<div class="doc-actions">
+<a class="btn btn-primary" href="https://github.com/varun7447/bindle">Open the repository</a>
+<a class="btn btn-ghost-alt" href="features.html">See all features</a>
+</div>
+</section>
+
+</main>
+</div>
+
+<footer class="footer-slim">
+<div class="wrap footer-slim-inner">
+<span>© Bindle contributors · Apache-2.0</span>
+<div class="footer-slim-links"><a class="navlink footer-slim-link" href="index.html">Overview</a><a class="navlink footer-slim-link" href="features.html">Features</a><a class="navlink footer-slim-link" href="https://github.com/varun7447/bindle">GitHub</a></div>
+</div>
+</footer>
+</div>
+
+</body></html>

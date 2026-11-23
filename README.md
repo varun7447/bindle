@@ -62,6 +62,7 @@ Design rationale, colors and accessibility checks: [`docs/design/console.md`](do
 | [`backend/`](backend/) | Go services: `bindle-ingest`, `bindle-api`, `bindle-processor`, `bindle-alerts`, `bindle-migrate` |
 | [`console/`](console/) | Next.js console |
 | [`brand/`](brand/) | Brand guide ([`BRAND.md`](brand/BRAND.md): colors, step-type palette, type, logo rules, voice), design tokens (`tokens.css`, `tokens.json`) and logo files |
+| [`site/`](site/) | Product website: plain HTML, one stylesheet on the brand tokens, no build step ([preview and deploy](site/README.md)) |
 | [`sdks/python/`](sdks/python/) | `bindle-sdk` for Python, plus the `bindle init` CLI and `bindle mcp` server |
 | [`sdks/typescript/`](sdks/typescript/) | `@bindle-ai/sdk` for Node.js |
 | [`deploy/local/`](deploy/local/) | Docker Compose stack for development |
