@@ -7,7 +7,7 @@ import type { Scorer } from './evals';
 
 // ---- problem runs -> dataset ----------------------------------------------
 
-export const PROBLEM_KINDS = ['failure', 'negative_feedback', 'failed_score', 'failed_runs'] as const;
+export const PROBLEM_KINDS = ['failure', 'negative_feedback', 'failed_score', 'failed_runs', 'reversed'] as const;
 export type ProblemKind = (typeof PROBLEM_KINDS)[number];
 
 export interface ProblemSource {
@@ -105,6 +105,8 @@ export function problemTitle(src: ProblemSource): string {
       return `Runs that failed ${src.score ? `the “${src.score}” score` : 'a score'}${who}`;
     case 'failed_runs':
       return `Failed runs${who}`;
+    case 'reversed':
+      return `Runs that passed their evals but were later reversed${who}`;
   }
 }
 

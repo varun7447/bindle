@@ -12,6 +12,8 @@ import { formatCost, formatCount, formatDuration, formatPercent, formatRelative 
 import { WINDOWS, WINDOW_MS, asWindow, one } from '@/lib/ids';
 import { topicRows, topicsSummary } from '@/lib/topics';
 import { AgentTabs } from './AgentTabs';
+import { Grading } from './Grading';
+import { gradingOn } from '@/lib/grading';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +37,7 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
     settle(api.features()),
   ]);
   const ledgerOn = features.ok && features.data.features.includes('ledger');
+  const gradingFlag = features.ok && gradingOn(features.data.features);
   const agents = ins.ok ? ins.data.agents : [];
   const requested = one(sp.agent);
   const agent = requested !== undefined && agents.some((a) => a.agent === requested) ? requested : agents[0]?.agent;
@@ -47,6 +50,10 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
           settle(api.agentTopics(agent, window)),
         ])
       : [undefined, undefined, undefined, undefined];
+  const [grading, outcomeSettings] =
+    gradingFlag && agent !== undefined
+      ? await Promise.all([settle(api.grading(window, agent)), settle(api.outcomeSettings())])
+      : [undefined, undefined];
   const topicList = topics?.ok ? topicRows(topics.data.topics) : [];
   const topicLine = topics?.ok ? topicsSummary(topics.data.topics, PREVIOUS[window]) : null;
   const usageChange = usage?.ok ? toolUsageChanges(usage.data.versions) : null;
@@ -234,6 +241,10 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
           </>
         )}
       </section>
+
+      {agent !== undefined && grading && outcomeSettings ? (
+        <Grading agent={agent} window={window} grading={grading} settings={outcomeSettings} />
+      ) : null}
 
       {agent !== undefined ? (
         <section className="panel panel-flush" style={{ marginBottom: 16 }} aria-labelledby="economics-h">

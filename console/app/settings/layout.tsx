@@ -1,7 +1,10 @@
 import { SettingsNav } from '@/components/SettingsNav';
 import { GearIcon } from '@/components/Icons';
+import { settle } from '@/components/ui';
+import { api } from '@/lib/api';
 
-export default function SettingsLayout({ children }: { children: React.ReactNode }) {
+export default async function SettingsLayout({ children }: { children: React.ReactNode }) {
+  const features = await settle(api.features());
   return (
     <>
       <div className="page-head">
@@ -10,7 +13,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
           <div className="sub">Connect agents, manage ingest keys, and control what the SDK sends.</div>
         </div>
       </div>
-      <SettingsNav />
+      <SettingsNav features={features.ok ? features.data.features : []} />
       {children}
     </>
   );

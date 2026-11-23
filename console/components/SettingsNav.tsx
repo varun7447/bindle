@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CoinIcon, KeyIcon, PlugIcon, ShieldIcon, SlidersIcon } from './Icons';
+import { CheckCircleIcon, CoinIcon, KeyIcon, PlugIcon, ShieldIcon, SlidersIcon } from './Icons';
 
 const TABS = [
   { href: '/settings/connect', label: 'Connect an agent', icon: PlugIcon },
@@ -12,11 +12,15 @@ const TABS = [
   { href: '/settings/prices', label: 'Model prices', icon: CoinIcon },
 ];
 
-export function SettingsNav() {
+// Tabs for features that are off by default (operator-set flags).
+const FLAGGED_TABS = [{ href: '/settings/outcomes', label: 'Outcomes', icon: CheckCircleIcon, feature: 'outcome_grading' }];
+
+export function SettingsNav({ features = [] }: { features?: string[] }) {
   const path = usePathname();
+  const tabs = [...TABS, ...FLAGGED_TABS.filter((t) => features.includes(t.feature))];
   return (
     <nav className="subnav" aria-label="Settings">
-      {TABS.map(({ href, label, icon: Icon }) => (
+      {tabs.map(({ href, label, icon: Icon }) => (
         <Link key={href} href={href} aria-current={path.startsWith(href) ? 'page' : undefined}>
           <Icon />
           {label}

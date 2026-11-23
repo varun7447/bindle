@@ -9,7 +9,7 @@ import { FromProblemsForm } from '../Forms';
 
 export const dynamic = 'force-dynamic';
 
-const KIND_NAME = { failure: 'failures', negative_feedback: 'thumbs down', failed_score: 'failed scores', failed_runs: 'failed runs' } as const;
+const KIND_NAME = { failure: 'failures', negative_feedback: 'thumbs down', failed_score: 'failed scores', failed_runs: 'failed runs', reversed: 'reversals' } as const;
 
 export default async function FromProblemsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await searchParams;
