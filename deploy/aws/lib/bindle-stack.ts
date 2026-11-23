@@ -34,7 +34,7 @@ export interface BindleStackProps extends cdk.StackProps {
    * can't reach proxy.golang.org.
    */
   readonly goproxy?: string;
-  /** ACM certificate ARN for ingest.bindle.ai. Required unless insecureDevCidr is set. */
+  /** ACM certificate ARN for your ingest host (see ingestUrl). Required unless insecureDevCidr is set. */
   readonly certificateArn?: string;
   /**
    * Dev only: serve plain HTTP (no certificate) and allow it only from this
@@ -52,12 +52,16 @@ export interface BindleStackProps extends cdk.StackProps {
   readonly searchVolumeGiB?: number;
   /** Control-plane RDS instance class. Default t4g.micro. */
   readonly dbInstanceClass?: string;
-  /** Public URL of the console (OAuth callback and sign-out target). */
+  /**
+   * Public URL of the console (OAuth callback and sign-out target). Required
+   * when the console is deployed; without a console it defaults to
+   * http://localhost:3000 for a locally run console.
+   */
   readonly consoleUrl?: string;
   /** Cognito hosted UI domain prefix; must be globally unique. */
   readonly authDomainPrefix?: string;
   /**
-   * Sender for email alerts, e.g. alerts@bindle.ai. Its domain must be a
+   * Sender for email alerts, e.g. alerts@example.com. Its domain must be a
    * verified Amazon SES identity (not created by this stack). Unset: email
    * alert channels are not delivered; Slack and webhooks still are.
    */
@@ -68,7 +72,11 @@ export interface BindleStackProps extends cdk.StackProps {
    * one the console is not deployed: Cognito only accepts https callbacks.
    */
   readonly consoleCertificateArn?: string;
-  /** Ingest URL shown on the console's Connect page. Default https://ingest.bindle.ai */
+  /**
+   * Public ingest URL, shown on the console's Connect page, e.g.
+   * https://ingest.example.com (the host your certificate is for). Unset: the
+   * Connect page shows a placeholder.
+   */
   readonly ingestUrl?: string;
 }
 
@@ -230,7 +238,13 @@ export class BindleStack extends cdk.Stack {
     };
 
     // ---- console sign-in (Cognito) --------------------------------------------
-    const consoleUrl = (props.consoleUrl ?? 'https://app.bindle.ai').replace(/\/+$/, '');
+    // The console is deployed when it has a certificate; its sign-in callback
+    // must then point at a host you control, so there is no default.
+    const consoleCertArn = props.consoleCertificateArn ?? props.certificateArn;
+    if (consoleCertArn && !props.consoleUrl) {
+      throw new Error('BindleStack: consoleUrl is required when the console is deployed (Cognito sends sign-in callbacks there)');
+    }
+    const consoleUrl = (props.consoleUrl ?? 'http://localhost:3000').replace(/\/+$/, '');
     const userPool = new cognito.UserPool(this, 'Users', {
       userPoolName: 'bindle-users',
       selfSignUpEnabled: props.selfSignUp ?? true,
@@ -400,7 +414,7 @@ export class BindleStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'IngestEndpoint', {
       value: `${certificate ? 'https' : 'http'}://${ingest.loadBalancer.loadBalancerDnsName}`,
-      description: 'Point a CNAME for ingest.bindle.ai here',
+      description: 'Point a CNAME for your ingest host (ingestUrl) here',
     });
     // ---- processor: stream -> OpenSearch ---------------------------------------
     const processorTask = new ecs.FargateTaskDefinition(this, 'ProcessorTask', { cpu: 512, memoryLimitMiB: 1024, runtimePlatform: arm });
@@ -542,7 +556,6 @@ export class BindleStack extends cdk.Stack {
     db.connections.allowDefaultPortFrom(api, 'bindle-api');
 
     // ---- console: public, HTTPS, Cognito sign-in --------------------------------
-    const consoleCertArn = props.consoleCertificateArn ?? props.certificateArn;
     if (consoleCertArn) {
       const consoleCert = acm.Certificate.fromCertificateArn(this, 'ConsoleCert', consoleCertArn);
       // 43 alphanumeric characters decode (as base64) to the 32-byte key the
@@ -575,7 +588,7 @@ export class BindleStack extends cdk.Stack {
           containerPort: 3000,
           environment: {
             BINDLE_API_URL: 'http://api.bindle.internal:8080',
-            BINDLE_PUBLIC_INGEST_URL: props.ingestUrl ?? 'https://ingest.bindle.ai',
+            BINDLE_PUBLIC_INGEST_URL: props.ingestUrl ?? '',
             BINDLE_COGNITO_DOMAIN: authDomain.baseUrl(),
             BINDLE_COGNITO_CLIENT_ID: consoleClient.userPoolClientId,
             BINDLE_CONSOLE_URL: consoleUrl,
