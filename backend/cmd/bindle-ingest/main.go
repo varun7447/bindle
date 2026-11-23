@@ -166,6 +166,13 @@ func run(log *slog.Logger) error {
 	logs.Logs = true
 	mux.Handle("/v1/logs", &logs)
 	mux.Handle("/v1/config", &ingest.ConfigHandler{Keys: keys, Policies: policies, Limiter: limiter, Log: log})
+	if controlDB != nil {
+		// Business events reported after a run (feature outcome_grading).
+		oh := &ingest.OutcomeHandler{Keys: keys, Store: &control.OutcomeIngest{DB: controlDB},
+			Features: &control.FeatureResolver{DB: controlDB, Log: log}, Limiter: ratelimit.New(20, 100), Log: log}
+		mux.Handle("/v1/outcome-events", oh)
+		mux.Handle("/v1/outcome-events/", oh)
+	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 
 	srv := &http.Server{

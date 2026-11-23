@@ -33,6 +33,7 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/awsv4"
 	"github.com/bindle-ai/bindle/backend/internal/control"
 	"github.com/bindle-ai/bindle/backend/internal/ledger"
+	"github.com/bindle-ai/bindle/backend/internal/outcomes"
 	"github.com/bindle-ai/bindle/backend/internal/search"
 )
 
@@ -86,6 +87,9 @@ func run(log *slog.Logger) error {
 		}
 	}
 	go maintainLedger(ctx, db, retention, log)
+	// Outcome events reported after a run: link them to runs by correlation.
+	matcher := &outcomes.Matcher{Store: &control.OutcomeMatchStore{DB: db}, Find: ss, Log: log}
+	go matcher.Run(ctx, 15*time.Second)
 	log.Info("bindle-alerts starting", "interval", interval.String(), "email", d.SES != nil)
 	e.Run(ctx, interval)
 	log.Info("bindle-alerts stopped")
