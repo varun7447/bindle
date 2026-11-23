@@ -77,6 +77,12 @@ func run(log *slog.Logger) error {
 		Store: cs, Detect: ss, Deliver: d, Log: log,
 		Budgets: &alerts.Budgets{Store: cs, Channels: cs, Spend: ss, Deliver: d, Log: log},
 	}
+	// Passports: passport_drift rules, and rate-limit and budget drift in
+	// agents' ledgers (workspaces with the passports and ledger features).
+	pr := &control.PassportReader{DB: db}
+	e.Passports = pr
+	e.Drift = &alerts.DriftJournal{Tenants: pr, Passports: pr, Counter: ss, Record: (&ledger.Writer{DB: db}).RecordFindings,
+		Features: &control.FeatureResolver{DB: db, Log: log}, Log: log}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	retention := 400

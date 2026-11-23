@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bindle-ai/bindle/backend/internal/alerts"
 	"github.com/bindle-ai/bindle/backend/internal/passport"
 )
 
@@ -157,6 +158,11 @@ func TestIntegrationMgmtKeysAndPassports(t *testing.T) {
 	}
 	if pr.Passports(ctx, tb) != nil {
 		t.Fatal("resolver: tenant B has the feature off")
+	}
+
+	// Migration 014 accepts the passport_drift alert kind.
+	if _, err := store.CreateAlertRule(ctx, ta, ua, alerts.Rule{Kind: alerts.KindPassportDrift, Threshold: 1, WindowMinutes: 60, Enabled: true}); err != nil {
+		t.Fatalf("passport_drift rule: %v", err)
 	}
 
 	// Revoked keys stop working.
