@@ -71,7 +71,7 @@ Design rationale, colors and accessibility checks: [`docs/design/console.md`](do
 | [`deploy/otel-collector/`](deploy/otel-collector/) | Optional OpenTelemetry Collector config for regulated tenants |
 | [`examples/`](examples/) | `sdk/`: quickstart, demo agent and linked runs (approval, handoff, MCP). `frameworks/`: LangGraph, Strands, Google ADK and Microsoft Agent Framework agents with stub models. `agentcore/`: a Strands agent for Amazon Bedrock AgentCore Runtime. `ci/`: a GitHub workflow that runs `bindle eval` on pull requests |
 | [`docs/`](docs/) | [Architecture](docs/architecture.md), [console design](docs/design/console.md), [evaluation integrations](docs/integrations/evaluations.md) (Azure AI Foundry, Vertex AI, AgentCore), [multi-agent tracing](docs/integrations/multi-agent.md) (queues, approvals, handoffs, MCP), [plans and open items](docs/plans/) |
-| [`.github/workflows/`](.github/workflows/) | CI: every test suite, container builds and `cdk synth` on each pull request; a weekly check of the model pricing pages |
+| [`.github/workflows/`](.github/workflows/) | CI: every test suite, container builds and `cdk synth` on each pull request; a weekly check of the model pricing pages; publishing `site/` to GitHub Pages on changes to `main` |
 
 ## Run it locally
 

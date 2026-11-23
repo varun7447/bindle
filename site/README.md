@@ -27,13 +27,11 @@ Then open http://localhost:8000. The fonts (Geist, Geist Mono) load from Google 
 - **Copy** describes only what ships today, following the voice rules in [`brand/BRAND.md`](../brand/BRAND.md).
 - **Accessibility:** tabs use `role="tablist"`/`role="tab"`/`aria-selected` and support the arrow keys, Home and End; FAQ buttons update `aria-expanded`; the copy button announces "Copied" through a live region; focus outlines stay visible.
 
-## Deploy to Cloudflare Pages
+## Deploy (GitHub Pages)
 
-Nothing is set up yet. To publish the site:
+[`.github/workflows/pages.yml`](../.github/workflows/pages.yml) publishes this folder to GitHub Pages whenever a push to `main` changes `site/`, or when you run the **Website** workflow by hand from the Actions tab. Nothing is built: the folder is uploaded as-is.
 
-1. In the Cloudflare dashboard, go to **Workers & Pages → Create → Pages → Connect to Git** and choose this repository.
-2. Build settings: framework preset **None**, build command empty, build output directory **`site`**.
-3. Save and deploy. Cloudflare serves the folder as-is and redeploys on every push to the production branch you pick; other branches get preview URLs.
-4. Optional: add a custom domain under the project's **Custom domains** tab.
-
-Alternatively, deploy from your machine with Wrangler: `npx wrangler pages deploy site --project-name <your-project>`.
+- **Address:** `https://varun7447.github.io/bindle/` (links are relative, so the site also works on a custom domain).
+- **One-time setup:** in the repository's **Settings → Pages**, the source must be **GitHub Actions**.
+- **Custom domain (optional):** add it under **Settings → Pages → Custom domain**, create the DNS record GitHub shows, and turn on **Enforce HTTPS**.
+- **Terms:** GitHub Pages is meant for project sites like this one, not for hosting a commercial service or anything that takes payments.
