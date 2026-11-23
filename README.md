@@ -53,7 +53,7 @@ Five places to look (**Home**, **Runs**, **Agents**, **Evals**, **Alerts**) and 
 
 **Cost** comes from published list prices (`backend/pricing.json`: Anthropic and OpenAI, with each entry's source and date, including long-prompt tiers), or from **Model prices** in Settings, where a workspace enters what it actually pays (discounts, batch, Bedrock, Vertex, Azure or self-hosted models). For Bedrock it shows AWS's public list prices for a region (global and in-region tiers) to copy from. A weekly job (`bindle-prices check`) compares `pricing.json` with the providers' pricing pages and opens an issue when one changes. Cost is computed when a step arrives, so price changes never rewrite history. Models without a known price are shown as unknown, never estimated.
 
-Design rationale, colors and accessibility checks: [`docs/design/console.md`](docs/design/console.md).
+Design rationale, colors and accessibility checks: [`docs/design/console.md`](docs/design/console.md). Brand colors, type and logo rules: [`brand/BRAND.md`](brand/BRAND.md).
 
 ## Repository layout
 
@@ -61,6 +61,7 @@ Design rationale, colors and accessibility checks: [`docs/design/console.md`](do
 |---|---|
 | [`backend/`](backend/) | Go services: `bindle-ingest`, `bindle-api`, `bindle-processor`, `bindle-alerts`, `bindle-migrate` |
 | [`console/`](console/) | Next.js console |
+| [`brand/`](brand/) | Brand guide ([`BRAND.md`](brand/BRAND.md): colors, step-type palette, type, logo rules, voice), design tokens (`tokens.css`, `tokens.json`) and logo files |
 | [`sdks/python/`](sdks/python/) | `bindle-sdk` for Python, plus the `bindle init` CLI and `bindle mcp` server |
 | [`sdks/typescript/`](sdks/typescript/) | `@bindle-ai/sdk` for Node.js |
 | [`deploy/local/`](deploy/local/) | Docker Compose stack for development |
