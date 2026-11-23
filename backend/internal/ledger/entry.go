@@ -238,3 +238,21 @@ func (w *Writer) RecordFindings(ctx context.Context, tenant, agent string, findi
 type key struct{ kind, trace, step, ekey string }
 
 func (e Entry) key() key { return key{e.Kind, e.TraceID, e.StepID, e.EntryKey} }
+
+// VaultChange records a change to an agent's knowledge vault: the note, its
+// new version and text hash, what happened and who did it. The note's text
+// is not included; the hash ties the entry to the stored version.
+func VaultChange(agent, path string, version int, sha, action, by string, at time.Time) Entry {
+	return Entry{Agent: agent, At: at.UTC().Truncate(time.Microsecond), Kind: KindVaultChange,
+		EntryKey: path + "@" + strconv.Itoa(version), CostUSD: FormatCost(0),
+		Detail: canonicalDetail(map[string]string{"path": path, "version": strconv.Itoa(version), "sha256": sha, "action": action, "by": by})}
+}
+
+// vaultAction is a vault_change entry's action ("create", "edit", "approve", ...).
+func (e Entry) vaultAction() string {
+	var d map[string]string
+	if json.Unmarshal([]byte(e.Detail), &d) != nil || d["action"] == "" {
+		return "change"
+	}
+	return d["action"]
+}

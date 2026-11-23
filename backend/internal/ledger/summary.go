@@ -36,9 +36,14 @@ func Summary(agent, day string, entries []Entry, check Result) string {
 	var flagged, failed, priced, unpriced int
 	var total float64
 	drift := map[string]int{}
+	vault := map[string]int{}
 	for _, e := range entries {
 		if e.Kind == KindDrift {
 			drift[driftLabel(e.DriftKind())]++
+			continue
+		}
+		if e.Kind == KindVaultChange {
+			vault[e.vaultAction()]++
 			continue
 		}
 		if e.Kind != KindStep {
@@ -134,6 +139,14 @@ func Summary(agent, day string, entries []Entry, check Result) string {
 			n += c
 		}
 		fmt.Fprintf(&b, "**Passport drift.** %s outside the agent's passport: %s. Observed only; nothing was blocked.\n\n", plural(n, "time"), topCounts(drift, 10))
+	}
+
+	if len(vault) > 0 {
+		n := 0
+		for _, c := range vault {
+			n += c
+		}
+		fmt.Fprintf(&b, "**Knowledge vault.** %s: %s.\n\n", plural(n, "change"), topCounts(vault, 10))
 	}
 
 	first, last := entries[0], entries[len(entries)-1]
