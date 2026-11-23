@@ -83,6 +83,8 @@ type stepDoc struct {
 	UserInputBytes  int                    `json:"user_input_bytes,omitempty"`
 	SecurityFlags   []string               `json:"security_flags,omitempty"`
 	SecurityReasons []string               `json:"security_reasons,omitempty"`
+	DataClasses     []string               `json:"data_classes,omitempty"`
+	PassportDrift   []string               `json:"passport_drift,omitempty"`
 	Attributes      map[string]string      `json:"attributes"`
 	Links           []string               `json:"links"`
 	InputHash       string                 `json:"input_hash"`
@@ -153,7 +155,7 @@ func toDoc(s model.Step, ingested string) stepDoc {
 		StartTime: nanoTime(int64(s.StartUnixNano)), StartNs: int64(s.StartUnixNano), DurationMs: s.DurationMs,
 		ErrorMessage: s.ErrorMessage, ErrorPattern: s.ErrorPattern,
 		ScoreName: s.ScoreName, ScoreValue: s.ScoreValue, ScorePass: s.ScorePass, ScoreSource: s.ScoreSource, Input: s.Input, Output: s.Output, Reasoning: s.Reasoning,
-		UserInput: s.UserInput, UserInputBytes: len(s.UserInput), SecurityFlags: s.SecurityFlags, SecurityReasons: s.SecurityReasons,
+		UserInput: s.UserInput, UserInputBytes: len(s.UserInput), SecurityFlags: s.SecurityFlags, SecurityReasons: s.SecurityReasons, DataClasses: s.DataClasses, PassportDrift: s.PassportDrift,
 		Attributes: attrs, Links: links, InputHash: hex.EncodeToString(ih[:16]),
 		InputBytes: len(s.Input), OutputBytes: len(s.Output), ReasoningBytes: len(s.Reasoning),
 		Redacted: len(kinds) > 0, RedactedKinds: kinds, IngestedAt: ingested,

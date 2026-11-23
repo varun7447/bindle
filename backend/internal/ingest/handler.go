@@ -20,10 +20,37 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/model"
 	"github.com/bindle-ai/bindle/backend/internal/normalize"
 	"github.com/bindle-ai/bindle/backend/internal/otlp"
+	"github.com/bindle-ai/bindle/backend/internal/passport"
 	"github.com/bindle-ai/bindle/backend/internal/pipeline"
 	"github.com/bindle-ai/bindle/backend/internal/ratelimit"
+	"github.com/bindle-ai/bindle/backend/internal/redact"
 	"github.com/bindle-ai/bindle/backend/internal/sdkconfig"
 )
+
+// markDataClasses records the redaction labels in a redacted step: labels
+// only, the values were never kept.
+func markDataClasses(s *model.Step) {
+	s.InputDataClasses = redact.Found(s.Input)
+	texts := []string{s.Name, s.Input, s.Output, s.Reasoning, s.ErrorMessage, s.UserInput}
+	for _, v := range s.Attributes {
+		texts = append(texts, v)
+	}
+	s.DataClasses = redact.Found(texts...)
+}
+
+// ApplyPassports records each step's drift from its agent's passport.
+// Observe-only: steps are never dropped or changed otherwise. Agents
+// without a passport are untouched.
+func ApplyPassports(set passport.Set, steps []model.Step) {
+	if len(set) == 0 {
+		return
+	}
+	for i := range steps {
+		if p := set.For(steps[i].AgentName); p != nil {
+			steps[i].PassportDrift = p.StepDrift(steps[i])
+		}
+	}
+}
 
 // Submitter accepts normalized steps (the batcher in v0, Kinesis in v0.2).
 type Submitter interface {
@@ -36,10 +63,17 @@ type PolicySource interface {
 	Policy(ctx context.Context, tenant string) (sdkconfig.Policy, error)
 }
 
+// PassportSource gives a tenant's active agent passports (nil: none, or the
+// passports feature is off). Implemented by control.PassportResolver.
+type PassportSource interface {
+	Passports(ctx context.Context, tenant string) passport.Set
+}
+
 // Handler serves POST /v1/traces.
 type Handler struct {
 	Keys         auth.Resolver
-	Policies     PolicySource // nil: no remote policy (defaults)
+	Policies     PolicySource   // nil: no remote policy (defaults)
+	Passports    PassportSource // nil: no passport drift detection
 	Normalizer   *normalize.Normalizer
 	Limiter      *ratelimit.Limiter
 	Out          Submitter
@@ -111,6 +145,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		steps = ApplyPolicy(pol, steps)
+	} else {
+		for i := range steps {
+			markDataClasses(&steps[i])
+		}
+	}
+	if h.Passports != nil {
+		ApplyPassports(h.Passports.Passports(r.Context(), tenant), steps)
 	}
 	if err := h.Out.Submit(steps); err != nil {
 		if errors.Is(err, pipeline.ErrBackpressure) {
@@ -204,16 +245,6 @@ func ApplyPolicy(p sdkconfig.Policy, steps []model.Step) []model.Step {
 				s.Attributes = attrs
 			}
 		}
-		if !c.CaptureContent {
-			s.Input, s.Output, s.Reasoning, s.UserInput = "", "", "", ""
-			// Say why, so the console can explain the empty fields.
-			attrs := make(map[string]string, len(s.Attributes)+1)
-			for k, v := range s.Attributes {
-				attrs[k] = v
-			}
-			attrs[ContentDroppedAttr] = "workspace"
-			s.Attributes = attrs
-		}
 		if !p.Redactor.Empty() {
 			s.Name = p.Redactor.Apply(s.Name)
 			s.Input, s.Output = p.Redactor.Apply(s.Input), p.Redactor.Apply(s.Output)
@@ -226,6 +257,19 @@ func ApplyPolicy(p sdkconfig.Policy, steps []model.Step) []model.Step {
 				}
 				s.Attributes = attrs
 			}
+		}
+		// After every redaction pass and before content is dropped, so data
+		// classes are known even with capture off.
+		markDataClasses(&s)
+		if !c.CaptureContent {
+			s.Input, s.Output, s.Reasoning, s.UserInput = "", "", "", ""
+			// Say why, so the console can explain the empty fields.
+			attrs := make(map[string]string, len(s.Attributes)+1)
+			for k, v := range s.Attributes {
+				attrs[k] = v
+			}
+			attrs[ContentDroppedAttr] = "workspace"
+			s.Attributes = attrs
 		}
 		out = append(out, s)
 	}

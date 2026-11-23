@@ -62,6 +62,7 @@ func run(log *slog.Logger) error {
 
 	var keys auth.Resolver
 	var policies ingest.PolicySource // remote SDK config, from the control plane
+	var features *control.FeatureResolver
 	controlDB, err := control.OpenFromEnv("BINDLE_CONTROL_DB_URL")
 	if err != nil {
 		return err
@@ -75,6 +76,7 @@ func run(log *slog.Logger) error {
 		go r.RunUsageFlusher(ctx, time.Minute)
 		keys = r
 		policies = &control.ConfigResolver{DB: controlDB, Log: log}
+		features = &control.FeatureResolver{DB: controlDB, Log: log}
 	default:
 		k, err := auth.ParseEnv(static)
 		if err != nil {
@@ -114,7 +116,7 @@ func run(log *slog.Logger) error {
 		go w.Maintain(ctx, time.Hour)
 		out = w
 		if controlDB != nil { // workspaces with the ledger feature also get ledger entries
-			out = &ledger.Sink{Inner: w, Ledger: &ledger.Writer{DB: controlDB}, Features: &control.FeatureResolver{DB: controlDB, Log: log}, Log: log}
+			out = &ledger.Sink{Inner: w, Ledger: &ledger.Writer{DB: controlDB}, Features: features, Log: log}
 		}
 	case "stdout":
 		out = &sink.Stdout{}
@@ -158,6 +160,9 @@ func run(log *slog.Logger) error {
 		MaxBodyBytes: int64(envFloat("BINDLE_MAX_BODY_BYTES", 8<<20)),
 		Log:          log,
 	}
+	if controlDB != nil { // workspaces with the passports feature get drift detection
+		h.Passports = &control.PassportResolver{DB: controlDB, Features: features, Log: log}
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/v1/traces", h)
@@ -166,6 +171,13 @@ func run(log *slog.Logger) error {
 	logs.Logs = true
 	mux.Handle("/v1/logs", &logs)
 	mux.Handle("/v1/config", &ingest.ConfigHandler{Keys: keys, Policies: policies, Limiter: limiter, Log: log})
+	if controlDB != nil {
+		// Passport pushes from the CLI or CI, with a management key.
+		ph := &ingest.PassportHandler{Keys: &control.MgmtKeyResolver{DB: controlDB}, Store: &control.PassportWriter{DB: controlDB},
+			Features: features, Policies: policies, Limiter: ratelimit.New(1, 10), Log: log}
+		mux.Handle("/v1/passports", ph)
+		mux.Handle("/v1/passports/validate", ph)
+	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 
 	srv := &http.Server{

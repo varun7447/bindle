@@ -60,7 +60,7 @@ func stepsMapping() map[string]any {
 	p := map[string]any{}
 	for _, f := range []string{"tenant_id", "trace_id", "step_id", "parent_step_id", "name", "type", "status",
 		"framework", "service_name", "agent_name", "agent_version", "session_id", "environment",
-		"provider", "model", "tool_name", "input_hash", "redacted_kinds", "links", "error_pattern", "score_name", "score_pass", "score_source", "security_flags", "security_reasons"} {
+		"provider", "model", "tool_name", "input_hash", "redacted_kinds", "links", "error_pattern", "score_name", "score_pass", "score_source", "security_flags", "security_reasons", "data_classes", "passport_drift"} {
 		p[f] = kw()
 	}
 	for _, f := range []string{"attempt", "input_tokens", "output_tokens", "cached_tokens", "start_ns",
@@ -155,7 +155,7 @@ func Setup(ctx context.Context, c *Client, o SetupOptions) error {
 		url.Values{"allow_no_indices": {"true"}, "ignore_unavailable": {"true"}},
 		map[string]any{"properties": map[string]any{"payload_refs": payloadRefsMapping(), "error_pattern": kw(),
 			"score_name": kw(), "score_pass": kw(), "score_source": kw(), "score_value": map[string]any{"type": "double"},
-			"security_flags": kw(), "security_reasons": kw(), "user_input": map[string]any{"type": "text"}, "user_input_bytes": map[string]any{"type": "long"}}}, nil); err != nil {
+			"security_flags": kw(), "security_reasons": kw(), "data_classes": kw(), "passport_drift": kw(), "user_input": map[string]any{"type": "text"}, "user_input_bytes": map[string]any{"type": "long"}}}, nil); err != nil {
 		return fmt.Errorf("search: steps mapping: %w", err)
 	}
 

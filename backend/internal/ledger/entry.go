@@ -10,14 +10,17 @@ package ledger
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/bindle-ai/bindle/backend/internal/model"
+	"github.com/bindle-ai/bindle/backend/internal/passport"
 )
 
 // Entry kinds.
@@ -169,6 +172,66 @@ func FromStep(s model.Step) Entry {
 		SecurityFlags: flags,
 		Detail:        canonicalDetail(detail),
 	}
+}
+
+// DriftFromStep records one way a step went outside its agent's passport
+// (reason is "kind:detail"). It carries the step's identity, not its content.
+func DriftFromStep(s model.Step, reason string) Entry {
+	e := FromStep(s)
+	e.Kind, e.EntryKey = KindDrift, reason
+	e.InputTokens, e.OutputTokens, e.CostUSD, e.CostKnown, e.SecurityFlags = 0, 0, FormatCost(0), false, nil
+	e.Detail = canonicalDetail(map[string]string{"reason": reason})
+	return e
+}
+
+// Drift records passport drift found across steps (a rate limit or a
+// budget). key makes it idempotent, e.g. the reason plus the evaluation
+// window it was found in.
+func Drift(agent, reason, key, traceID string, at time.Time, detail map[string]string) Entry {
+	d := map[string]string{"reason": reason}
+	for k, v := range detail {
+		d[k] = v
+	}
+	return Entry{Agent: agent, At: at.UTC().Truncate(time.Microsecond), Kind: KindDrift, TraceID: traceID, EntryKey: key,
+		CostUSD: FormatCost(0), Detail: canonicalDetail(d)}
+}
+
+// DriftKind is a drift entry's kind of drift ("tool_not_allowed", ...).
+func (e Entry) DriftKind() string {
+	k, _, _ := strings.Cut(e.EntryKey, ":")
+	return k
+}
+
+var driftLabels = map[string]string{
+	passport.ToolNotAllowed:      "unlisted tool",
+	passport.DataClassNotAllowed: "data class not allowed",
+	passport.EgressBlocked:       "blocked data sent out",
+	passport.ReleaseNotAllowed:   "release action without rights",
+	passport.RateOverLimit:       "tool over its rate limit",
+	passport.RunOverBudget:       "run over budget",
+	passport.DayOverBudget:       "day over budget",
+}
+
+func driftLabel(kind string) string {
+	if l := driftLabels[kind]; l != "" {
+		return l
+	}
+	return kind
+}
+
+// RecordFindings appends rate-limit and budget drift for one agent, once per
+// finding and period (see passport.Finding.Slot).
+func (w *Writer) RecordFindings(ctx context.Context, tenant, agent string, findings []passport.Finding, now time.Time) error {
+	var entries []Entry
+	for _, f := range findings {
+		detail := map[string]string{"value": strconv.FormatFloat(f.Value, 'f', -1, 64), "limit": strconv.FormatFloat(f.Limit, 'f', -1, 64)}
+		if f.Window != "" {
+			detail["window"] = f.Window
+		}
+		entries = append(entries, Drift(agent, f.Reason(), f.Reason()+":"+f.Slot(now), f.TraceID, now, detail))
+	}
+	_, err := w.Append(ctx, tenant, agent, entries)
+	return err
 }
 
 // key identifies an entry for idempotency: a retried batch has the same keys.

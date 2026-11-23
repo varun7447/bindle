@@ -170,7 +170,7 @@ func (d stepDoc) summary() query.StepSummary {
 		InputTokens: d.InputTokens, OutputTokens: d.OutputTokens, CachedTokens: d.CachedTokens, CostUSD: d.CostUSD,
 		CostKnown: d.CostKnown, ErrorMessage: d.ErrorMessage, InputBytes: uint64(d.InputBytes),
 		OutputBytes: uint64(d.OutputBytes), ReasoningBytes: uint64(d.ReasoningBytes), Redacted: d.Redacted,
-		SecurityFlags: d.SecurityFlags, SecurityReasons: d.SecurityReasons,
+		SecurityFlags: d.SecurityFlags, SecurityReasons: d.SecurityReasons, DataClasses: d.DataClasses, PassportDrift: d.PassportDrift,
 	}
 }
 

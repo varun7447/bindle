@@ -106,6 +106,16 @@ type Step struct {
 	SecurityFlags []string
 	// SecurityReasons say why each flag was raised ("flag:reason").
 	SecurityReasons []string
+	// DataClasses are the redaction labels found in the step (EMAIL, CARD,
+	// a workspace pattern name, ...): labels only, never the values.
+	DataClasses []string
+	// InputDataClasses are the labels in the step's input alone. Used for
+	// passport egress checks at ingest; not stored.
+	InputDataClasses []string
+	// PassportDrift lists the ways the step went outside its agent's
+	// passport ("kind:detail", e.g. "tool_not_allowed:refund_payment").
+	// Observe-only: nothing is blocked.
+	PassportDrift []string
 
 	Attributes map[string]string
 	Links      []string // "traceid:spanid"

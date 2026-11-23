@@ -195,6 +195,11 @@ type StepSummary struct {
 	// secret_exposed, possible_exfiltration); SecurityReasons say why.
 	SecurityFlags   []string `json:"security_flags,omitempty"`
 	SecurityReasons []string `json:"security_reasons,omitempty"`
+	// DataClasses are the redaction labels found in the step (labels only).
+	DataClasses []string `json:"data_classes,omitempty"`
+	// PassportDrift lists how the step went outside its agent's passport
+	// ("kind:detail").
+	PassportDrift []string `json:"passport_drift,omitempty"`
 }
 
 // Trace is a run summary plus its steps.
@@ -424,6 +429,20 @@ type SecuritySignal struct {
 	// Reasons counts why the flag was raised ("flag:reason").
 	Reasons map[string]uint64 `json:"reasons"`
 	// Examples are the latest flagged steps (at most 3).
+	Examples []SecurityExample `json:"examples"`
+}
+
+// DriftSignal is how often one kind of passport drift appeared on one
+// agent's steps in a range.
+type DriftSignal struct {
+	Kind     string `json:"kind"`
+	Agent    string `json:"agent"`
+	Steps    uint64 `json:"steps"`
+	Runs     uint64 `json:"runs"`
+	LastSeen Time   `json:"last_seen"`
+	// Reasons counts each "kind:detail" (which tool, which data class).
+	Reasons map[string]uint64 `json:"reasons"`
+	// Examples are the latest drifting steps (at most 3).
 	Examples []SecurityExample `json:"examples"`
 }
 

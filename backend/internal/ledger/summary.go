@@ -35,7 +35,12 @@ func Summary(agent, day string, entries []Entry, check Result) string {
 	flags := map[string]int{}
 	var flagged, failed, priced, unpriced int
 	var total float64
+	drift := map[string]int{}
 	for _, e := range entries {
+		if e.Kind == KindDrift {
+			drift[driftLabel(e.DriftKind())]++
+			continue
+		}
 		if e.Kind != KindStep {
 			continue
 		}
@@ -121,6 +126,14 @@ func Summary(agent, day string, entries []Entry, check Result) string {
 	} else {
 		fmt.Fprintf(&b, "**Security signals.** %s flagged for review: %s. Signals are leads to check, not verdicts.\n\n",
 			plural(flagged, "step"), topCounts(flags, 10))
+	}
+
+	if len(drift) > 0 {
+		n := 0
+		for _, c := range drift {
+			n += c
+		}
+		fmt.Fprintf(&b, "**Passport drift.** %s outside the agent's passport: %s. Observed only; nothing was blocked.\n\n", plural(n, "time"), topCounts(drift, 10))
 	}
 
 	first, last := entries[0], entries[len(entries)-1]

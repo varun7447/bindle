@@ -54,6 +54,9 @@ func (s *Sink) Write(ctx context.Context, steps []model.Step) error {
 			order = append(order, g)
 		}
 		groups[g] = append(groups[g], FromStep(st))
+		for _, reason := range st.PassportDrift {
+			groups[g] = append(groups[g], DriftFromStep(st, reason))
+		}
 	}
 	for _, g := range order {
 		if _, err := s.Ledger.Append(ctx, g.tenant, g.agent, groups[g]); err != nil {
