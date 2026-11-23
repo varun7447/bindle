@@ -118,6 +118,7 @@ func run(log *slog.Logger) error {
 		// reads them and manages the keys.
 		Passports: passportStore(store),
 		MgmtKeys:  mgmtKeyStore(store),
+		Outcomes:  outcomeAdmin(store),
 		Prices:    prices,
 		// Public AWS price list (no credentials), for Settings → Model prices.
 		AWSPrices: &api.AWSPriceList{},
@@ -218,6 +219,13 @@ func passportStore(s *control.Store) api.PassportStore {
 }
 
 func mgmtKeyStore(s *control.Store) api.MgmtKeyStore {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
+func outcomeAdmin(s *control.Store) api.OutcomeAdmin {
 	if s == nil {
 		return nil
 	}

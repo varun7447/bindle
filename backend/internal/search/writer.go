@@ -87,6 +87,7 @@ type stepDoc struct {
 	PassportDrift   []string               `json:"passport_drift,omitempty"`
 	Attributes      map[string]string      `json:"attributes"`
 	Links           []string               `json:"links"`
+	Correlations    []string               `json:"correlations,omitempty"`
 	InputHash       string                 `json:"input_hash"`
 	InputBytes      int                    `json:"input_bytes"`
 	OutputBytes     int                    `json:"output_bytes"`
@@ -156,7 +157,7 @@ func toDoc(s model.Step, ingested string) stepDoc {
 		ErrorMessage: s.ErrorMessage, ErrorPattern: s.ErrorPattern,
 		ScoreName: s.ScoreName, ScoreValue: s.ScoreValue, ScorePass: s.ScorePass, ScoreSource: s.ScoreSource, Input: s.Input, Output: s.Output, Reasoning: s.Reasoning,
 		UserInput: s.UserInput, UserInputBytes: len(s.UserInput), SecurityFlags: s.SecurityFlags, SecurityReasons: s.SecurityReasons, DataClasses: s.DataClasses, PassportDrift: s.PassportDrift,
-		Attributes: attrs, Links: links, InputHash: hex.EncodeToString(ih[:16]),
+		Attributes: attrs, Links: links, Correlations: s.Correlations, InputHash: hex.EncodeToString(ih[:16]),
 		InputBytes: len(s.Input), OutputBytes: len(s.Output), ReasoningBytes: len(s.Reasoning),
 		Redacted: len(kinds) > 0, RedactedKinds: kinds, IngestedAt: ingested,
 	}

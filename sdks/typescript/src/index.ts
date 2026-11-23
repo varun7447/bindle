@@ -23,6 +23,7 @@ import { Poller, type RemoteSettings } from './remote.js';
 import { DynamicRatioSampler } from './sampling.js';
 
 import { Guard, LimitExceededError, type LimitsStatus, RunCounter } from './limits.js';
+import { attribute as correlationAttribute, MAX_KEYS as MAX_CORRELATION_KEYS, RunKeys } from './correlate.js';
 import { extractMeta, injectMeta, LINK_KINDS, type LinkKind, makeToken, parseToken } from './links.js';
 export { Redactor } from './redact.js';
 export { LimitExceededError, type LimitReason, type LimitsStatus } from './limits.js';
@@ -483,6 +484,37 @@ export function outcome(name: string, opts: { success?: boolean; value?: number;
   const success = opts.success ?? true;
   if (typeof success !== 'boolean') return false;
   return score(name, { value: opts.value, passed: success, comment: opts.comment, traceId: opts.traceId, source: 'outcome' });
+}
+
+const runKeys = new RunKeys();
+
+/**
+ * Tag the current run with a business identifier, so an event reported later
+ * without the run's trace ID still finds it: correlate('ticket_id', ticket.id);
+ * when the ticket is reopened, your helpdesk reports
+ * { correlation: { ticket_id: 'T-123' }, name: 'ticket_reopened', success: false }.
+ *
+ * key: lowercase letters, digits and _, starting with a letter, at most 32
+ * characters. value: at most 256 bytes (integers are used as text). A run
+ * keeps at most 8 keys. Only a digest of the key and value is sent; Bindle
+ * never stores the value. Returns true if recorded; never throws.
+ */
+export function correlate(key: string, value: string | number): boolean {
+  try {
+    const attr = correlationAttribute(key, value);
+    if (!attr) return false;
+    const span = trace.getSpan(context.active());
+    const sc = span?.spanContext();
+    if (!span || !sc || !trace.isSpanContextValid(sc) || !span.isRecording()) return false;
+    if (!runKeys.admit(sc.traceId, key)) {
+      debug(`bindle: correlate(${key}) ignored: a run keeps at most ${MAX_CORRELATION_KEYS} keys`);
+      return false;
+    }
+    span.setAttribute(attr[0], attr[1]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** The current run's trace ID, to hand to your UI for feedback later; undefined outside a run. */

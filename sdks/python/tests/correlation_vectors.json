@@ -1,0 +1,65 @@
+{
+  "comment": "Shared by the Python and TypeScript SDKs and the Go backend (internal/correlate).",
+  "max_keys": 8,
+  "max_value_bytes": 256,
+  "digests": [
+    {
+      "key": "ticket_id",
+      "value": "T-123",
+      "digest": "v1:7ff5d061dc43491289e6fa649b9783cc03772146c06568bc49326902c6d9d684"
+    },
+    {
+      "key": "order",
+      "value": "o_981",
+      "digest": "v1:37e9c2c666d51581d9c3eca88d7d811d2cf83ce4d7accf26426d2a84cc6fefc8"
+    },
+    {
+      "key": "email",
+      "value": "jane.doe@example.com",
+      "digest": "v1:d0d9e040dd95f00b8542f0a918b889558c66e95c7ced0a3e56d0f438a94770b2"
+    },
+    {
+      "key": "ref",
+      "value": "naïve ✓ 日本",
+      "digest": "v1:48d16202c9938f6d1fec1888abf9d312519edf6ef712f6e72e38cd5940c6c95e"
+    },
+    {
+      "key": "k",
+      "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "digest": "v1:13410975a4b420b69cc4af9b283ebda9c01ce6367a4f431340e3607aa9b0428b"
+    }
+  ],
+  "stored": [
+    {
+      "tenant": "t_1",
+      "key": "ticket_id",
+      "digest": "v1:7ff5d061dc43491289e6fa649b9783cc03772146c06568bc49326902c6d9d684",
+      "stored": "ticket_id:51b783b4fa2f17472fb43d4bf89f254aebcb19e6a6d129c8629f9bf972b58c5b"
+    },
+    {
+      "tenant": "t_2",
+      "key": "ticket_id",
+      "digest": "v1:7ff5d061dc43491289e6fa649b9783cc03772146c06568bc49326902c6d9d684",
+      "stored": "ticket_id:464840a0dde70486bb02b1f685b705c7c48ee8fcfee3a87a08781d18a19863a0"
+    }
+  ],
+  "valid_keys": [
+    "ticket_id",
+    "a",
+    "order2",
+    "abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  ],
+  "invalid_keys": [
+    "",
+    "Ticket",
+    "1abc",
+    "ticket-id",
+    "ticket.id",
+    "abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "tïcket"
+  ],
+  "invalid_values": [
+    "",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  ]
+}

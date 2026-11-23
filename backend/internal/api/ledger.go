@@ -38,6 +38,15 @@ func (s *Server) features(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"features": list})
 }
 
+// ledgerOn is featureOn for the ledger, which also needs its store.
+func (s *Server) ledgerOn(w http.ResponseWriter, r *http.Request) bool {
+	if s.Ledger == nil {
+		writeError(w, http.StatusNotFound, "not_found", "no such endpoint")
+		return false
+	}
+	return s.featureOn(w, r, ledger.Feature)
+}
+
 // featureOn answers 404 (as if the route didn't exist) unless the feature
 // is on for the caller's workspace.
 func (s *Server) featureOn(w http.ResponseWriter, r *http.Request, feature string) bool {
@@ -109,7 +118,7 @@ type ledgerEntryJSON struct {
 
 // ledgerList: GET /api/agents/ledger?agent=&days=|from=&to=&before_seq=&limit=
 func (s *Server) ledgerList(w http.ResponseWriter, r *http.Request) {
-	if !s.featureOn(w, r, ledger.Feature) {
+	if !s.ledgerOn(w, r) {
 		return
 	}
 	agent, from, to, ok := s.ledgerParams(w, r)
@@ -152,7 +161,7 @@ func (s *Server) ledgerList(w http.ResponseWriter, r *http.Request) {
 
 // ledgerVerify: GET /api/agents/ledger/verify?agent=&days=|from=&to=
 func (s *Server) ledgerVerify(w http.ResponseWriter, r *http.Request) {
-	if !s.featureOn(w, r, ledger.Feature) {
+	if !s.ledgerOn(w, r) {
 		return
 	}
 	agent, from, to, ok := s.ledgerParams(w, r)
@@ -172,7 +181,7 @@ var unsafeFileChars = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 // ledgerSummary: GET /api/agents/ledger/summary?agent=&day=YYYY-MM-DD, the
 // day's plain-English summary as Markdown (default: yesterday, UTC).
 func (s *Server) ledgerSummary(w http.ResponseWriter, r *http.Request) {
-	if !s.featureOn(w, r, ledger.Feature) {
+	if !s.ledgerOn(w, r) {
 		return
 	}
 	q := r.URL.Query()

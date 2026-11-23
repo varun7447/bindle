@@ -11,6 +11,7 @@ import { sessionToken } from './auth';
 import type { SecurityResponse } from './security';
 import type { AgentPassportResponse, DriftResponse, MgmtKey, PassportVersion } from './passports';
 import type { TopicsResponse } from './topics';
+import type { GradingResponse, OutcomeEndpoint, OutcomeEvent, OutcomeEventStatus, OutcomeSettings } from './grading';
 import type { AgentLimit, LimitsResponse } from './limits';
 import type { AWSPrice, ModelUsage, PriceOverride, PricesResponse } from './prices';
 import type { ToolHealth, VersionStats, VersionToolUsage } from './agents';
@@ -118,6 +119,8 @@ const SCORER_ID = /^sc_[0-9a-f]{20}$/;
 const DATASET_ID = /^ds_[0-9a-f]{20}$/;
 const CHANNEL_ID = /^ch_[0-9a-f]{20}$/;
 
+const OUTCOME_ENDPOINT_ID = /^oep_[0-9a-f]{16}$/;
+
 function checked(id: string, re: RegExp, what: string): string {
   if (!re.test(id)) throw new ApiError(400, 'bad_request', `Invalid ${what} ID`);
   return id;
@@ -209,6 +212,14 @@ export const api = {
   datasetEvals: async (id: string) => get<{ evals: EvalRun[] }>(`/api/datasets/${checked(id, DATASET_ID, 'dataset')}/evals`),
   agentChecks: (agent: string, window: string) => get<AgentChecks>('/api/agents/checks', { agent, window }),
   economics: (window: string) => get<{ window: string; agents: Economics[] }>('/api/economics', { window }),
+  grading: (window: string, agent?: string) => get<GradingResponse>('/api/agents/grading', agent ? { window, agent } : { window }),
+  outcomeSettings: () => get<OutcomeSettings>('/api/outcomes/settings'),
+  putOutcomeSettings: (v: { reversal_outcomes: string[]; pending_hours: number }) => put<OutcomeSettings>('/api/outcomes/settings', v),
+  outcomeEndpoints: () => get<{ endpoints: OutcomeEndpoint[] }>('/api/outcomes/endpoints'),
+  createOutcomeEndpoint: (name: string) =>
+    post<{ endpoint: OutcomeEndpoint; secret: string; path: string; signature_header: string }>('/api/outcomes/endpoints', { name }),
+  revokeOutcomeEndpoint: (id: string) => post<{ revoked: boolean }>(`/api/outcomes/endpoints/${checked(id, OUTCOME_ENDPOINT_ID, 'endpoint')}/revoke`, {}),
+  outcomeEvents: (status?: OutcomeEventStatus) => get<{ events: OutcomeEvent[] }>('/api/outcomes/events', status ? { status, limit: '100' } : { limit: '100' }),
   problemSuggestions: (src: ProblemSource) => get<SuggestionsResponse>('/api/problems/suggestions', problemParams(src)),
   addProblemItems: async (id: string, src: ProblemSource) =>
     post<{ added: number; found: number; source: string }>(`/api/datasets/${checked(id, DATASET_ID, 'dataset')}/items/from-problems`, problemParams(src)),

@@ -62,6 +62,7 @@ type Server struct {
 	// Passports and management keys (feature "passports"); nil: 503.
 	Passports PassportStore
 	MgmtKeys  MgmtKeyStore
+	Outcomes  OutcomeAdmin   // outcome grading (feature "outcome_grading"); nil hides it (404)
 	Replay    *replay.Runner // nil disables step replay (503)
 	Prices    *cost.Table    // list prices, for replay cost
 	// AWSPrices serves Bedrock list prices; nil disables (503).
@@ -120,6 +121,13 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/agents/versions", s.agentVersions)
 	api.HandleFunc("GET /api/features", s.features)
 	api.HandleFunc("GET /api/agents/ledger", s.ledgerList)
+	api.HandleFunc("GET /api/outcomes/settings", s.getOutcomeSettings)
+	api.HandleFunc("PUT /api/outcomes/settings", s.putOutcomeSettings)
+	api.HandleFunc("GET /api/outcomes/endpoints", s.listOutcomeEndpoints)
+	api.HandleFunc("POST /api/outcomes/endpoints", s.createOutcomeEndpoint)
+	api.HandleFunc("POST /api/outcomes/endpoints/{id}/revoke", s.revokeOutcomeEndpoint)
+	api.HandleFunc("GET /api/outcomes/events", s.listOutcomeEvents)
+	api.HandleFunc("GET /api/agents/grading", s.agentGrading)
 	api.HandleFunc("GET /api/agents/ledger/verify", s.ledgerVerify)
 	api.HandleFunc("GET /api/agents/ledger/summary", s.ledgerSummary)
 	api.HandleFunc("GET /api/agents/tool-usage", s.toolUsage)

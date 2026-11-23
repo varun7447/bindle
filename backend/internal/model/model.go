@@ -119,4 +119,7 @@ type Step struct {
 
 	Attributes map[string]string
 	Links      []string // "traceid:spanid"
+	// Correlations link the run to business events reported later
+	// (bindle.correlate): "<key>:<tenant-bound hash>", never the raw value.
+	Correlations []string
 }
