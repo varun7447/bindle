@@ -46,6 +46,7 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/search"
 	"github.com/bindle-ai/bindle/backend/internal/sink"
 	"github.com/bindle-ai/bindle/backend/internal/stream"
+	"github.com/bindle-ai/bindle/backend/internal/vault"
 )
 
 func main() {
@@ -182,6 +183,18 @@ func run(log *slog.Logger) error {
 			Features: features, Limiter: ratelimit.New(20, 100), Log: log}
 		mux.Handle("/v1/outcome-events", oh)
 		mux.Handle("/v1/outcome-events/", oh)
+		// Learning loop (feature learning_loop): lessons, lesson packs,
+		// skill drafts and vault sync for the CLI, with a management key.
+		li := &control.LearningIngest{DB: controlDB}
+		lh := &ingest.LearningHandler{Keys: &control.MgmtKeyResolver{DB: controlDB}, Store: li, Features: features,
+			Limiter: ratelimit.New(2, 20), Log: log, Saver: &vault.Saver{
+				Store: li, Passport: li.Passport, Tools: li.AgentTools, Labels: ingest.CustomLabels(policies),
+				Ledger:   &ledger.Writer{DB: controlDB},
+				LedgerOn: func(ctx context.Context, t string) bool { return features.Enabled(ctx, t, ledger.Feature) },
+			}}
+		for _, p := range []string{"/v1/lessons", "/v1/lessons/", "/v1/skills", "/v1/vault"} {
+			mux.Handle(p, lh)
+		}
 	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 
