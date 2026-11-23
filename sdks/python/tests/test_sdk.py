@@ -19,7 +19,25 @@ def test_config_env_and_clamping(monkeypatch):
     assert cfg.api_key == "bd_test_x"
     assert cfg.sample_rate == 1.0
     assert cfg.redact is False
-    assert cfg.traces_url == "https://ingest.bindle.ai/v1/traces"
+    assert cfg.endpoint == ""
+
+
+def test_traces_url_from_endpoint(monkeypatch):
+    monkeypatch.setenv("BINDLE_ENDPOINT", "https://ingest.example.com/")
+    assert _config.resolve().traces_url == "https://ingest.example.com/v1/traces"
+
+
+def test_init_is_noop_without_endpoint(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setenv("BINDLE_API_KEY", "bd_test_x")
+    monkeypatch.delenv("BINDLE_ENDPOINT", raising=False)
+    monkeypatch.setattr(bindle, "_warned", set())
+    with caplog.at_level(logging.WARNING, logger="bindle"):
+        assert bindle.init() is False
+        assert bindle.init() is False
+    warnings = [r for r in caplog.records if "BINDLE_ENDPOINT" in r.getMessage()]
+    assert len(warnings) == 1
 
 
 def test_decorators_work_without_init():

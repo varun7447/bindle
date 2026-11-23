@@ -7,9 +7,6 @@ import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Union
 
-DEFAULT_ENDPOINT = "https://ingest.bindle.ai"
-
-
 def _env_float(name: str, default: float) -> float:
     try:
         return float(os.environ.get(name, default))
@@ -27,7 +24,7 @@ def _env_bool(name: str, default: bool) -> bool:
 @dataclass
 class Config:
     api_key: Optional[str]
-    endpoint: str
+    endpoint: str  # empty when not configured: the SDK is then a no-op
     agent: Optional[str]
     version: Optional[str]
     environment: Optional[str]
@@ -66,7 +63,7 @@ def resolve(
     rate = min(max(rate, 0.0), 1.0)
     return Config(
         api_key=api_key or os.environ.get("BINDLE_API_KEY"),
-        endpoint=endpoint or os.environ.get("BINDLE_ENDPOINT", DEFAULT_ENDPOINT),
+        endpoint=(endpoint or os.environ.get("BINDLE_ENDPOINT") or "").strip(),
         agent=agent or os.environ.get("BINDLE_AGENT") or os.environ.get("OTEL_SERVICE_NAME"),
         version=version or os.environ.get("BINDLE_AGENT_VERSION"),
         environment=environment or os.environ.get("BINDLE_ENVIRONMENT"),

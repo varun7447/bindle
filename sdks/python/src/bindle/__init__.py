@@ -87,7 +87,10 @@ def init(
         logging.basicConfig()
         log.setLevel(logging.DEBUG)
     if not cfg.api_key:
-        log.warning("bindle: no API key (set BINDLE_API_KEY); tracing is disabled")
+        _warn_once("key", "bindle: no API key (set BINDLE_API_KEY); tracing is disabled")
+        return False
+    if not cfg.endpoint:
+        _warn_once("endpoint", "bindle: no endpoint (set BINDLE_ENDPOINT to your Bindle ingest URL); tracing is disabled")
         return False
     with _lock:
         if _state["provider"] is not None:
@@ -103,6 +106,16 @@ def init(
             _start_remote(cfg)
     atexit.register(shutdown)
     return True
+
+
+_warned: set = set()
+
+
+def _warn_once(what: str, message: str) -> None:
+    """Configuration warnings are logged once per process, not on every init() call."""
+    if what not in _warned:
+        _warned.add(what)
+        log.warning(message)
 
 
 def _local_redactor(cfg: _config.Config, remote_patterns: Optional[dict] = None) -> Redactor:

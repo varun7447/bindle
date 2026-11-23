@@ -165,3 +165,25 @@ describe('exporter', () => {
     expect(out!.events[0]!.attributes!.why).toBe('[REDACTED:EMAIL]');
   });
 });
+
+describe('endpoint', () => {
+  it('has no built-in default', () => {
+    expect(bindle.resolveOptions({ apiKey: 'bd_test_x' }, {}).endpoint).toBe('');
+    expect(bindle.resolveOptions({}, { BINDLE_ENDPOINT: 'https://ingest.example.com/' }).endpoint).toBe('https://ingest.example.com');
+  });
+
+  it('is a no-op without an endpoint, warning once', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saved = process.env.BINDLE_ENDPOINT;
+    delete process.env.BINDLE_ENDPOINT;
+    try {
+      expect(bindle.init({ apiKey: 'bd_test_' + 'a'.repeat(40), remoteConfig: false })).toBe(false);
+      expect(bindle.init({ apiKey: 'bd_test_' + 'a'.repeat(40), remoteConfig: false })).toBe(false);
+      expect(bindle.spanProcessor({ apiKey: 'bd_test_' + 'a'.repeat(40) })).toBeUndefined();
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes('BINDLE_ENDPOINT'))).toHaveLength(1);
+    } finally {
+      if (saved !== undefined) process.env.BINDLE_ENDPOINT = saved;
+      warn.mockRestore();
+    }
+  });
+});
