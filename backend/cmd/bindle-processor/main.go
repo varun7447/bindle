@@ -28,6 +28,7 @@ import (
 
 	"github.com/bindle-ai/bindle/backend/internal/awsv4"
 	"github.com/bindle-ai/bindle/backend/internal/control"
+	"github.com/bindle-ai/bindle/backend/internal/ledger"
 	"github.com/bindle-ai/bindle/backend/internal/payload"
 	"github.com/bindle-ai/bindle/backend/internal/search"
 	"github.com/bindle-ai/bindle/backend/internal/stream"
@@ -79,8 +80,11 @@ func run(log *slog.Logger) error {
 	_, _ = rand.Read(b)
 	c := &stream.Consumer{
 		Kinesis: &stream.Kinesis{Region: region, Creds: &awsv4.CredentialChain{Getenv: os.Getenv}},
-		Stream:  streamName, Leases: &control.Leases{DB: db}, Writer: w, Spool: blobs,
-		Owner: host + "-" + hex.EncodeToString(b), Log: log,
+		Stream:  streamName, Leases: &control.Leases{DB: db}, Spool: blobs,
+		// Workspaces with the ledger feature also get ledger entries; a ledger
+		// failure leaves the batch without a checkpoint, so it is retried.
+		Writer: &ledger.Sink{Inner: w, Ledger: &ledger.Writer{DB: db}, Features: &control.FeatureResolver{DB: db, Log: log}, Log: log},
+		Owner:  host + "-" + hex.EncodeToString(b), Log: log,
 	}
 	log.Info("bindle-processor starting", "stream", streamName, "owner", c.Owner)
 	c.Run(ctx)

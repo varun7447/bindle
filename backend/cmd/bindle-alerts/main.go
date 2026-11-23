@@ -12,20 +12,27 @@
 //	BINDLE_CONSOLE_URL         console base URL for links in alerts
 //	BINDLE_ALERTS_EMAIL_FROM   verified SES identity; empty disables email (AWS_REGION, credentials from env or the task role)
 //	BINDLE_ALERTS_INTERVAL     default 1m
+//	BINDLE_LEDGER_RETENTION_DAYS  ledger days kept before whole days are dropped (default 400)
+//
+// It also maintains the ledger hourly: upcoming day partitions, the final
+// hash of each finished day, and retention.
 package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/bindle-ai/bindle/backend/internal/alerts"
 	"github.com/bindle-ai/bindle/backend/internal/awsv4"
 	"github.com/bindle-ai/bindle/backend/internal/control"
+	"github.com/bindle-ai/bindle/backend/internal/ledger"
 	"github.com/bindle-ai/bindle/backend/internal/search"
 )
 
@@ -72,6 +79,13 @@ func run(log *slog.Logger) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	retention := 400
+	if v := os.Getenv("BINDLE_LEDGER_RETENTION_DAYS"); v != "" {
+		if retention, err = strconv.Atoi(v); err != nil || retention < 1 {
+			return errors.New("BINDLE_LEDGER_RETENTION_DAYS must be a positive number of days")
+		}
+	}
+	go maintainLedger(ctx, db, retention, log)
 	log.Info("bindle-alerts starting", "interval", interval.String(), "email", d.SES != nil)
 	e.Run(ctx, interval)
 	log.Info("bindle-alerts stopped")
@@ -83,4 +97,25 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// maintainLedger runs ledger maintenance now and then hourly.
+func maintainLedger(ctx context.Context, db *sql.DB, retentionDays int, log *slog.Logger) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		mctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		closed, dropped, err := ledger.Maintain(mctx, db, retentionDays)
+		cancel()
+		if err != nil {
+			log.Warn("ledger maintenance failed", "err", err)
+		} else if closed+dropped > 0 {
+			log.Info("ledger maintenance", "days_closed", closed, "days_dropped", dropped)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }

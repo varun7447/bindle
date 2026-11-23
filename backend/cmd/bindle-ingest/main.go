@@ -37,6 +37,7 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/control"
 	"github.com/bindle-ai/bindle/backend/internal/cost"
 	"github.com/bindle-ai/bindle/backend/internal/ingest"
+	"github.com/bindle-ai/bindle/backend/internal/ledger"
 	"github.com/bindle-ai/bindle/backend/internal/normalize"
 	"github.com/bindle-ai/bindle/backend/internal/payload"
 	"github.com/bindle-ai/bindle/backend/internal/pipeline"
@@ -112,6 +113,9 @@ func run(log *slog.Logger) error {
 		}
 		go w.Maintain(ctx, time.Hour)
 		out = w
+		if controlDB != nil { // workspaces with the ledger feature also get ledger entries
+			out = &ledger.Sink{Inner: w, Ledger: &ledger.Writer{DB: controlDB}, Features: &control.FeatureResolver{DB: controlDB, Log: log}, Log: log}
+		}
 	case "stdout":
 		out = &sink.Stdout{}
 	case "stream":
