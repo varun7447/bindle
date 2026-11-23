@@ -97,7 +97,9 @@ func TestFormatCost(t *testing.T) {
 
 type fakeFeatures map[string]bool
 
-func (f fakeFeatures) Enabled(_ context.Context, tenant, feature string) bool { return feature == Feature && f[tenant] }
+func (f fakeFeatures) Enabled(_ context.Context, tenant, feature string) bool {
+	return feature == Feature && f[tenant]
+}
 
 type memWriter struct{ n int }
 

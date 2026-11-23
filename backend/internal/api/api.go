@@ -50,11 +50,15 @@ type ConfigStore interface {
 // Server holds the API's dependencies.
 type Server struct {
 	Store    query.Store
-	Keys     KeyStore       // nil disables the /api/keys endpoints (503)
-	Config   ConfigStore    // nil disables the /api/config endpoints (503)
-	Alerting AlertingStore  // nil disables the alert rule/channel endpoints (503)
-	Evals    EvalStore      // nil disables the checks and datasets endpoints (503)
-	Stops    RunStopStore   // nil disables stopping runs (503)
+	Keys     KeyStore      // nil disables the /api/keys endpoints (503)
+	Config   ConfigStore   // nil disables the /api/config endpoints (503)
+	Alerting AlertingStore // nil disables the alert rule/channel endpoints (503)
+	Evals    EvalStore     // nil disables the checks and datasets endpoints (503)
+	Stops    RunStopStore  // nil disables stopping runs (503)
+	// Features lists the workspace's operator-set feature flags; nil means
+	// every flagged feature is off.
+	Features FeatureLister
+	Ledger   LedgerReader   // the ledger (feature "ledger"); nil hides it (404)
 	Replay   *replay.Runner // nil disables step replay (503)
 	Prices   *cost.Table    // list prices, for replay cost
 	// AWSPrices serves Bedrock list prices; nil disables (503).
@@ -111,6 +115,10 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/search", s.search)
 	api.HandleFunc("GET /api/sessions/{id}", s.getSession)
 	api.HandleFunc("GET /api/agents/versions", s.agentVersions)
+	api.HandleFunc("GET /api/features", s.features)
+	api.HandleFunc("GET /api/agents/ledger", s.ledgerList)
+	api.HandleFunc("GET /api/agents/ledger/verify", s.ledgerVerify)
+	api.HandleFunc("GET /api/agents/ledger/summary", s.ledgerSummary)
 	api.HandleFunc("GET /api/agents/tool-usage", s.toolUsage)
 	api.HandleFunc("GET /api/economics", s.economics)
 	api.HandleFunc("GET /api/agents/topics", s.agentTopics)

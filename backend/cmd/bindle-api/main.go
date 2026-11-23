@@ -23,6 +23,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -37,6 +38,7 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/awsv4"
 	"github.com/bindle-ai/bindle/backend/internal/control"
 	"github.com/bindle-ai/bindle/backend/internal/cost"
+	"github.com/bindle-ai/bindle/backend/internal/ledger"
 	"github.com/bindle-ai/bindle/backend/internal/payload"
 	"github.com/bindle-ai/bindle/backend/internal/ratelimit"
 	"github.com/bindle-ai/bindle/backend/internal/replay"
@@ -110,6 +112,8 @@ func run(log *slog.Logger) error {
 		Alerting: alertingStore(store),
 		Evals:    evalStore(store),
 		Stops:    stopStore(store),
+		Features: featureLister(controlDB),
+		Ledger:   ledgerReader(controlDB),
 		Prices:   prices,
 		// Public AWS price list (no credentials), for Settings → Model prices.
 		AWSPrices: &api.AWSPriceList{},
@@ -186,6 +190,20 @@ func evalStore(s *control.Store) api.EvalStore {
 		return nil // a nil *control.Store must not become a non-nil interface
 	}
 	return s
+}
+
+func featureLister(db *sql.DB) api.FeatureLister {
+	if db == nil {
+		return nil
+	}
+	return &control.FeatureResolver{DB: db}
+}
+
+func ledgerReader(db *sql.DB) api.LedgerReader {
+	if db == nil {
+		return nil
+	}
+	return &ledger.Reader{DB: db}
 }
 
 func stopStore(s *control.Store) api.RunStopStore {
