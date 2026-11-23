@@ -33,6 +33,7 @@ import type {
 import { isStepId, isTraceId } from './ids';
 import type { SDKConfig } from './sdksettings';
 import type { AlertChannel, AlertEvent, AlertRule, ChannelKind, RuleKind } from './alerting';
+import type { LedgerEntry, LedgerResult } from './ledger';
 
 export class ApiError extends Error {
   constructor(
@@ -166,6 +167,14 @@ export const api = {
   models: (window: string) => get<{ window: string; models: ModelUsage[] }>('/api/models', { window }),
   tools: (window: string) => get<{ window: string; tools: ToolHealth[] }>('/api/tools', { window }),
   agentVersions: (agent: string, window: string) => get<{ window: string; agent: string; versions: VersionStats[] }>('/api/agents/versions', { agent, window }),
+  features: () => get<{ features: string[] }>('/api/features'),
+  ledger: (agent: string, days: number, beforeSeq?: number) =>
+    get<{ agent: string; from: string; to: string; entries: LedgerEntry[]; next_before_seq?: number }>('/api/agents/ledger', {
+      agent,
+      days: String(days),
+      ...(beforeSeq ? { before_seq: String(beforeSeq) } : {}),
+    }),
+  ledgerVerify: (agent: string, days: number) => get<{ agent: string; result: LedgerResult }>('/api/agents/ledger/verify', { agent, days: String(days) }),
   toolUsage: (agent: string, window: string) => get<{ window: string; agent: string; versions: VersionToolUsage[] }>('/api/agents/tool-usage', { agent, window }),
   agentTopics: (agent: string, window: string) => get<TopicsResponse>('/api/agents/topics', { agent, window }),
   security: (window: string) => get<SecurityResponse>('/api/security', { window }),
