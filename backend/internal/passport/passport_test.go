@@ -214,6 +214,17 @@ func TestStateful(t *testing.T) {
 	}
 }
 
+// The CLI's Dogwood golden test uses this passport; Bindle must accept it.
+func TestCLIExamplePassportIsValid(t *testing.T) {
+	b, err := os.ReadFile("../../../sdks/python/tests/testdata/passport_full.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Parse(b, known); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The published JSON Schema accepts the example and names every field the
 // Go type has, so editors and Bindle agree.
 func TestSchemaFileMatchesType(t *testing.T) {

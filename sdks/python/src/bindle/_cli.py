@@ -130,6 +130,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     sp = sub.add_parser("mcp", help="run the Bindle MCP server on stdio")
     sp.set_defaults(fn=cmd_mcp)
 
+    from . import _passport
+
+    _passport.add_parser(sub)
+
     args = p.parse_args(argv)
     return args.fn(args)
 
