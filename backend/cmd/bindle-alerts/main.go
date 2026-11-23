@@ -33,6 +33,7 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/awsv4"
 	"github.com/bindle-ai/bindle/backend/internal/control"
 	"github.com/bindle-ai/bindle/backend/internal/ledger"
+	"github.com/bindle-ai/bindle/backend/internal/lessons"
 	"github.com/bindle-ai/bindle/backend/internal/outcomes"
 	"github.com/bindle-ai/bindle/backend/internal/search"
 )
@@ -96,6 +97,21 @@ func run(log *slog.Logger) error {
 	// Outcome events reported after a run: link them to runs by correlation.
 	matcher := &outcomes.Matcher{Store: &control.OutcomeMatchStore{DB: db}, Find: ss, Log: log}
 	go matcher.Run(ctx, 15*time.Second)
+	// Lessons (learning loop): repeated failures, recomputed hourly for
+	// workspaces with the learning_loop feature.
+	lw := &control.LessonWriter{DB: db}
+	lj := &lessons.Job{
+		Tenants: func(ctx context.Context) ([]lessons.Tenant, error) {
+			ts, err := lw.Tenants(ctx)
+			out := make([]lessons.Tenant, 0, len(ts))
+			for _, t := range ts {
+				out = append(out, lessons.Tenant{ID: t.TenantID, MinRuns: t.MinRuns, Capture: t.Capture})
+			}
+			return out, err
+		},
+		Groups: ss.LessonGroups, Tools: ss.AgentToolNames, Replace: lw.Replace, Log: log,
+	}
+	go lj.Run(ctx, time.Hour)
 	log.Info("bindle-alerts starting", "interval", interval.String(), "email", d.SES != nil)
 	e.Run(ctx, interval)
 	log.Info("bindle-alerts stopped")
