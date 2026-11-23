@@ -9,6 +9,7 @@
 
 import { sessionToken } from './auth';
 import type { SecurityResponse } from './security';
+import type { AgentPassportResponse, DriftResponse, MgmtKey, PassportVersion } from './passports';
 import type { TopicsResponse } from './topics';
 import type { AgentLimit, LimitsResponse } from './limits';
 import type { AWSPrice, ModelUsage, PriceOverride, PricesResponse } from './prices';
@@ -96,6 +97,7 @@ async function apiRequest<T>(method: string, url: string, body: object | undefin
 }
 
 const KEY_ID = /^key_[0-9a-f]{20}$/;
+const MGMT_KEY_ID = /^mkey_[0-9a-f]{20}$/;
 
 // Every call carries the current user's session token (if any).
 const get = async <T>(path: string, params: Params = {}) => apiGet<T>(path, params, fetch, await sessionToken());
@@ -168,6 +170,13 @@ export const api = {
   tools: (window: string) => get<{ window: string; tools: ToolHealth[] }>('/api/tools', { window }),
   agentVersions: (agent: string, window: string) => get<{ window: string; agent: string; versions: VersionStats[] }>('/api/agents/versions', { agent, window }),
   features: () => get<{ features: string[] }>('/api/features'),
+  // Passports and management keys (behind the passports flag).
+  mgmtKeys: () => get<{ keys: MgmtKey[]; scopes: string[] }>('/api/mgmt-keys'),
+  createMgmtKey: (name: string, scopes: string[]) => post<{ key: MgmtKey; secret: string }>('/api/mgmt-keys', { name, scopes }),
+  revokeMgmtKey: async (id: string) => post<void>(`/api/mgmt-keys/${checked(id, MGMT_KEY_ID, 'key')}/revoke`, {}),
+  passports: () => get<{ passports: PassportVersion[] }>('/api/passports'),
+  agentPassport: (agent: string) => get<AgentPassportResponse>('/api/agents/passport', { agent }),
+  passportDrift: (window: string) => get<DriftResponse>('/api/passport-drift', { window }),
   ledger: (agent: string, days: number, beforeSeq?: number) =>
     get<{ agent: string; from: string; to: string; entries: LedgerEntry[]; next_before_seq?: number }>('/api/agents/ledger', {
       agent,

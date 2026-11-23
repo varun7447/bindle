@@ -139,4 +139,6 @@ func TestDriftJournal(t *testing.T) {
 
 type featureSet map[string]bool
 
-func (f featureSet) Enabled(_ context.Context, tenant, feature string) bool { return f[tenant+"/"+feature] }
+func (f featureSet) Enabled(_ context.Context, tenant, feature string) bool {
+	return f[tenant+"/"+feature]
+}

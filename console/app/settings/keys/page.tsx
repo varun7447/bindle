@@ -4,6 +4,7 @@ import { requireSession } from '@/lib/auth';
 import { formatRelative, formatTime } from '@/lib/format';
 import { keyStatus } from '@/lib/keys';
 import { CreateKeyForm, RevokeKeyForm, RotateKeyForm } from './KeyForms';
+import { MgmtKeys } from './MgmtKeys';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +17,8 @@ const STATUS_LABEL = {
 
 export default async function KeysPage() {
   await requireSession('/settings/keys');
-  const [me, keys] = await Promise.all([settle(api.me()), settle(api.keys())]);
+  const [me, keys, features] = await Promise.all([settle(api.me()), settle(api.keys()), settle(api.features())]);
+  const passportsOn = features.ok && features.data.features.includes('passports');
   const now = Date.now();
   const canManage = me.ok && me.data.can_manage_keys;
 
@@ -95,6 +97,7 @@ export default async function KeysPage() {
               </table>
             )}
           </section>
+          {passportsOn ? <MgmtKeys canManage={canManage} /> : null}
         </div>
       )}
     </>

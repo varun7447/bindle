@@ -59,6 +59,10 @@ export interface StepSummary {
   security_flags?: string[];
   /** Why each flag was raised: "flag:reason". */
   security_reasons?: string[];
+  /** Redaction labels found in the step (EMAIL, CARD, ...): labels only. */
+  data_classes?: string[];
+  /** How the step went outside its agent's passport: "kind:detail". Observe-only. */
+  passport_drift?: string[];
 }
 
 export interface TraceResponse {

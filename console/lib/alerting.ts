@@ -9,12 +9,15 @@ export type RuleKind =
   | 'cost_regression'
   | 'new_error'
   | 'weekly_digest'
-  | 'security_signal';
+  | 'security_signal'
+  | 'passport_drift';
 
 /** Kinds whose threshold is a percentage in the form (stored as a fraction). */
 const PERCENT: RuleKind[] = ['error_rate', 'negative_feedback', 'cost_regression'];
 /** Kinds that take a minimum count (runs or feedback). */
 export const HAS_MIN: RuleKind[] = ['error_rate', 'negative_feedback', 'cost_regression'];
+/** Kinds that need a workspace feature (operator-set flag). */
+export const FEATURE_KINDS: Partial<Record<RuleKind, string>> = { passport_drift: 'passports' };
 export type ChannelKind = 'slack' | 'webhook' | 'email';
 
 export interface AlertRule {
@@ -55,6 +58,7 @@ export const RULE_KINDS: { kind: RuleKind; label: string; unit: string; help: st
   { kind: 'cost_regression', label: 'Cost regression', unit: '% more per run', help: "An agent's newest version costs this much more per run than the previous one. Minimum: runs per version (default 5)." },
   { kind: 'new_error', label: 'New error', unit: 'failures', help: "An error that didn't occur in the 7 days before appeared this many times." },
   { kind: 'security_signal', label: 'Security signal', unit: 'flagged steps', help: "An agent's steps were flagged this many times in the window for possible prompt injection, an exposed credential or possible data exfiltration." },
+  { kind: 'passport_drift', label: 'Passport drift', unit: 'drifting steps', help: "An agent went outside its passport: this many steps with unlisted tools, disallowed data classes, blocked data sent out or release actions in the window. Rate limits and budgets always count. Needs the passports feature." },
   { kind: 'weekly_digest', label: 'Weekly digest', unit: '', help: 'A summary every Monday at 09:00 UTC: runs, failure rate and spend against the week before, what failed most, and what users asked about more.' },
 ];
 
@@ -105,6 +109,8 @@ export function describeRule(r: Pick<AlertRule, 'kind' | 'threshold' | 'window_m
       return `A new error appears ${r.threshold}+ times over ${win}`;
     case 'security_signal':
       return `An agent has ${r.threshold}+ step${r.threshold === 1 ? '' : 's'} flagged for the same security signal over ${win}`;
+    case 'passport_drift':
+      return `An agent has ${r.threshold}+ step${r.threshold === 1 ? '' : 's'} outside its passport over ${win}, or goes over a passport rate limit or budget`;
     case 'weekly_digest':
       return 'Every Monday at 09:00 UTC';
   }
@@ -140,6 +146,9 @@ export function parseRule(kind: RuleKind, threshold: unknown, window: unknown, m
       return { threshold: t, window_minutes: w, min_runs: 0 };
     case 'security_signal':
       if (!Number.isInteger(t) || t < 1) return { error: 'Flagged steps must be a whole number, at least 1.' };
+      return { threshold: t, window_minutes: w, min_runs: 0 };
+    case 'passport_drift':
+      if (!Number.isInteger(t) || t < 1) return { error: 'Drifting steps must be a whole number, at least 1.' };
       return { threshold: t, window_minutes: w, min_runs: 0 };
     case 'weekly_digest':
       return { threshold: 1, window_minutes: 1440, min_runs: 0 };

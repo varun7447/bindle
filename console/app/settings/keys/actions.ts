@@ -7,7 +7,7 @@ import { validGrace } from '@/lib/keys';
 
 export type KeyActionState =
   | { kind: 'idle' }
-  | { kind: 'created'; name: string; secret: string; note?: string }
+  | { kind: 'created'; name: string; secret: string; note?: string; mgmt?: boolean }
   | { kind: 'error'; message: string };
 
 function message(e: unknown): string {
@@ -44,6 +44,33 @@ export async function rotateKeyAction(_: KeyActionState, form: FormData): Promis
     revalidatePath('/settings/keys');
     const note = grace === 0 ? 'The old key stops working within a minute.' : `The old key keeps working for ${grace} hour${grace === 1 ? '' : 's'}.`;
     return { kind: 'created', name: res.key.name, secret: res.secret, note };
+  } catch (e) {
+    return { kind: 'error', message: message(e) };
+  }
+}
+
+const MGMT_SCOPES = ['passport:write', 'vault:sync', 'skills:write'];
+
+export async function createMgmtKeyAction(_: KeyActionState, form: FormData): Promise<KeyActionState> {
+  try {
+    await assertSameOrigin();
+    const name = String(form.get('name') ?? '').slice(0, 100);
+    const scopes = form.getAll('scope').map(String).filter((s) => MGMT_SCOPES.includes(s));
+    if (scopes.length === 0) return { kind: 'error', message: 'Choose at least one thing the key may do.' };
+    const res = await api.createMgmtKey(name, scopes);
+    revalidatePath('/settings/keys');
+    return { kind: 'created', name: res.key.name, secret: res.secret, mgmt: true };
+  } catch (e) {
+    return { kind: 'error', message: message(e) };
+  }
+}
+
+export async function revokeMgmtKeyAction(_: KeyActionState, form: FormData): Promise<KeyActionState> {
+  try {
+    await assertSameOrigin();
+    await api.revokeMgmtKey(String(form.get('id') ?? ''));
+    revalidatePath('/settings/keys');
+    return { kind: 'idle' };
   } catch (e) {
     return { kind: 'error', message: message(e) };
   }

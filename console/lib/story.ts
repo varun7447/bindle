@@ -4,6 +4,7 @@
 import { formatCost, formatDuration, formatPercent } from './format';
 import { likelyCause } from './blame';
 import { securityLines } from './security';
+import { driftLines } from './passports';
 import { stepKind } from './steps';
 import type { Run, StepSummary } from './types';
 
@@ -95,6 +96,8 @@ export function buildStory(run: Run, steps: StepSummary[]): RunStory {
   if (cause) lines.push({ tone: failed ? 'critical' : 'warning', text: cause.text, stepId: cause.stepId });
   // Security signals on steps: leads to review, not verdicts.
   lines.push(...securityLines(steps));
+  // Passport drift: observed against the agent's passport, never blocked.
+  lines.push(...driftLines(steps));
 
   // 3. Possible loops: the same tool called many times.
   const tools = new Map<string, StepSummary[]>();

@@ -12,6 +12,7 @@ import { formatCost, formatCount, formatDuration, formatPercent, formatRelative 
 import { WINDOWS, WINDOW_MS, asWindow, one } from '@/lib/ids';
 import { topicRows, topicsSummary } from '@/lib/topics';
 import { AgentTabs } from './AgentTabs';
+import { PassportPanel } from './PassportPanel';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +36,7 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
     settle(api.features()),
   ]);
   const ledgerOn = features.ok && features.data.features.includes('ledger');
+  const passportsOn = features.ok && features.data.features.includes('passports');
   const agents = ins.ok ? ins.data.agents : [];
   const requested = one(sp.agent);
   const agent = requested !== undefined && agents.some((a) => a.agent === requested) ? requested : agents[0]?.agent;
@@ -96,6 +98,8 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
       {ledgerOn ? <AgentTabs agent={agent} current="overview" /> : null}
 
       {!ins.ok ? <ApiErrorPanel error={ins.error} /> : null}
+
+      {passportsOn && agent !== undefined ? <PassportPanel agent={agent} window={window} /> : null}
 
       <section className="panel panel-flush" style={{ marginBottom: 16 }} aria-labelledby="versions-h">
         <div className="section-title">
