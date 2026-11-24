@@ -9,6 +9,7 @@ Usage::
     bindle skills lessons [--agent refund-agent]
     bindle skills draft --lesson les_0123456789abcdef --writer mymodule:draft_skill [--out skills]
     bindle skills push skills/retry-lookup-order --agent refund-agent
+    bindle skills prove skills/retry-lookup-order --agent-name refund-agent --agent mymodule:run_with_skill
 
     bindle vault pull   --agent refund-agent --dir vault/refund-agent
     bindle vault push   --agent refund-agent --dir vault/refund-agent
@@ -416,6 +417,9 @@ def add_parser(sub: Any) -> None:
     sp.add_argument("--agent", required=True, help="the agent the skill is for")
     common(sp)
     sp.set_defaults(fn=cmd_push)
+    from ._prove import add_prove
+
+    add_prove(ps, common)
 
     v = sub.add_parser("vault", help="sync an agent's knowledge vault with a folder",
                        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)

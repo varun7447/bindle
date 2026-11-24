@@ -50,6 +50,24 @@ TOOLS = [
         "description": "Send one small test trace (no project data) and return a link to it in the Bindle console.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
+    {
+        "name": "list_skills",
+        "description": "List the learned skills Bindle ships to an agent (approved SKILL.md files): name, description and "
+                       "release. Read one with get_skill when its description matches the task.",
+        "inputSchema": {"type": "object", "properties": {
+            "agent": {"type": "string", "description": "Agent name (default: BINDLE_AGENT)"},
+            "version": {"type": "string", "description": "Agent version (default: BINDLE_AGENT_VERSION)"},
+        }, "additionalProperties": False},
+    },
+    {
+        "name": "get_skill",
+        "description": "Get the full instructions (SKILL.md) of one learned skill shipped to an agent.",
+        "inputSchema": {"type": "object", "properties": {
+            "name": {"type": "string", "description": "Skill name, from list_skills"},
+            "agent": {"type": "string", "description": "Agent name (default: BINDLE_AGENT)"},
+            "version": {"type": "string", "description": "Agent version (default: BINDLE_AGENT_VERSION)"},
+        }, "required": ["name"], "additionalProperties": False},
+    },
 ]
 
 _MAX_LINE = 1 << 20
@@ -66,9 +84,32 @@ class Server:
         endpoint = self.environ.get("BINDLE_ENDPOINT") or env_file.get("BINDLE_ENDPOINT") or ob.DEFAULT_ENDPOINT
         return key.strip(), endpoint
 
+    def _skills(self, args: Dict[str, Any]):
+        from ._learned import SkillStore
+
+        key, endpoint = self._creds()
+        agent = str(args.get("agent") or self.environ.get("BINDLE_AGENT") or "")
+        version = str(args.get("version") or self.environ.get("BINDLE_AGENT_VERSION") or "")
+        if not key or not agent:
+            return None
+        store = SkillStore(endpoint, key, agent, version, user_agent=f"bindle-mcp/{SERVER_INFO['version']}")
+        store.refresh()
+        return store.list()
+
     def call_tool(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         def text(s: str, error: bool = False) -> Dict[str, Any]:
             return {"content": [{"type": "text", "text": s}], "isError": error}
+
+        if name in ("list_skills", "get_skill"):
+            found = self._skills(args)
+            if found is None:
+                return text("Set BINDLE_API_KEY and pass agent (or set BINDLE_AGENT) to read the agent's learned skills.", True)
+            if name == "list_skills":
+                return text(json.dumps([{"name": s.name, "description": s.description, "release": s.release} for s in found]))
+            for s in found:
+                if s.name == args.get("name"):
+                    return text(s.body)
+            return text(f"No learned skill named {args.get('name')!r} is shipped to this agent.", True)
 
         if name == "bindle_setup_guide":
             fid = args.get("framework")

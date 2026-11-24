@@ -30,6 +30,7 @@ from opentelemetry.trace import Status, StatusCode
 from . import _config, _correlate, _instrument
 from ._redact import Redactor
 
+from . import _learned as skills
 from ._cassette import Cassette, RecordedToolError, UnrecordedCall
 from ._limits import LimitExceeded
 from ._links import inject_mcp_meta, mcp_server_context
@@ -38,7 +39,7 @@ __all__ = [
     "init", "flush", "shutdown", "step", "trace_step", "trace_tool",
     "decision", "handoff", "score", "feedback", "outcome", "correlate", "current_trace_id", "set_session", "check_limits", "limits_status",
     "LimitExceeded", "Redactor", "context_token", "resume", "inject_mcp_meta", "mcp_server_context",
-    "Cassette", "UnrecordedCall", "RecordedToolError",
+    "Cassette", "UnrecordedCall", "RecordedToolError", "skills",
 ]
 __version__ = "0.1.0"
 
@@ -101,6 +102,7 @@ def init(
         _state["provider"], _state["config"], _state["capture"] = provider, cfg, cfg.capture_content
         if cfg.remote_config:
             _start_remote(cfg)
+        _start_skills(cfg)
     atexit.register(shutdown)
     return True
 
@@ -142,6 +144,27 @@ def _start_remote(cfg: _config.Config) -> None:
         _state["poller"] = poller
     except Exception as exc:  # noqa: BLE001
         log.debug("bindle: remote config disabled: %s", exc)
+
+
+def _killed_skills() -> tuple:
+    remote = _state["remote"]
+    return remote.killed_skills if remote is not None else ()
+
+
+def _start_skills(cfg: _config.Config) -> None:
+    """Fetches the learned skills shipped to this agent in the background
+    (bindle.skills). Off with BINDLE_SKILLS=off, and without an agent name."""
+    import os
+
+    if not cfg.agent or os.environ.get("BINDLE_SKILLS", "").strip().lower() in ("off", "0", "false", "no"):
+        return
+    try:
+        store = skills.SkillStore(cfg.endpoint, cfg.api_key, cfg.agent, cfg.version or "", killed=_killed_skills,
+                                  user_agent=f"bindle-sdk-python/{__version__}")
+        skills._set_store(store)
+        store.start()
+    except Exception as exc:  # noqa: BLE001
+        log.debug("bindle: skills disabled: %s", exc)
 
 
 def _setup(cfg: _config.Config):
@@ -219,6 +242,10 @@ def flush(timeout_millis: int = 5000) -> bool:
 
 
 def shutdown() -> None:
+    try:
+        skills._set_store(None)
+    except Exception:  # noqa: BLE001
+        pass
     poller = _state["poller"]
     if poller is not None:
         poller.stop()

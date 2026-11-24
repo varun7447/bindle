@@ -131,7 +131,7 @@ def test_mcp_server(ingest, tmp_path):
                {"jsonrpc": "2.0", "id": 7, "method": "resources/list"})
     by_id = {m.get("id"): m for m in out}
     assert by_id[1]["result"]["protocolVersion"] == _mcp.PROTOCOL_VERSION
-    assert len(by_id[2]["result"]["tools"]) == 4
+    assert len(by_id[2]["result"]["tools"]) == 6
     assert by_id[3]["result"]["isError"] is False
     assert "/traces/" in by_id[4]["result"]["content"][0]["text"]
     assert "bindle-sdk[crewai]" in by_id[5]["result"]["content"][0]["text"]

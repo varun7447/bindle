@@ -55,6 +55,7 @@ class RemoteSettings:
     limits: tuple = ()
     over_budget: tuple = ()
     stopped_runs: tuple = ()
+    killed_skills: tuple = ()  # "<agent>/<path>" or "<agent>/*": learned skills switched off
 
 
 def parse(body: bytes) -> Optional[RemoteSettings]:
@@ -77,8 +78,9 @@ def parse(body: bytes) -> Optional[RemoteSettings]:
         over = tuple(a for a in (d.get("over_budget") or []) if isinstance(a, str))
         stopped = tuple(t for t in (d.get("stopped_runs") or [])
                         if isinstance(t, str) and _TRACE_RE.match(t))[:1000]
+        killed = tuple(k for k in (d.get("killed_skills") or []) if isinstance(k, str) and "/" in k)[:1000]
         return RemoteSettings(version, rate, capture, patterns, min(max(poll, _MIN_POLL), _MAX_POLL),
-                              parse_limits(d.get("limits")), over, stopped)
+                              parse_limits(d.get("limits")), over, stopped, killed)
     except Exception:  # noqa: BLE001 - malformed config is ignored, never fatal
         return None
 
