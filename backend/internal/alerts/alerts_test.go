@@ -126,7 +126,7 @@ func TestWebhookIsSignedAndSlackIsText(t *testing.T) {
 		got, bodies = append(got, r), append(bodies, b)
 		mu.Unlock()
 	})
-	d := &Deliverer{HTTP: hc, ConsoleURL: "https://app.bindle.ai"}
+	d := &Deliverer{HTTP: hc, ConsoleURL: "https://bindle.example.com"}
 	ev := Event{ID: "evt_1", Kind: KindRunCost, RuleID: "ar_1", Summary: "Run cost $12.00", TraceID: "abc", FiredAt: time.Unix(1e9, 0)}
 	if err := d.Send(context.Background(), Channel{Kind: "webhook", Name: "w", Target: "https://hooks.example.com/x", Secret: "whsec_k"}, ev, Rule{}); err != nil {
 		t.Fatal(err)
@@ -139,13 +139,13 @@ func TestWebhookIsSignedAndSlackIsText(t *testing.T) {
 	}
 	var payload map[string]any
 	_ = json.Unmarshal(body, &payload)
-	if payload["url"] != "https://app.bindle.ai/traces/abc" || payload["summary"] != ev.Summary {
+	if payload["url"] != "https://bindle.example.com/traces/abc" || payload["summary"] != ev.Summary {
 		t.Fatalf("payload %s", body)
 	}
 	if err := d.Send(context.Background(), Channel{Kind: "slack", Name: "s", Target: "https://hooks.slack.com/services/T/B/c"}, ev, Rule{}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(bodies[1]), `"text":"Bindle alert: Run cost $12.00\nhttps://app.bindle.ai/traces/abc"`) {
+	if !strings.Contains(string(bodies[1]), `"text":"Bindle alert: Run cost $12.00\nhttps://bindle.example.com/traces/abc"`) {
 		t.Fatalf("slack body %s", bodies[1])
 	}
 }

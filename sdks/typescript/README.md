@@ -13,7 +13,7 @@ import * as bindle from '@bindle-ai/sdk';
 bindle.init({ agent: 'support-triage', version: 'v12', environment: 'prod' });
 ```
 
-Without a key, `init()` warns once and does nothing, so the line is safe to commit. Frameworks and libraries that emit OpenTelemetry use the tracer provider `init()` registers.
+Without a key or an endpoint, `init()` warns once and does nothing, so the line is safe to commit. Frameworks and libraries that emit OpenTelemetry use the tracer provider `init()` registers.
 
 ## Custom agent code
 
@@ -119,7 +119,7 @@ Or send OTLP/HTTP directly to `$BINDLE_ENDPOINT/v1/traces` with `authorization: 
 | Option | Environment | Default |
 |---|---|---|
 | `apiKey` | `BINDLE_API_KEY` | none (SDK disabled) |
-| `endpoint` | `BINDLE_ENDPOINT` | `https://ingest.bindle.ai` (https required, except localhost) |
+| `endpoint` | `BINDLE_ENDPOINT` | none: your Bindle ingest URL, required (https, except localhost). Without it the SDK is a no-op. |
 | `agent`, `version`, `environment` | `BINDLE_AGENT`, `BINDLE_AGENT_VERSION`, `BINDLE_ENVIRONMENT` | none |
 | `sampleRate` | `BINDLE_SAMPLE_RATE` | `1` |
 | `redact` | `BINDLE_REDACT` | `true` |
