@@ -548,9 +548,11 @@ func (s *Store) AddSecurityReviewer(ctx context.Context, tenant, byUser, email s
 		if err != nil {
 			return err
 		}
-		return tx.QueryRowContext(ctx, `INSERT INTO control.security_reviewers (tenant_id, user_id, added_by) VALUES ($1, $2, $3)
-			ON CONFLICT (tenant_id, user_id) DO UPDATE SET added_by = control.security_reviewers.added_by
-			RETURNING added_at`, tenant, r.UserID, nullable(byUser)).Scan(&r.AddedAt)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO control.security_reviewers (tenant_id, user_id, added_by) VALUES ($1, $2, $3)
+			ON CONFLICT (tenant_id, user_id) DO NOTHING`, tenant, r.UserID, nullable(byUser)); err != nil {
+			return err
+		}
+		return tx.QueryRowContext(ctx, `SELECT added_at FROM control.security_reviewers WHERE user_id = $1`, r.UserID).Scan(&r.AddedAt)
 	})
 	return r, err
 }
