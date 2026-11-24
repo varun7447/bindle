@@ -28,6 +28,7 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/replay"
 	"github.com/bindle-ai/bindle/backend/internal/sdkconfig"
 	"github.com/bindle-ai/bindle/backend/internal/session"
+	"github.com/bindle-ai/bindle/backend/internal/vault"
 )
 
 // KeyStore manages a tenant's ingest keys. Implemented by *control.Store.
@@ -62,9 +63,13 @@ type Server struct {
 	// Passports and management keys (feature "passports"); nil: 503.
 	Passports PassportStore
 	MgmtKeys  MgmtKeyStore
-	Outcomes  OutcomeAdmin   // outcome grading (feature "outcome_grading"); nil hides it (404)
-	Replay    *replay.Runner // nil disables step replay (503)
-	Prices    *cost.Table    // list prices, for replay cost
+	// Learning loop (feature "learning_loop"); nil hides it (404).
+	// LearningLedger writes vault changes to the ledger (nil: none).
+	Learning       LearningStore
+	LearningLedger vault.Appender
+	Outcomes       OutcomeAdmin   // outcome grading (feature "outcome_grading"); nil hides it (404)
+	Replay         *replay.Runner // nil disables step replay (503)
+	Prices         *cost.Table    // list prices, for replay cost
 	// AWSPrices serves Bedrock list prices; nil disables (503).
 	AWSPrices *AWSPriceList
 	// ReplayLimiter caps replays per tenant; nil uses 10 a minute.
@@ -136,6 +141,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/security", s.securitySignals)
 	s.evalRoutes(api)
 	s.passportRoutes(api)
+	s.learningRoutes(api)
 	api.HandleFunc("POST /api/traces/{id}/steps/{step}/replay", s.replayStep)
 	api.HandleFunc("GET /api/traces/{id}/stop", s.getRunStop)
 	api.HandleFunc("POST /api/traces/{id}/stop", s.stopRun)

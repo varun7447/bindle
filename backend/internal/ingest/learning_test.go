@@ -80,7 +80,9 @@ func TestLearningHandler(t *testing.T) {
 				}
 				return nil, nil
 			},
-			Tools: func(context.Context, string, string) ([]string, error) { return []string{"lookup_order", "send_email"}, nil }}}
+			Tools: func(context.Context, string, string) ([]string, error) {
+				return []string{"lookup_order", "send_email"}, nil
+			}}}
 	do := func(method, path, key, body string) (int, map[string]any) {
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
 		if key != "" {

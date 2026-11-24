@@ -92,17 +92,17 @@ func (w *LessonWriter) Replace(ctx context.Context, tenant string, ls []lessons.
 
 // LessonSummary is a lesson without its pack.
 type LessonSummary struct {
-	ID        string    `json:"id"`
-	Agent     string    `json:"agent"`
-	StepName  string    `json:"step_name"`
-	Tool      string    `json:"tool,omitempty"`
-	Pattern   string    `json:"error_pattern"`
-	Cause     string    `json:"cause"`
-	Title     string    `json:"title"`
-	Runs      int       `json:"runs"`
-	Failures  int       `json:"failures"`
-	LastSeen  time.Time `json:"last_seen"`
-	Evidence  []string  `json:"evidence"`
+	ID       string    `json:"id"`
+	Agent    string    `json:"agent"`
+	StepName string    `json:"step_name"`
+	Tool     string    `json:"tool,omitempty"`
+	Pattern  string    `json:"error_pattern"`
+	Cause    string    `json:"cause"`
+	Title    string    `json:"title"`
+	Runs     int       `json:"runs"`
+	Failures int       `json:"failures"`
+	LastSeen time.Time `json:"last_seen"`
+	Evidence []string  `json:"evidence"`
 }
 
 func scanLessons(rows *sql.Rows) ([]LessonSummary, error) {
@@ -272,22 +272,22 @@ func (s *Store) VaultReview(ctx context.Context, tenant, agent, path, sha, by st
 
 // VaultNote is a note with its scan, passport check, history and backlinks.
 type VaultNote struct {
-	Agent        string          `json:"agent"`
-	Path         string          `json:"path"`
-	Kind         string          `json:"kind"`
-	Status       string          `json:"status,omitempty"`
-	Version      int             `json:"version"`
-	SHA256       string          `json:"sha256"`
-	Body         string          `json:"content,omitempty"`
-	Scan         json.RawMessage `json:"scan"`
-	Check        json.RawMessage `json:"passport_check"`
-	ReviewedSHA  string          `json:"reviewed_sha256,omitempty"`
-	ReviewedBy   string          `json:"reviewed_by,omitempty"`
-	UpdatedBy    string          `json:"updated_by"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	Links        []string        `json:"links,omitempty"`
-	Backlinks    []string        `json:"backlinks,omitempty"`
-	Versions     []VaultVersion  `json:"versions,omitempty"`
+	Agent       string          `json:"agent"`
+	Path        string          `json:"path"`
+	Kind        string          `json:"kind"`
+	Status      string          `json:"status,omitempty"`
+	Version     int             `json:"version"`
+	SHA256      string          `json:"sha256"`
+	Body        string          `json:"content,omitempty"`
+	Scan        json.RawMessage `json:"scan"`
+	Check       json.RawMessage `json:"passport_check"`
+	ReviewedSHA string          `json:"reviewed_sha256,omitempty"`
+	ReviewedBy  string          `json:"reviewed_by,omitempty"`
+	UpdatedBy   string          `json:"updated_by"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	Links       []string        `json:"links,omitempty"`
+	Backlinks   []string        `json:"backlinks,omitempty"`
+	Versions    []VaultVersion  `json:"versions,omitempty"`
 }
 
 // VaultVersion is one entry of a note's history.

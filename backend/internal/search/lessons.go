@@ -129,7 +129,7 @@ func (s *Store) AgentToolNames(ctx context.Context, tenant string, from, to time
 	}
 	body := map[string]any{"size": 0, "aggs": map[string]any{"agents": map[string]any{
 		"terms": map[string]any{"field": "agent_name", "size": agentToolsMax, "exclude": []string{""}},
-		"aggs": map[string]any{"tools": map[string]any{"terms": map[string]any{"field": "tool_name", "size": agentToolsMax, "exclude": []string{""}}}},
+		"aggs":  map[string]any{"tools": map[string]any{"terms": map[string]any{"field": "tool_name", "size": agentToolsMax, "exclude": []string{""}}}},
 	}}}
 	clauses := []map[string]any{term("type", "tool_call"), rangeNs("start_ns", from, to)}
 	if err := s.search(ctx, tenant, s.Names.StepsPattern(), clauses, body, &resp); err != nil {

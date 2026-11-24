@@ -44,6 +44,7 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/replay"
 	"github.com/bindle-ai/bindle/backend/internal/search"
 	"github.com/bindle-ai/bindle/backend/internal/session"
+	"github.com/bindle-ai/bindle/backend/internal/vault"
 )
 
 func main() {
@@ -116,10 +117,12 @@ func run(log *slog.Logger) error {
 		Ledger:   ledgerReader(controlDB),
 		// Passports are pushed through ingest (management keys); the API
 		// reads them and manages the keys.
-		Passports: passportStore(store),
-		MgmtKeys:  mgmtKeyStore(store),
-		Outcomes:  outcomeAdmin(store),
-		Prices:    prices,
+		Passports:      passportStore(store),
+		MgmtKeys:       mgmtKeyStore(store),
+		Outcomes:       outcomeAdmin(store),
+		Learning:       learningStore(store),
+		LearningLedger: ledgerWriter(controlDB),
+		Prices:         prices,
 		// Public AWS price list (no credentials), for Settings → Model prices.
 		AWSPrices: &api.AWSPriceList{},
 		// Step replay calls providers at fixed hosts with the caller's key.
@@ -211,6 +214,14 @@ func ledgerReader(db *sql.DB) api.LedgerReader {
 	return &ledger.Reader{DB: db}
 }
 
+// ledgerWriter writes console vault changes to agents' ledgers.
+func ledgerWriter(db *sql.DB) vault.Appender {
+	if db == nil {
+		return nil
+	}
+	return &ledger.Writer{DB: db}
+}
+
 func passportStore(s *control.Store) api.PassportStore {
 	if s == nil {
 		return nil
@@ -219,6 +230,13 @@ func passportStore(s *control.Store) api.PassportStore {
 }
 
 func mgmtKeyStore(s *control.Store) api.MgmtKeyStore {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
+func learningStore(s *control.Store) api.LearningStore {
 	if s == nil {
 		return nil
 	}
