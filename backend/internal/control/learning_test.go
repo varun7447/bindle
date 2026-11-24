@@ -92,6 +92,14 @@ func TestIntegrationLearningLoop(t *testing.T) {
 	if _, ok, err := store.VaultSetStatus(ctx, ta, "refund", p, "draft", "approved", sha("v1"), "approve", "user:x"); err == nil && ok {
 		t.Fatal("draft -> approved allowed")
 	}
+	// Proven needs a passing proof report for this text (phase 2; 017).
+	if _, ok, err := store.VaultSetStatus(ctx, ta, "refund", p, "draft", "proven", sha("v1"), "prove", "proof"); err == nil && ok {
+		t.Fatal("proven without a proof report")
+	}
+	if _, err := owner.ExecContext(ctx, `INSERT INTO control.skill_proofs (tenant_id, agent, path, sha256, report, verdict, passed, uploaded_by)
+		VALUES ($1, 'refund', $2, $3, '{}', '{}', true, 'test')`, ta, p, sha("v1")); err != nil {
+		t.Fatal(err)
+	}
 	if _, ok, err := store.VaultSetStatus(ctx, ta, "refund", p, "draft", "proven", sha("v1"), "prove", "proof"); err != nil || !ok {
 		t.Fatalf("prove %v %v", ok, err)
 	}

@@ -70,12 +70,17 @@ type Verdict struct {
 
 var shaRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+// IsSkillPath reports whether p is a skill's vault path (skills/...).
+func IsSkillPath(p string) bool {
+	return skills.ValidPath(p) && skills.KindForPath(p) == skills.KindSkill
+}
+
 // Validate checks a report's shape (not whether it passes).
 func Validate(r *Report) error {
 	switch {
 	case r.Agent == "" || len(r.Agent) > 128:
 		return &skills.Error{Msg: "agent is required (at most 128 characters)"}
-	case !skills.ValidPath(r.Path):
+	case !IsSkillPath(r.Path):
 		return &skills.Error{Msg: "path must be a skill path such as skills/<name>/SKILL.md"}
 	case !shaRe.MatchString(r.SHA256):
 		return &skills.Error{Msg: "sha256 must be the skill text's 64-character hex SHA-256"}

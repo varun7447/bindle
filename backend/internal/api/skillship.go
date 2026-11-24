@@ -9,7 +9,7 @@ import (
 
 	"github.com/bindle-ai/bindle/backend/internal/control"
 	"github.com/bindle-ai/bindle/backend/internal/ledger"
-	"github.com/bindle-ai/bindle/backend/internal/skills"
+	"github.com/bindle-ai/bindle/backend/internal/skillship"
 	"github.com/bindle-ai/bindle/backend/internal/vault"
 )
 
@@ -70,7 +70,7 @@ func agentAndPath(w http.ResponseWriter, r *http.Request, needPath bool) (string
 		return "", "", false
 	}
 	path := r.URL.Query().Get("path")
-	if (needPath || path != "") && !skills.ValidPath(path) {
+	if (needPath || path != "") && !skillship.IsSkillPath(path) {
 		badRequest(w, "path must be a skill path such as skills/<name>/SKILL.md")
 		return "", "", false
 	}
@@ -218,7 +218,7 @@ func (s *Server) killSkill(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &in) {
 		return
 	}
-	if _, err := vault.CleanAgent(in.Agent); err != nil || !skills.ValidPath(in.Path) {
+	if _, err := vault.CleanAgent(in.Agent); err != nil || !skillship.IsSkillPath(in.Path) {
 		badRequest(w, "agent and a skill path are required")
 		return
 	}
