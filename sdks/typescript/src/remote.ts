@@ -17,6 +17,8 @@ export interface RemoteSettings {
   overBudget: string[];
   /** Runs stopped from the console in the last hour. */
   stoppedRuns?: string[];
+  /** Learned skills switched off: "<agent>/<path>" or "<agent>/*". */
+  killedSkills?: string[];
 }
 
 const MIN_POLL = 30;
@@ -49,6 +51,9 @@ export function parseSettings(body: string): RemoteSettings | undefined {
       overBudget: Array.isArray(d.over_budget) ? d.over_budget.filter((a): a is string => typeof a === 'string') : [],
       stoppedRuns: Array.isArray(d.stopped_runs)
         ? d.stopped_runs.filter((t): t is string => typeof t === 'string' && /^[0-9a-f]{32}$/.test(t)).slice(0, 1000)
+        : [],
+      killedSkills: Array.isArray(d.killed_skills)
+        ? d.killed_skills.filter((k): k is string => typeof k === 'string' && k.includes('/')).slice(0, 1000)
         : [],
     };
   } catch {

@@ -25,6 +25,9 @@ import { DynamicRatioSampler } from './sampling.js';
 import { Guard, LimitExceededError, type LimitsStatus, RunCounter } from './limits.js';
 import { attribute as correlationAttribute, MAX_KEYS as MAX_CORRELATION_KEYS, RunKeys } from './correlate.js';
 import { extractMeta, injectMeta, LINK_KINDS, type LinkKind, makeToken, parseToken } from './links.js';
+import * as skills from './skills.js';
+export { skills };
+export type { Skill } from './skills.js';
 export { Redactor } from './redact.js';
 export { LimitExceededError, type LimitReason, type LimitsStatus } from './limits.js';
 export { sampled } from './sampling.js';
@@ -166,6 +169,24 @@ function applyRemote(s: RemoteSettings): void {
   debug(`bindle: remote config v${s.version} applied`);
 }
 
+/**
+ * Fetches the learned skills shipped to this agent in the background
+ * (bindle.skills). Off with BINDLE_SKILLS=off, and without an agent name.
+ */
+function startSkills(cfg: Resolved): void {
+  if (!cfg.agent || /^(off|0|false|no)$/i.test((process.env.BINDLE_SKILLS ?? '').trim())) return;
+  try {
+    const store = new skills.SkillStore({
+      endpoint: cfg.endpoint, apiKey: cfg.apiKey, agent: cfg.agent, version: cfg.version ?? '',
+      killed: () => state.remote?.killedSkills ?? [], userAgent: `bindle-sdk-typescript/${VERSION}`,
+    });
+    skills.setStore(store);
+    store.start();
+  } catch {
+    // never break the host app
+  }
+}
+
 function startRemote(cfg: Resolved): void {
   if (!cfg.remoteConfig) return;
   state.poller = new Poller(`${cfg.endpoint}/v1/config`, cfg.apiKey, applyRemote, `bindle-sdk-typescript/${VERSION}`, fetch, debug);
@@ -217,6 +238,7 @@ export function init(options: InitOptions = {}, internal: { exporter?: () => imp
     }
     Object.assign(state, { provider, sampler, exporter, guard: new Guard(cfg.agent ?? '', counter) });
     startRemote(cfg);
+    startSkills(cfg);
     process.once('beforeExit', () => void shutdown());
     debug(`bindle: initialized (endpoint=${cfg.endpoint})`);
     return true;
@@ -299,6 +321,7 @@ export async function flush(): Promise<boolean> {
 }
 
 export async function shutdown(): Promise<void> {
+  skills.setStore(undefined);
   state.poller?.stop();
   const provider = state.provider;
   Object.assign(state, { poller: undefined, provider: undefined, sampler: undefined, exporter: undefined, remote: undefined, cfg: undefined, capture: true, guard: undefined });
