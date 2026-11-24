@@ -27,6 +27,7 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/ratelimit"
 	"github.com/bindle-ai/bindle/backend/internal/replay"
 	"github.com/bindle-ai/bindle/backend/internal/sdkconfig"
+	"github.com/bindle-ai/bindle/backend/internal/secretbox"
 	"github.com/bindle-ai/bindle/backend/internal/session"
 	"github.com/bindle-ai/bindle/backend/internal/vault"
 )
@@ -266,6 +267,12 @@ func badRequest(w http.ResponseWriter, msg string) {
 // storeError logs the real error and returns a generic 500: database
 // messages can contain SQL and internal names.
 func (s *Server) storeError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, secretbox.ErrNotConfigured) {
+		// Secrets are never stored in plaintext: without a key the resource
+		// isn't created.
+		writeError(w, http.StatusServiceUnavailable, "secrets_unavailable", "this deployment has no secrets key configured")
+		return
+	}
 	s.logger().Error("store", "path", r.URL.Path, "tenant", tenantFrom(r.Context()), "err", err)
 	writeError(w, http.StatusInternalServerError, "internal", "internal error")
 }

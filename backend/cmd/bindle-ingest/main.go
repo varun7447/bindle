@@ -44,6 +44,7 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/ratelimit"
 	"github.com/bindle-ai/bindle/backend/internal/redact"
 	"github.com/bindle-ai/bindle/backend/internal/search"
+	"github.com/bindle-ai/bindle/backend/internal/secretbox"
 	"github.com/bindle-ai/bindle/backend/internal/sink"
 	"github.com/bindle-ai/bindle/backend/internal/stream"
 	"github.com/bindle-ai/bindle/backend/internal/vault"
@@ -179,7 +180,11 @@ func run(log *slog.Logger) error {
 		mux.Handle("/v1/passports", ph)
 		mux.Handle("/v1/passports/validate", ph)
 		// Business events reported after a run (feature outcome_grading).
-		oh := &ingest.OutcomeHandler{Keys: keys, Store: &control.OutcomeIngest{DB: controlDB},
+		secrets, err := secretbox.FromEnv(os.Getenv)
+		if err != nil {
+			return err
+		}
+		oh := &ingest.OutcomeHandler{Keys: keys, Store: &control.OutcomeIngest{DB: controlDB, Secrets: secrets},
 			Features: features, Limiter: ratelimit.New(20, 100), Log: log}
 		mux.Handle("/v1/outcome-events", oh)
 		mux.Handle("/v1/outcome-events/", oh)

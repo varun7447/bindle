@@ -10,11 +10,15 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/bindle-ai/bindle/backend/internal/alerts"
+	"github.com/bindle-ai/bindle/backend/internal/secretbox"
 )
 
 // Store is the API's access to the control plane. Connect it as the API role.
 type Store struct {
 	DB *sql.DB
+	// Secrets encrypts alert-channel targets and secrets and outcome-endpoint
+	// secrets; nil refuses to create them (secretbox.ErrNotConfigured).
+	Secrets secretbox.Box
 }
 
 // ErrNotFound means the row does not exist for this tenant.

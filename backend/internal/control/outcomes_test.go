@@ -15,7 +15,7 @@ func TestIntegrationOutcomeEvents(t *testing.T) {
 	ctx := context.Background()
 	_, apiDB, ingestDB := newTestDB(t)
 	alertsDB := open(t, lastAlertsDSN)
-	store := &Store{DB: apiDB}
+	store := &Store{DB: apiDB, Secrets: testSecrets}
 	tenant := func(sub string) string {
 		u, err := store.EnsureUser(ctx, sub, sub+"@example.com")
 		if err != nil {
@@ -39,7 +39,7 @@ func TestIntegrationOutcomeEvents(t *testing.T) {
 	if _, err := store.PutOutcomeSettings(ctx, a, "u", outcomes.Settings{PendingHours: 999}); !errors.Is(err, ErrInvalidSettings) {
 		t.Fatalf("bad settings: %v", err)
 	}
-	in := &OutcomeIngest{DB: ingestDB}
+	in := &OutcomeIngest{DB: ingestDB, Secrets: testSecrets}
 	if s, err := in.Settings(ctx, a); err != nil || s.PendingHours != 48 || !s.IsReversal("ticket_reopened") {
 		t.Fatalf("ingest settings %+v %v", s, err)
 	}

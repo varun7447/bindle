@@ -10,7 +10,7 @@ import (
 func TestIntegrationFeatureFlags(t *testing.T) {
 	ctx := context.Background()
 	owner, apiDB, ingestDB := newTestDB(t)
-	store := &Store{DB: apiDB}
+	store := &Store{DB: apiDB, Secrets: testSecrets}
 	u, err := store.EnsureUser(ctx, "sub-flags", "flags@example.com")
 	if err != nil {
 		t.Fatal(err)

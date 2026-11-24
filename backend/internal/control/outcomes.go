@@ -14,6 +14,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/bindle-ai/bindle/backend/internal/outcomes"
+	"github.com/bindle-ai/bindle/backend/internal/secretbox"
 )
 
 // ---- workspace settings (api) ----------------------------------------------
@@ -89,6 +90,11 @@ func (s *Store) CreateOutcomeEndpoint(ctx context.Context, tenant, userID, name 
 		return OutcomeEndpoint{}, "", err
 	}
 	id, secret := "oep_"+hex.EncodeToString(idb), "obsec_"+hex.EncodeToString(sb)
+	// Stored encrypted; without a secrets key the endpoint isn't created.
+	enc, err := boxOrDisabled(s.Secrets).Encrypt(ctx, []byte(secret), secretbox.Context(tenant, secretbox.PurposeOutcomeSecret, id))
+	if err != nil {
+		return OutcomeEndpoint{}, "", err
+	}
 	err = s.inTenant(ctx, tenant, func(tx *sql.Tx) error {
 		var n int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM control.outcome_endpoints WHERE tenant_id = $1 AND revoked_at IS NULL`, tenant).Scan(&n); err != nil {
@@ -97,8 +103,8 @@ func (s *Store) CreateOutcomeEndpoint(ctx context.Context, tenant, userID, name 
 		if n >= 20 {
 			return fmt.Errorf("%w: at most 20 active endpoints", ErrInvalidSettings)
 		}
-		out, err = scanEndpoint(tx.QueryRowContext(ctx, `INSERT INTO control.outcome_endpoints (id, tenant_id, name, secret, created_by)
-			VALUES ($1, $2, $3, $4, $5) RETURNING `+endpointCols, id, tenant, name, secret, userID))
+		out, err = scanEndpoint(tx.QueryRowContext(ctx, `INSERT INTO control.outcome_endpoints (id, tenant_id, name, secret_enc, created_by)
+			VALUES ($1, $2, $3, $4, $5) RETURNING `+endpointCols, id, tenant, name, enc, userID))
 		return err
 	})
 	if err != nil {
@@ -208,10 +214,11 @@ func (s *Store) MatchedOutcomes(ctx context.Context, tenant string, since time.T
 // and settings, and report an event's status. Ingest connects as its own
 // role; events are written under row-level security for their tenant.
 type OutcomeIngest struct {
-	DB *sql.DB
+	DB      *sql.DB
+	Secrets secretbox.Box // decrypts endpoint signing secrets
 }
 
-func (o *OutcomeIngest) store() *Store { return &Store{DB: o.DB} }
+func (o *OutcomeIngest) store() *Store { return &Store{DB: o.DB, Secrets: o.Secrets} }
 
 // Settings returns the tenant's outcome settings (defaults if none).
 func (o *OutcomeIngest) Settings(ctx context.Context, tenant string) (outcomes.Settings, error) {
@@ -225,11 +232,22 @@ func (o *OutcomeIngest) Settings(ctx context.Context, tenant string) (outcomes.S
 // EndpointSecret returns the tenant and signing secret of an active
 // endpoint; ok is false for unknown or revoked endpoints.
 func (o *OutcomeIngest) EndpointSecret(ctx context.Context, id string) (tenant, secret string, ok bool, err error) {
-	err = o.DB.QueryRowContext(ctx, `SELECT tenant_id, secret FROM control.outcome_endpoint_secret($1)`, id).Scan(&tenant, &secret)
+	var enc []byte
+	err = o.DB.QueryRowContext(ctx, `SELECT tenant_id, secret, secret_enc FROM control.outcome_endpoint_secret($1)`, id).Scan(&tenant, &secret, &enc)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", "", false, nil
 	}
-	return tenant, secret, err == nil, err
+	if err != nil {
+		return "", "", false, err
+	}
+	if enc != nil { // rows written before encryption carry plaintext instead
+		pt, err := boxOrDisabled(o.Secrets).Decrypt(ctx, enc, secretbox.Context(tenant, secretbox.PurposeOutcomeSecret, id))
+		if err != nil {
+			return "", "", false, err
+		}
+		secret = string(pt)
+	}
+	return tenant, secret, true, nil
 }
 
 // Record stores an event; a duplicate (same ID) is not stored again.

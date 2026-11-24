@@ -5,17 +5,24 @@
 //	bindle-admin features list [--tenant <id>]
 //	bindle-admin features enable --tenant <id> [--by <name>] <feature>
 //	bindle-admin features disable --tenant <id> <feature>
+//	bindle-admin secrets encrypt
 //
 // Features: ledger, passports, outcome_grading, learning_loop. All are off
 // by default. Changes reach the services within their 30-second cache.
 //
+// `secrets encrypt` encrypts alert-channel targets and secrets and
+// outcome-endpoint secrets that were stored before encryption, and clears
+// the plaintext. It is safe to run more than once.
+//
 // Environment:
 //
 //	BINDLE_CONTROL_DB_ADMIN_URL   schema-owner URL (or PGHOST, PGUSER, ... env vars)
+//	BINDLE_KMS_KEY_ID, AWS_REGION   KMS key for `secrets encrypt` (or BINDLE_SECRETS_KEY locally)
 package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
@@ -28,6 +35,7 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/bindle-ai/bindle/backend/internal/control"
+	"github.com/bindle-ai/bindle/backend/internal/secretbox"
 )
 
 func main() {
@@ -42,10 +50,48 @@ func usage() error {
   bindle-admin features list [--tenant <id>]
   bindle-admin features enable --tenant <id> [--by <name>] <feature>
   bindle-admin features disable --tenant <id> <feature>
+  bindle-admin secrets encrypt
 features: ` + strings.Join(control.Features, ", "))
 }
 
+func openAdminDB() (*sql.DB, error) {
+	db, err := control.OpenFromEnv("BINDLE_CONTROL_DB_ADMIN_URL")
+	if err != nil {
+		return nil, err
+	}
+	if db == nil {
+		return nil, errors.New("set BINDLE_CONTROL_DB_ADMIN_URL (or PGHOST) to the schema-owner connection")
+	}
+	return db, nil
+}
+
+func encryptSecrets(out io.Writer) error {
+	box, err := secretbox.FromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if _, ok := box.(secretbox.Disabled); ok {
+		return secretbox.ErrNotConfigured
+	}
+	db, err := openAdminDB()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	n, err := control.EncryptLegacySecrets(ctx, db, box)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "encrypted %d alert channels and %d outcome endpoints\n", n.AlertChannels, n.OutcomeEndpoints)
+	return nil
+}
+
 func run(args []string, out io.Writer) error {
+	if len(args) == 2 && args[0] == "secrets" && args[1] == "encrypt" {
+		return encryptSecrets(out)
+	}
 	if len(args) < 2 || args[0] != "features" {
 		return usage()
 	}
@@ -66,12 +112,9 @@ func run(args []string, out io.Writer) error {
 	if cmd != "list" && !control.IsFeature(fs.Arg(0)) {
 		return fmt.Errorf("unknown feature %q (known: %s)", fs.Arg(0), strings.Join(control.Features, ", "))
 	}
-	db, err := control.OpenFromEnv("BINDLE_CONTROL_DB_ADMIN_URL")
+	db, err := openAdminDB()
 	if err != nil {
 		return err
-	}
-	if db == nil {
-		return errors.New("set BINDLE_CONTROL_DB_ADMIN_URL (or PGHOST) to the schema-owner connection")
 	}
 	defer db.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

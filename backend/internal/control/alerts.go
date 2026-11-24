@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/bindle-ai/bindle/backend/internal/alerts"
+	"github.com/bindle-ai/bindle/backend/internal/secretbox"
 )
 
 const ruleCols = `id, tenant_id, kind, threshold, window_minutes, min_runs, enabled, created_at`
@@ -20,13 +22,52 @@ func scanRule(sc interface{ Scan(...any) error }) (alerts.Rule, error) {
 	return r, err
 }
 
-const channelCols = `id, tenant_id, kind, name, target, secret, enabled, created_at`
+// Targets and signing secrets are stored encrypted (target_enc, secret_enc);
+// target and secret hold plaintext only for rows written before encryption.
+const channelCols = `id, tenant_id, kind, name, COALESCE(target, ''), COALESCE(secret, ''), target_enc, secret_enc, display, enabled, created_at`
 
-func scanChannel(sc interface{ Scan(...any) error }) (alerts.Channel, error) {
-	var c alerts.Channel
-	err := sc.Scan(&c.ID, &c.TenantID, &c.Kind, &c.Name, &c.Target, &c.Secret, &c.Enabled, &c.CreatedAt)
-	c.Display = alerts.DisplayTarget(c.Kind, c.Target)
-	return c, err
+// channelRow is a channel as stored: Target and Secret are set only for
+// legacy plaintext rows until reveal decrypts the ciphertexts.
+type channelRow struct {
+	alerts.Channel
+	targetEnc, secretEnc []byte
+}
+
+func scanChannel(sc interface{ Scan(...any) error }) (channelRow, error) {
+	var r channelRow
+	c := &r.Channel
+	err := sc.Scan(&c.ID, &c.TenantID, &c.Kind, &c.Name, &c.Target, &c.Secret, &r.targetEnc, &r.secretEnc, &c.Display, &c.Enabled, &c.CreatedAt)
+	if c.Display == "" && c.Target != "" {
+		c.Display = alerts.DisplayTarget(c.Kind, c.Target)
+	}
+	return r, err
+}
+
+// reveal decrypts a channel's target and secret for delivery.
+func reveal(ctx context.Context, box secretbox.Box, r channelRow) (alerts.Channel, error) {
+	c := r.Channel
+	if r.targetEnc != nil {
+		pt, err := boxOrDisabled(box).Decrypt(ctx, r.targetEnc, secretbox.Context(c.TenantID, secretbox.PurposeAlertTarget, c.ID))
+		if err != nil {
+			return alerts.Channel{}, fmt.Errorf("channel %s target: %w", c.ID, err)
+		}
+		c.Target = string(pt)
+	}
+	if r.secretEnc != nil {
+		pt, err := boxOrDisabled(box).Decrypt(ctx, r.secretEnc, secretbox.Context(c.TenantID, secretbox.PurposeAlertSecret, c.ID))
+		if err != nil {
+			return alerts.Channel{}, fmt.Errorf("channel %s secret: %w", c.ID, err)
+		}
+		c.Secret = string(pt)
+	}
+	return c, nil
+}
+
+func boxOrDisabled(b secretbox.Box) secretbox.Box {
+	if b == nil {
+		return secretbox.Disabled{}
+	}
+	return b
 }
 
 func listRules(ctx context.Context, tx *sql.Tx) ([]alerts.Rule, error) {
@@ -46,13 +87,13 @@ func listRules(ctx context.Context, tx *sql.Tx) ([]alerts.Rule, error) {
 	return out, rows.Err()
 }
 
-func listChannels(ctx context.Context, tx *sql.Tx) ([]alerts.Channel, error) {
+func listChannels(ctx context.Context, tx *sql.Tx) ([]channelRow, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT `+channelCols+` FROM control.alert_channels ORDER BY created_at, id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []alerts.Channel
+	var out []channelRow
 	for rows.Next() {
 		c, err := scanChannel(rows)
 		if err != nil {
@@ -114,23 +155,53 @@ func (s *Store) UpdateAlertRule(ctx context.Context, tenant, id string, r alerts
 	return out, err
 }
 
-// ListAlertChannels returns the tenant's channels (targets included; the
-// API must not return them).
+// ListAlertChannels returns the tenant's channels for listing: names and
+// masked targets, not decrypted (Target and Secret are empty except on rows
+// written before encryption; the API never returns them).
 func (s *Store) ListAlertChannels(ctx context.Context, tenant string) (out []alerts.Channel, err error) {
-	err = s.inTenant(ctx, tenant, func(tx *sql.Tx) error { out, err = listChannels(ctx, tx); return err })
+	err = s.inTenant(ctx, tenant, func(tx *sql.Tx) error {
+		rows, err := listChannels(ctx, tx)
+		for _, r := range rows {
+			out = append(out, r.Channel)
+		}
+		return err
+	})
 	return out, err
 }
 
-// GetAlertChannel returns one channel.
+// DeliverableChannels returns the tenant's channels with targets and
+// secrets decrypted, for the alerts worker.
+func (s *Store) DeliverableChannels(ctx context.Context, tenant string) ([]alerts.Channel, error) {
+	var rows []channelRow
+	err := s.inTenant(ctx, tenant, func(tx *sql.Tx) (err error) { rows, err = listChannels(ctx, tx); return err })
+	if err != nil {
+		return nil, err
+	}
+	out := make([]alerts.Channel, 0, len(rows))
+	for _, r := range rows {
+		c, err := reveal(ctx, s.Secrets, r)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// GetAlertChannel returns one channel, decrypted (for a test delivery).
 func (s *Store) GetAlertChannel(ctx context.Context, tenant, id string) (out alerts.Channel, err error) {
+	var r channelRow
 	err = s.inTenant(ctx, tenant, func(tx *sql.Tx) error {
-		out, err = scanChannel(tx.QueryRowContext(ctx, `SELECT `+channelCols+` FROM control.alert_channels WHERE id = $1`, id))
+		r, err = scanChannel(tx.QueryRowContext(ctx, `SELECT `+channelCols+` FROM control.alert_channels WHERE id = $1`, id))
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
 		return err
 	})
-	return out, err
+	if err != nil {
+		return alerts.Channel{}, err
+	}
+	return reveal(ctx, s.Secrets, r)
 }
 
 // CreateAlertChannel validates and adds a channel. Webhook channels get a
@@ -151,9 +222,22 @@ func (s *Store) CreateAlertChannel(ctx context.Context, tenant, userID string, c
 	if err != nil {
 		return alerts.Channel{}, "", err
 	}
+	// Encrypt before storing; without a secrets key the channel isn't created.
+	box := boxOrDisabled(s.Secrets)
+	targetEnc, err := box.Encrypt(ctx, []byte(c.Target), secretbox.Context(tenant, secretbox.PurposeAlertTarget, id))
+	if err != nil {
+		return alerts.Channel{}, "", err
+	}
+	var secretEnc []byte
+	if secret != "" {
+		if secretEnc, err = box.Encrypt(ctx, []byte(secret), secretbox.Context(tenant, secretbox.PurposeAlertSecret, id)); err != nil {
+			return alerts.Channel{}, "", err
+		}
+	}
 	err = s.inTenant(ctx, tenant, func(tx *sql.Tx) error {
-		out, err = scanChannel(tx.QueryRowContext(ctx, `INSERT INTO control.alert_channels (id, tenant_id, kind, name, target, secret, created_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING `+channelCols, id, tenant, c.Kind, c.Name, c.Target, secret, userID))
+		r, err := scanChannel(tx.QueryRowContext(ctx, `INSERT INTO control.alert_channels (id, tenant_id, kind, name, target_enc, secret_enc, display, created_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING `+channelCols, id, tenant, c.Kind, c.Name, targetEnc, secretEnc, alerts.DisplayTarget(c.Kind, c.Target), userID))
+		out = r.Channel
 		return err
 	})
 	return out, secret, err
@@ -216,9 +300,12 @@ func (s *Store) ListAlertEvents(ctx context.Context, tenant string, limit int) (
 
 // AlertStore is the evaluator's view of the control plane; it implements
 // alerts.Store with the least-privileged alerts role.
-type AlertStore struct{ DB *sql.DB }
+type AlertStore struct {
+	DB      *sql.DB
+	Secrets secretbox.Box // decrypts channel targets and signing secrets
+}
 
-func (a *AlertStore) store() *Store { return &Store{DB: a.DB} }
+func (a *AlertStore) store() *Store { return &Store{DB: a.DB, Secrets: a.Secrets} }
 
 // AlertingTenants implements alerts.Store.
 func (a *AlertStore) AlertingTenants(ctx context.Context) ([]string, error) {
@@ -243,9 +330,9 @@ func (a *AlertStore) Rules(ctx context.Context, tenant string) ([]alerts.Rule, e
 	return a.store().ListAlertRules(ctx, tenant)
 }
 
-// Channels implements alerts.Store.
+// Channels implements alerts.Store: channels ready to deliver to.
 func (a *AlertStore) Channels(ctx context.Context, tenant string) ([]alerts.Channel, error) {
-	return a.store().ListAlertChannels(ctx, tenant)
+	return a.store().DeliverableChannels(ctx, tenant)
 }
 
 // RecordEvent implements alerts.Store.

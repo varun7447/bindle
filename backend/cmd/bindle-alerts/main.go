@@ -36,6 +36,7 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/lessons"
 	"github.com/bindle-ai/bindle/backend/internal/outcomes"
 	"github.com/bindle-ai/bindle/backend/internal/search"
+	"github.com/bindle-ai/bindle/backend/internal/secretbox"
 	"github.com/bindle-ai/bindle/backend/internal/skilljobs"
 )
 
@@ -74,7 +75,11 @@ func run(log *slog.Logger) error {
 		}
 		d.SES = &alerts.SES{Region: region, From: from, Creds: &awsv4.CredentialChain{Getenv: os.Getenv}}
 	}
-	cs := &control.AlertStore{DB: db}
+	secrets, err := secretbox.FromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	cs := &control.AlertStore{DB: db, Secrets: secrets}
 	ss := &search.Store{Client: client, Names: search.Names{Prefix: os.Getenv("BINDLE_SEARCH_PREFIX")}}
 	e := &alerts.Evaluator{
 		Store: cs, Detect: ss, Deliver: d, Log: log,

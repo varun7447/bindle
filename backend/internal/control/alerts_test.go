@@ -12,8 +12,8 @@ func TestIntegrationAlerts(t *testing.T) {
 	ctx := context.Background()
 	_, apiDB, ingestDB := newTestDB(t)
 	alertsDB := open(t, lastAlertsDSN)
-	store := &Store{DB: apiDB}
-	ev := &AlertStore{DB: alertsDB}
+	store := &Store{DB: apiDB, Secrets: testSecrets}
+	ev := &AlertStore{DB: alertsDB, Secrets: testSecrets}
 
 	alice, _ := store.EnsureUser(ctx, "sub-a", "")
 	ma, _ := store.Provision(ctx, alice, "A")

@@ -11,6 +11,9 @@
 //	BINDLE_API_RATE_LIMIT_RPS                per-tenant requests/sec (default 20; 0 disables)
 //	BINDLE_API_LOOP_MIN_REPEATS              runaway-loop threshold (default 5)
 //	BINDLE_CONTROL_DB_URL                    control-plane PostgreSQL URL for the API role (or PGHOST, ... env vars)
+//	BINDLE_KMS_KEY_ID                        KMS key for secrets (alert targets, signing secrets); AWS_REGION required
+//	BINDLE_SECRETS_KEY                       local dev instead of KMS: 32-byte AES key, base64
+//	                                         (neither set: creating alert channels and outcome endpoints fails)
 //	BINDLE_COGNITO_ISSUER                    https://cognito-idp.<region>.amazonaws.com/<user pool id>
 //	BINDLE_COGNITO_CLIENT_ID                 the console's app client ID
 //	BINDLE_API_DEV_AUTH_BYPASS_TENANT        local dev only: map every request to this tenant
@@ -43,6 +46,7 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/ratelimit"
 	"github.com/bindle-ai/bindle/backend/internal/replay"
 	"github.com/bindle-ai/bindle/backend/internal/search"
+	"github.com/bindle-ai/bindle/backend/internal/secretbox"
 	"github.com/bindle-ai/bindle/backend/internal/session"
 	"github.com/bindle-ai/bindle/backend/internal/vault"
 )
@@ -65,7 +69,11 @@ func run(log *slog.Logger) error {
 	var dir session.Directory
 	if controlDB != nil {
 		defer controlDB.Close()
-		store = &control.Store{DB: controlDB}
+		secrets, err := secretbox.FromEnv(os.Getenv)
+		if err != nil {
+			return err
+		}
+		store = &control.Store{DB: controlDB, Secrets: secrets}
 		dir = store
 	}
 	sessions, err := session.FromEnv(os.Getenv, addr, dir)
