@@ -11,6 +11,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as kinesis from 'aws-cdk-lib/aws-kinesis';
+import * as kms from 'aws-cdk-lib/aws-kms';
 import * as opensearch from 'aws-cdk-lib/aws-opensearchservice';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -220,6 +221,31 @@ export class BindleStack extends cdk.Stack {
     const dbApi = new secretsmanager.Secret(this, 'ControlDbApi', { secretName: 'bindle/control-db-api', generateSecretString: rolePassword() });
     const dbAlerts = new secretsmanager.Secret(this, 'ControlDbAlerts', { secretName: 'bindle/control-db-alerts', generateSecretString: rolePassword() });
     // libpq settings; TLS verified against the RDS CA bundle in the image.
+    // ---- secrets in PostgreSQL ---------------------------------------------------
+    // Alert-channel targets (Slack and webhook URLs carry tokens) and signing
+    // secrets are stored encrypted with this key (internal/secretbox), each
+    // bound to its tenant, purpose and row by the encryption context.
+    const secretsKey = new kms.Key(this, 'SecretsKey', {
+      alias: 'alias/bindle-secrets',
+      description: 'Bindle: secrets stored in the control-plane database',
+      enableKeyRotation: true,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    const kmsEnv = { BINDLE_KMS_KEY_ID: secretsKey.keyArn, AWS_REGION: this.region };
+    // Least privilege: each role may only encrypt or decrypt the purposes it
+    // needs, and only with the tenant and row in the encryption context.
+    const useSecretsKey = (role: iam.IRole, action: 'kms:Encrypt' | 'kms:Decrypt', purposes: string[]) =>
+      role.addToPrincipalPolicy(new iam.PolicyStatement({
+        actions: [action],
+        resources: [secretsKey.keyArn],
+        conditions: {
+          StringEquals: { 'kms:EncryptionContext:bindle_purpose': purposes },
+          Null: { 'kms:EncryptionContext:bindle_tenant': 'false', 'kms:EncryptionContext:bindle_resource': 'false' },
+        },
+      }));
+    const alertPurposes = ['alert_target', 'alert_secret'];
+    const allPurposes = [...alertPurposes, 'outcome_secret'];
+
     const dbEnv = {
       PGHOST: db.dbInstanceEndpointAddress,
       PGPORT: db.dbInstanceEndpointPort,
@@ -325,6 +351,7 @@ export class BindleStack extends cdk.Stack {
         environment: {
           ...dbEnv,
           PGUSER: 'bindle_ingest',
+          ...kmsEnv,
           // Ingest puts each request on the stream; bindle-processor writes OpenSearch.
           BINDLE_SINK: 'stream',
           BINDLE_STREAM_NAME: steps.streamName,
@@ -366,6 +393,7 @@ export class BindleStack extends cdk.Stack {
     });
 
     steps.grant(ingest.taskDefinition.taskRole, 'kinesis:PutRecord');
+    useSecretsKey(ingest.taskDefinition.taskRole, 'kms:Decrypt', ['outcome_secret']); // verifies signed outcome webhooks
     ingest.taskDefinition.taskRole.addToPrincipalPolicy(new iam.PolicyStatement({
       actions: ['s3:PutObject'],
       resources: [payloads.arnForObjects('spool/*')],
@@ -375,10 +403,12 @@ export class BindleStack extends cdk.Stack {
     // One-off setup task: run it after each deploy (command in the
     // MigrateCommand output). Same image, different entrypoint.
     const migrateTask = new ecs.FargateTaskDefinition(this, 'MigrateTask', { cpu: 256, memoryLimitMiB: 512, runtimePlatform: arm });
+    // `bindle-admin secrets encrypt` (same image) encrypts rows stored before encryption.
+    useSecretsKey(migrateTask.taskRole, 'kms:Encrypt', allPurposes);
     migrateTask.addContainer('migrate', {
       image,
       entryPoint: ['/bindle-migrate'],
-      environment: { BINDLE_SEARCH_URL: searchUrl, BINDLE_SEARCH_REPLICAS: '1', ...dbEnv },
+      environment: { BINDLE_SEARCH_URL: searchUrl, BINDLE_SEARCH_REPLICAS: '1', ...dbEnv, ...kmsEnv },
       secrets: {
         PGUSER: ecs.Secret.fromSecretsManager(db.secret!, 'username'),
         PGPASSWORD: ecs.Secret.fromSecretsManager(db.secret!, 'password'),
@@ -447,12 +477,14 @@ export class BindleStack extends cdk.Stack {
     // through the NAT; the service refuses private and metadata addresses
     // itself (alerts.SafeClient), since a VPC route can't express that.
     const alertsTask = new ecs.FargateTaskDefinition(this, 'AlertsTask', { cpu: 256, memoryLimitMiB: 512, runtimePlatform: arm });
+    useSecretsKey(alertsTask.taskRole, 'kms:Decrypt', alertPurposes); // delivers to channels
     alertsTask.addContainer('alerts', {
       image,
       entryPoint: ['/bindle-alerts'],
       environment: {
         ...dbEnv,
         PGUSER: 'bindle_alerts',
+        ...kmsEnv,
         BINDLE_SEARCH_URL: searchUrl,
         BINDLE_SEARCH_USER: 'bindle_reader',
         BINDLE_CONSOLE_URL: consoleUrl,
@@ -493,6 +525,8 @@ export class BindleStack extends cdk.Stack {
     // Cognito access token, which the API verifies.
     const namespace = cluster.addDefaultCloudMapNamespace({ name: 'bindle.internal', vpc });
     const apiTask = new ecs.FargateTaskDefinition(this, 'ApiTask', { cpu: 512, memoryLimitMiB: 1024, runtimePlatform: arm });
+    useSecretsKey(apiTask.taskRole, 'kms:Encrypt', allPurposes); // creates channels and endpoints
+    useSecretsKey(apiTask.taskRole, 'kms:Decrypt', alertPurposes); // test deliveries from the console
     apiTask.addContainer('api', {
       image,
       entryPoint: ['/bindle-api'],
@@ -500,6 +534,7 @@ export class BindleStack extends cdk.Stack {
       environment: {
         ...dbEnv,
         PGUSER: 'bindle_api',
+        ...kmsEnv,
         BINDLE_API_LISTEN: ':8080',
         BINDLE_PRICING_FILE: '/etc/bindle/pricing.json', // prices step replays
         BINDLE_SEARCH_URL: searchUrl,

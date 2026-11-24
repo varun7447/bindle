@@ -1,6 +1,6 @@
 # AWS deployment (CDK)
 
-The stack: VPC, Fargate ingest behind an HTTPS-only ALB, the console behind its own HTTPS ALB (Cognito sign-in), a private API reachable only from the console (`api.bindle.internal`), Kinesis stream, Fargate processor and alerts services, OpenSearch Service domain, RDS PostgreSQL (control plane), Cognito user pool, S3 payload bucket, Secrets Manager secrets and a one-off setup task. **These resources cost money once deployed.**
+The stack: VPC, Fargate ingest behind an HTTPS-only ALB, the console behind its own HTTPS ALB (Cognito sign-in), a private API reachable only from the console (`api.bindle.internal`), Kinesis stream, Fargate processor and alerts services, OpenSearch Service domain, RDS PostgreSQL (control plane), Cognito user pool, S3 payload bucket, Secrets Manager secrets, a KMS key for secrets stored in the database, and a one-off setup task. **These resources cost money once deployed.**
 
 ```bash
 cd deploy/aws && npm install
@@ -27,6 +27,8 @@ Synth fails without a certificate: ingest carries API keys and agent payloads, s
 | `selfSignUp` | `true` | `false`: only users an admin creates (`aws cognito-idp admin-create-user`) can sign in |
 | `goproxy` | `https://proxy.golang.org,direct` | where the backend image build downloads Go modules; use `direct` on networks that block proxy.golang.org (or set `BINDLE_GOPROXY`) |
 
+**Secrets in the database** (alert webhook and Slack URLs, signing secrets) are encrypted with a customer-managed KMS key (`alias/bindle-secrets`, yearly rotation, kept if the stack is deleted). Each secret is bound to its workspace and row through the KMS encryption context, and each service may only encrypt or decrypt what it needs. The key costs $1 a month, rising to $3 after its first two yearly rotations, plus KMS request charges (see the KMS pricing page); decryptions are cached for 5 minutes, so requests stay low.
+
 All services run on ARM (Graviton) Fargate tasks; `cdk deploy` builds the images for `linux/arm64`, natively on Apple Silicon and with emulation on x86 machines. Docker must be running. Go dependencies are downloaded during the image build (nothing is vendored).
 
 ## After deploy
@@ -34,3 +36,4 @@ All services run on ARM (Graviton) Fargate tasks; `cdk deploy` builds the images
 1. Run the `MigrateCommand` output (an `aws ecs run-task` command): OpenSearch indices, retention and users; control-plane schema and roles.
 2. Point `ingest.bindle.ai` at the `IngestEndpoint` output, and the console's host (`consoleUrl`) at `ConsoleEndpoint`.
 3. Open the console URL signed out and check you're sent to the Cognito sign-in page before sharing it.
+4. Upgrading a stack created before secrets were encrypted: run the `MigrateCommand` once more with the entrypoint `/bindle-admin` and the command `secrets encrypt` (add `--overrides '{"containerOverrides":[{"name":"migrate","entryPoint":["/bindle-admin"],"command":["secrets","encrypt"]}]}'`). It encrypts the old rows and clears their plaintext; running it again changes nothing.
