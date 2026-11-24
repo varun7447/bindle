@@ -9,6 +9,7 @@ import (
 
 	"github.com/bindle-ai/bindle/backend/internal/control"
 	"github.com/bindle-ai/bindle/backend/internal/ledger"
+	"github.com/bindle-ai/bindle/backend/internal/session"
 	"github.com/bindle-ai/bindle/backend/internal/skillship"
 	"github.com/bindle-ai/bindle/backend/internal/vault"
 )
@@ -52,7 +53,7 @@ func (s *Server) mayControlSkills(ctx context.Context, w http.ResponseWriter, r 
 		s.storeError(w, r, err)
 		return false
 	}
-	email, err := s.Learning.UserEmail(ctx, p.TenantID, p.UserID)
+	email, err := s.callerEmail(ctx, p)
 	if err != nil {
 		s.storeError(w, r, err)
 		return false
@@ -251,4 +252,14 @@ func (s *Server) recordShip(ctx context.Context, tenant, agent, path, action, by
 	if _, err := s.LearningLedger.Append(ctx, tenant, agent, []ledger.Entry{e}); err != nil && s.Log != nil {
 		s.Log.Warn("skills: ledger", "tenant", tenant, "err", err)
 	}
+}
+
+// callerEmail is the caller's email for owner checks: the dev bypass's
+// configured email when there is no signed-in user, otherwise the user's
+// email from the control plane.
+func (s *Server) callerEmail(ctx context.Context, p session.Principal) (string, error) {
+	if p.UserID == "" {
+		return p.Email, nil
+	}
+	return s.Learning.UserEmail(ctx, p.TenantID, p.UserID)
 }

@@ -343,7 +343,7 @@ func (s *Server) vaultAction(w http.ResponseWriter, r *http.Request) {
 	}
 	var scan skills.Scan
 	_ = json.Unmarshal(n.Scan, &scan)
-	email, err := s.Learning.UserEmail(ctx, p.TenantID, p.UserID)
+	email, err := s.callerEmail(ctx, p)
 	if err != nil {
 		s.storeError(w, r, err)
 		return

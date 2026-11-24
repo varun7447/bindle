@@ -31,6 +31,10 @@ type Principal struct {
 	TenantName string
 	UserID     string // "" for the dev bypass
 	Role       string
+	// Email is set only by the dev bypass (BINDLE_API_DEV_AUTH_BYPASS_EMAIL),
+	// so local testing can act as a named owner. Signed-in users' emails come
+	// from the control plane instead.
+	Email string
 }
 
 // CanManageKeys reports whether the caller may create, rotate or revoke keys.
@@ -52,14 +56,14 @@ func (FailClosed) Resolve(*http.Request) (Principal, error) { return Principal{}
 // DevBypass maps every request to one tenant as its owner. Local
 // development only: FromEnv refuses it on a non-loopback listener unless
 // running in a container whose port is published to loopback only.
-type DevBypass struct{ TenantID string }
+type DevBypass struct{ TenantID, Email string }
 
 // Resolve implements Resolver.
 func (d DevBypass) Resolve(*http.Request) (Principal, error) {
 	if d.TenantID == "" {
 		return Principal{}, ErrUnauthenticated
 	}
-	return Principal{TenantID: d.TenantID, TenantName: "Local dev", Role: control.RoleOwner}, nil
+	return Principal{TenantID: d.TenantID, TenantName: "Local dev", Role: control.RoleOwner, Email: d.Email}, nil
 }
 
 // Directory is the part of the control plane the Cognito resolver needs.
@@ -131,8 +135,11 @@ func (c *Cognito) Resolve(r *http.Request) (Principal, error) {
 const (
 	EnvBypassTenant      = "BINDLE_API_DEV_AUTH_BYPASS_TENANT"
 	EnvBypassInContainer = "BINDLE_API_DEV_AUTH_BYPASS_IN_CONTAINER"
-	EnvCognitoIssuer     = "BINDLE_COGNITO_ISSUER"
-	EnvCognitoClientID   = "BINDLE_COGNITO_CLIENT_ID"
+	// EnvBypassEmail gives the dev-bypass caller an email (local testing of
+	// owner-only actions such as approving skills). Ignored without the bypass.
+	EnvBypassEmail     = "BINDLE_API_DEV_AUTH_BYPASS_EMAIL"
+	EnvCognitoIssuer   = "BINDLE_COGNITO_ISSUER"
+	EnvCognitoClientID = "BINDLE_COGNITO_CLIENT_ID"
 )
 
 // FromEnv picks the resolver. dir may be nil when Cognito is not configured.
@@ -162,7 +169,11 @@ func FromEnv(getenv func(string) string, listenAddr string, dir Directory) (Reso
 			"is allowed only on a loopback address (or in a container published to 127.0.0.1 "+
 			"with %s=1)", EnvBypassTenant, listenAddr, EnvBypassInContainer)
 	}
-	return DevBypass{TenantID: tenant}, nil
+	email := strings.TrimSpace(getenv(EnvBypassEmail))
+	if email != "" && (!strings.Contains(email, "@") || len(email) > 320) {
+		return nil, fmt.Errorf("session: %s must be an email address", EnvBypassEmail)
+	}
+	return DevBypass{TenantID: tenant, Email: email}, nil
 }
 
 // IsLoopback reports whether a host:port listen address binds loopback only.
