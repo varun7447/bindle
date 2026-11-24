@@ -23,6 +23,7 @@ $(ENV_FILE):
 
 .PHONY: up
 up: $(ENV_FILE) ## Start the local stack (OpenSearch, PostgreSQL, ingest, API, alerts)
+	./deploy/local/dev-env.sh >/dev/null  # adds values new versions need; keeps existing ones
 	$(COMPOSE) up -d --build
 
 .PHONY: down

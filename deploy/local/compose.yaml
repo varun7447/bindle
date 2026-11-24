@@ -71,6 +71,7 @@ services:
       BINDLE_SEARCH_READER_PASSWORD: ${BINDLE_SEARCH_READER_PASSWORD:?run deploy/local/dev-env.sh}
       BINDLE_SEARCH_REPLICAS: "0"
       BINDLE_CONTROL_DB_ADMIN_URL: postgres://bindle_owner:${POSTGRES_PASSWORD:?run deploy/local/dev-env.sh}@postgres:5432/bindle?sslmode=disable
+      BINDLE_SECRETS_KEY: ${BINDLE_SECRETS_KEY:?run deploy/local/dev-env.sh}
       BINDLE_CONTROL_API_PASSWORD: ${BINDLE_CONTROL_API_PASSWORD:?run deploy/local/dev-env.sh}
       BINDLE_CONTROL_INGEST_PASSWORD: ${BINDLE_CONTROL_INGEST_PASSWORD:?run deploy/local/dev-env.sh}
       BINDLE_CONTROL_ALERTS_PASSWORD: ${BINDLE_CONTROL_ALERTS_PASSWORD:?run deploy/local/dev-env.sh}
@@ -95,6 +96,7 @@ services:
       <<: *search
       # Ingest keys are resolved in the control plane.
       BINDLE_CONTROL_DB_URL: postgres://bindle_ingest:${BINDLE_CONTROL_INGEST_PASSWORD:?run deploy/local/dev-env.sh}@postgres:5432/bindle?sslmode=disable
+      BINDLE_SECRETS_KEY: ${BINDLE_SECRETS_KEY:?run deploy/local/dev-env.sh}
       BINDLE_SINK: opensearch
       BINDLE_SEARCH_USER: bindle_writer
       BINDLE_SEARCH_PASSWORD: ${BINDLE_SEARCH_WRITER_PASSWORD:?run deploy/local/dev-env.sh}
@@ -125,6 +127,7 @@ services:
       BINDLE_SEARCH_PASSWORD: ${BINDLE_SEARCH_READER_PASSWORD:?run deploy/local/dev-env.sh}
       BINDLE_PAYLOAD_STORE: file:///data/payloads
       BINDLE_CONTROL_DB_URL: postgres://bindle_api:${BINDLE_CONTROL_API_PASSWORD:?run deploy/local/dev-env.sh}@postgres:5432/bindle?sslmode=disable
+      BINDLE_SECRETS_KEY: ${BINDLE_SECRETS_KEY:?run deploy/local/dev-env.sh}
       # Console sign-in uses Amazon Cognito when BINDLE_COGNITO_ISSUER and
       # BINDLE_COGNITO_CLIENT_ID are set (see deploy/aws). Without them the API
       # rejects every request, unless deploy/local/.env opts into the local-only
@@ -156,6 +159,7 @@ services:
       BINDLE_SEARCH_USER: bindle_reader
       BINDLE_SEARCH_PASSWORD: ${BINDLE_SEARCH_READER_PASSWORD:?run deploy/local/dev-env.sh}
       BINDLE_CONTROL_DB_URL: postgres://bindle_alerts:${BINDLE_CONTROL_ALERTS_PASSWORD:?run deploy/local/dev-env.sh}@postgres:5432/bindle?sslmode=disable
+      BINDLE_SECRETS_KEY: ${BINDLE_SECRETS_KEY:?run deploy/local/dev-env.sh}
       BINDLE_CONSOLE_URL: http://localhost:3000
     depends_on:
       setup:
