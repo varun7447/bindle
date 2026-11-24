@@ -13,6 +13,7 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/lessons"
 	"github.com/bindle-ai/bindle/backend/internal/passport"
 	"github.com/bindle-ai/bindle/backend/internal/skills"
+	"github.com/bindle-ai/bindle/backend/internal/skillship"
 )
 
 // ---- lessons (alerts worker writes, ingest and API read) ----------------------
@@ -458,13 +459,16 @@ func (s *Store) ActivePassport(ctx context.Context, tenant, agent string) (*pass
 // LearningSettings are a workspace's learning-loop settings.
 type LearningSettings struct {
 	MinRuns int `json:"min_runs"`
+	// ProofThreshold is the percent of replayed failures a skill must fix
+	// to be proven (0 when saving: keep the default).
+	ProofThreshold int `json:"proof_threshold"`
 }
 
 // GetLearningSettings returns the settings (defaults when never saved).
 func (s *Store) GetLearningSettings(ctx context.Context, tenant string) (LearningSettings, error) {
-	out := LearningSettings{MinRuns: lessons.DefaultMinRuns}
+	out := LearningSettings{MinRuns: lessons.DefaultMinRuns, ProofThreshold: skillship.DefaultProofThreshold}
 	err := s.inTenant(ctx, tenant, func(tx *sql.Tx) error {
-		err := tx.QueryRowContext(ctx, `SELECT min_runs FROM control.learning_settings`).Scan(&out.MinRuns)
+		err := tx.QueryRowContext(ctx, `SELECT min_runs, proof_threshold FROM control.learning_settings`).Scan(&out.MinRuns, &out.ProofThreshold)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
@@ -478,10 +482,17 @@ func (s *Store) PutLearningSettings(ctx context.Context, tenant, userID string, 
 	if ls.MinRuns < lessons.MinMinRuns || ls.MinRuns > lessons.MaxMinRuns {
 		return LearningSettings{}, &skills.Error{Msg: "min_runs must be between 2 and 1000"}
 	}
+	if ls.ProofThreshold == 0 {
+		ls.ProofThreshold = skillship.DefaultProofThreshold
+	}
+	if ls.ProofThreshold < skillship.MinProofThreshold || ls.ProofThreshold > skillship.MaxProofThreshold {
+		return LearningSettings{}, &skills.Error{Msg: "proof_threshold must be between 1 and 100 (percent)"}
+	}
 	err := s.inTenant(ctx, tenant, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `INSERT INTO control.learning_settings (tenant_id, min_runs, updated_by) VALUES ($1, $2, $3)
-			ON CONFLICT (tenant_id) DO UPDATE SET min_runs = EXCLUDED.min_runs, updated_by = EXCLUDED.updated_by, updated_at = now()`,
-			tenant, ls.MinRuns, nullable(userID))
+		_, err := tx.ExecContext(ctx, `INSERT INTO control.learning_settings (tenant_id, min_runs, proof_threshold, updated_by) VALUES ($1, $2, $3, $4)
+			ON CONFLICT (tenant_id) DO UPDATE SET min_runs = EXCLUDED.min_runs, proof_threshold = EXCLUDED.proof_threshold,
+				updated_by = EXCLUDED.updated_by, updated_at = now()`,
+			tenant, ls.MinRuns, ls.ProofThreshold, nullable(userID))
 		return err
 	})
 	return ls, err

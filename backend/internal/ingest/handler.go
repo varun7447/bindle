@@ -323,6 +323,11 @@ func (h *ConfigHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sum := sha256.Sum256([]byte(strings.Join(cfg.StoppedRuns, "\x00")))
 		etag += "-s" + hex.EncodeToString(sum[:4])
 	}
+	if len(cfg.KilledSkills) > 0 {
+		// And the learning loop's kill switches.
+		sum := sha256.Sum256([]byte(strings.Join(cfg.KilledSkills, "\x00")))
+		etag += "-k" + hex.EncodeToString(sum[:4])
+	}
 	etag += `"`
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "private, no-cache")
@@ -341,6 +346,9 @@ func (h *ConfigHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if cfg.StoppedRuns == nil {
 		cfg.StoppedRuns = []string{}
+	}
+	if cfg.KilledSkills == nil {
+		cfg.KilledSkills = []string{}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(struct {

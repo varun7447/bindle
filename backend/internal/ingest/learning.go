@@ -30,18 +30,23 @@ type LearningStore interface {
 //	POST /v1/skills                  push a SKILL.md as a draft (skills:write)
 //	GET  /v1/vault?agent=            every note of an agent (vault:sync)
 //	PUT  /v1/vault                   save one note (vault:sync)
+//	GET  /v1/lessons/{id}/cassettes  recorded evidence runs, to prove a skill (skills:write)
+//	POST /v1/skills/proof            a proof report from bindle skills prove (skills:write)
+//	GET  /v1/skills?agent=&version=  the skills shipped to an agent (ingest key; the SDKs)
 //
-// All need a management key; the tenant comes from the key. Without the
+// All but GET /v1/skills need a management key; the tenant comes from the key. Without the
 // learning_loop feature every route answers 404. Packs hold only redacted
 // normalized data: drafting runs in the customer's environment, with the
 // customer's own model, and Bindle never sees a model key.
 type LearningHandler struct {
-	Keys     MgmtKeys
-	Store    LearningStore
-	Saver    *vault.Saver
-	Features FeatureChecker
-	Limiter  interface{ Allow(key string, n int) bool }
-	Log      *slog.Logger
+	Keys       MgmtKeys
+	IngestKeys auth.Resolver // GET /v1/skills: the SDKs' ingest keys
+	Store      LearningStore
+	Ship       ShipStore
+	Saver      *vault.Saver
+	Features   FeatureChecker
+	Limiter    interface{ Allow(key string, n int) bool }
+	Log        *slog.Logger
 }
 
 var lessonPathRe = regexp.MustCompile(`^/v1/lessons/(les_[0-9a-f]{16})/pack$`)
@@ -50,14 +55,20 @@ const maxLearningBody = skills.MaxBytes + 4<<10
 
 func (h *LearningHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
+	if path == "/v1/skills" && r.Method == http.MethodGet {
+		h.serveSkills(w, r)
+		return
+	}
 	var scope string
 	switch {
 	case path == "/v1/lessons" && r.Method == http.MethodGet, lessonPathRe.MatchString(path) && r.Method == http.MethodGet,
-		path == "/v1/skills" && r.Method == http.MethodPost:
+		cassettesPathRe.MatchString(path) && r.Method == http.MethodGet,
+		path == "/v1/skills" && r.Method == http.MethodPost, path == "/v1/skills/proof" && r.Method == http.MethodPost:
 		scope = control.ScopeSkillsWrite
 	case path == "/v1/vault" && (r.Method == http.MethodGet || r.Method == http.MethodPut):
 		scope = control.ScopeVaultSync
-	case path == "/v1/lessons", path == "/v1/skills", path == "/v1/vault", lessonPathRe.MatchString(path):
+	case path == "/v1/lessons", path == "/v1/skills", path == "/v1/skills/proof", path == "/v1/vault", lessonPathRe.MatchString(path),
+		cassettesPathRe.MatchString(path):
 		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	default:
@@ -93,6 +104,18 @@ func (h *LearningHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case path == "/v1/lessons":
 		h.lessons(w, r, p.TenantID)
+	case cassettesPathRe.MatchString(path):
+		if h.Ship == nil {
+			jsonErr(w, http.StatusNotFound, "no such endpoint")
+			return
+		}
+		h.cassettes(w, r, p.TenantID, cassettesPathRe.FindStringSubmatch(path)[1])
+	case path == "/v1/skills/proof":
+		if h.Ship == nil {
+			jsonErr(w, http.StatusNotFound, "no such endpoint")
+			return
+		}
+		h.proof(w, r, p.TenantID, by)
 	case strings.HasPrefix(path, "/v1/lessons/"):
 		h.pack(w, r, p.TenantID, lessonPathRe.FindStringSubmatch(path)[1])
 	case path == "/v1/skills":

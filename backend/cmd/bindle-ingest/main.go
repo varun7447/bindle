@@ -186,13 +186,13 @@ func run(log *slog.Logger) error {
 		// Learning loop (feature learning_loop): lessons, lesson packs,
 		// skill drafts and vault sync for the CLI, with a management key.
 		li := &control.LearningIngest{DB: controlDB}
-		lh := &ingest.LearningHandler{Keys: &control.MgmtKeyResolver{DB: controlDB}, Store: li, Features: features,
+		lh := &ingest.LearningHandler{Keys: &control.MgmtKeyResolver{DB: controlDB}, IngestKeys: keys, Store: li, Ship: li, Features: features,
 			Limiter: ratelimit.New(2, 20), Log: log, Saver: &vault.Saver{
 				Store: li, Passport: li.Passport, Tools: li.AgentTools, Labels: ingest.CustomLabels(policies),
 				Ledger:   &ledger.Writer{DB: controlDB},
 				LedgerOn: func(ctx context.Context, t string) bool { return features.Enabled(ctx, t, ledger.Feature) },
 			}}
-		for _, p := range []string{"/v1/lessons", "/v1/lessons/", "/v1/skills", "/v1/vault"} {
+		for _, p := range []string{"/v1/lessons", "/v1/lessons/", "/v1/skills", "/v1/skills/proof", "/v1/vault"} {
 			mux.Handle(p, lh)
 		}
 	}
