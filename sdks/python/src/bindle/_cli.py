@@ -134,6 +134,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     _passport.add_parser(sub)
 
+    from . import _skills
+
+    _skills.add_parser(sub)
+
     args = p.parse_args(argv)
     return args.fn(args)
 

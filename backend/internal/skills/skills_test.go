@@ -155,3 +155,38 @@ func TestPathsAndLinks(t *testing.T) {
 		t.Fatalf("links %v", got)
 	}
 }
+
+// The CLI (bindle skills draft) writes SKILL.md files like this one; the
+// server must accept them unchanged.
+const cliSkill = `---
+name: lookup-order-not-found
+description: "Retry lookup_order once: trim the ID — then \"retry\"."
+metadata:
+  bindle-lesson: les_0123456789abcdef
+  bindle-agent: refund-agent
+  bindle-status: draft
+  bindle-version: "1"
+---
+
+1. Trim.
+
+## Evidence
+
+Drafted from a lesson: 7 failures in 6 runs, error ` + "`" + `order <N> not found` + "`" + ` (likely cause: what it asked for wasn't found).
+
+- [[run:0123456789abcdef0123456789abcdef]] lookup_order
+`
+
+func TestParsesWhatTheCLIWrites(t *testing.T) {
+	s, err := Parse(cliSkill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Description != "Retry lookup_order once: trim the ID — then \"retry\"." || s.Metadata[MetaVersion] != "1" ||
+		s.Metadata[MetaLesson] != "les_0123456789abcdef" {
+		t.Fatalf("parsed %+v", s)
+	}
+	if got := Links(cliSkill); len(got) != 1 || got[0] != "run:0123456789abcdef0123456789abcdef" {
+		t.Fatalf("links %v", got)
+	}
+}
