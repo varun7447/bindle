@@ -200,6 +200,8 @@ type StepSummary struct {
 	// PassportDrift lists how the step went outside its agent's passport
 	// ("kind:detail").
 	PassportDrift []string `json:"passport_drift,omitempty"`
+	// SkillsUsed are the learned skills loaded in the step ("<path>@<release>").
+	SkillsUsed []string `json:"skills_used,omitempty"`
 }
 
 // Trace is a run summary plus its steps.

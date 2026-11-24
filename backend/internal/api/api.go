@@ -67,9 +67,12 @@ type Server struct {
 	// LearningLedger writes vault changes to the ledger (nil: none).
 	Learning       LearningStore
 	LearningLedger vault.Appender
-	Outcomes       OutcomeAdmin   // outcome grading (feature "outcome_grading"); nil hides it (404)
-	Replay         *replay.Runner // nil disables step replay (503)
-	Prices         *cost.Table    // list prices, for replay cost
+	// Ship is the learning loop's phase 2: proofs, releases, shipping
+	// opt-in and kill switches (nil: 404).
+	Ship     ShipStore
+	Outcomes OutcomeAdmin   // outcome grading (feature "outcome_grading"); nil hides it (404)
+	Replay   *replay.Runner // nil disables step replay (503)
+	Prices   *cost.Table    // list prices, for replay cost
 	// AWSPrices serves Bedrock list prices; nil disables (503).
 	AWSPrices *AWSPriceList
 	// ReplayLimiter caps replays per tenant; nil uses 10 a minute.
@@ -142,6 +145,7 @@ func (s *Server) Handler() http.Handler {
 	s.evalRoutes(api)
 	s.passportRoutes(api)
 	s.learningRoutes(api)
+	s.shipRoutes(api)
 	api.HandleFunc("POST /api/traces/{id}/steps/{step}/replay", s.replayStep)
 	api.HandleFunc("GET /api/traces/{id}/stop", s.getRunStop)
 	api.HandleFunc("POST /api/traces/{id}/stop", s.stopRun)

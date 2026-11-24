@@ -122,4 +122,7 @@ type Step struct {
 	// Correlations link the run to business events reported later
 	// (bindle.correlate): "<key>:<tenant-bound hash>", never the raw value.
 	Correlations []string
+	// SkillsUsed are the learned skills the agent loaded in this step
+	// (bindle.skill.used span events): "<path>@<release>".
+	SkillsUsed []string
 }

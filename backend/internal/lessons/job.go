@@ -20,8 +20,11 @@ type Job struct {
 	Groups  func(ctx context.Context, tenant string, from, to time.Time) ([]Group, error)
 	Tools   func(ctx context.Context, tenant string, from, to time.Time) (map[string][]string, error)
 	Replace func(ctx context.Context, tenant string, ls []Lesson, tools map[string][]string) (int, error)
-	Log     *slog.Logger
-	Now     func() time.Time
+	// After, when set, runs for each workspace once its lessons are stored
+	// (recording the lessons' evidence runs as cassettes).
+	After func(ctx context.Context, tenant string)
+	Log   *slog.Logger
+	Now   func() time.Time
 }
 
 // RunOnce computes and stores every workspace's lessons. A failing
@@ -55,6 +58,9 @@ func (j *Job) RunOnce(ctx context.Context) (workspaces, stored int) {
 		}
 		workspaces++
 		stored += n
+		if j.After != nil {
+			j.After(ctx, t.ID)
+		}
 	}
 	return workspaces, stored
 }

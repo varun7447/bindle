@@ -91,7 +91,9 @@ func (f *fakeLearning) ActivePassport(_ context.Context, t, a string) (*passport
 func (f *fakeLearning) AgentTools(context.Context, string, string) ([]string, error) {
 	return []string{"lookup_order", "send_email"}, nil
 }
-func (f *fakeLearning) UserEmail(_ context.Context, _, u string) (string, error) { return f.emails[u], nil }
+func (f *fakeLearning) UserEmail(_ context.Context, _, u string) (string, error) {
+	return f.emails[u], nil
+}
 func (f *fakeLearning) ListSecurityReviewers(context.Context, string) ([]control.SecurityReviewer, error) {
 	return []control.SecurityReviewer{}, nil
 }

@@ -121,6 +121,7 @@ func run(log *slog.Logger) error {
 		MgmtKeys:       mgmtKeyStore(store),
 		Outcomes:       outcomeAdmin(store),
 		Learning:       learningStore(store),
+		Ship:           shipStore(store),
 		LearningLedger: ledgerWriter(controlDB),
 		Prices:         prices,
 		// Public AWS price list (no credentials), for Settings → Model prices.
@@ -237,6 +238,13 @@ func mgmtKeyStore(s *control.Store) api.MgmtKeyStore {
 }
 
 func learningStore(s *control.Store) api.LearningStore {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
+func shipStore(s *control.Store) api.ShipStore {
 	if s == nil {
 		return nil
 	}

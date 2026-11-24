@@ -248,6 +248,17 @@ func VaultChange(agent, path string, version int, sha, action, by string, at tim
 		Detail: canonicalDetail(map[string]string{"path": path, "version": strconv.Itoa(version), "sha256": sha, "action": action, "by": by})}
 }
 
+// SkillChange records something Bindle did to a shipped skill release on
+// its own: "rollback" (a worse result; the previous release is served
+// again) or "live" (agents started loading it). The reason is Bindle's
+// plain-language finding, never content.
+func SkillChange(agent, path string, release int, sha, action, reason string, at time.Time) Entry {
+	return Entry{Agent: agent, At: at.UTC().Truncate(time.Microsecond), Kind: KindSkillChange,
+		EntryKey: path + "@" + strconv.Itoa(release) + ":" + action, CostUSD: FormatCost(0),
+		Detail: canonicalDetail(map[string]string{"path": path, "release": strconv.Itoa(release), "sha256": sha, "action": action,
+			"reason": reason})}
+}
+
 // vaultAction is a vault_change entry's action ("create", "edit", "approve", ...).
 func (e Entry) vaultAction() string {
 	var d map[string]string

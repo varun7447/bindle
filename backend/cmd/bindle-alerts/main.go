@@ -36,6 +36,7 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/lessons"
 	"github.com/bindle-ai/bindle/backend/internal/outcomes"
 	"github.com/bindle-ai/bindle/backend/internal/search"
+	"github.com/bindle-ai/bindle/backend/internal/skilljobs"
 )
 
 func main() {
@@ -111,7 +112,22 @@ func run(log *slog.Logger) error {
 		},
 		Groups: ss.LessonGroups, Tools: ss.AgentToolNames, Replace: lw.Replace, Log: log,
 	}
+	// Each lesson's evidence runs, recorded as cassettes for bindle skills
+	// prove (replay in the customer's environment).
+	cw := &control.CassetteWriter{DB: db}
+	cass := &skilljobs.Cassettes{Missing: cw.Missing, Reader: ss, Put: cw.Put, Log: log}
+	lj.After = func(ctx context.Context, tenant string) { cass.Fill(ctx, tenant) }
 	go lj.Run(ctx, time.Hour)
+	// Shipped skills: measured hourly against runs without them; a clearly
+	// worse release rolls back to the one before it.
+	features := &control.FeatureResolver{DB: db, Log: log}
+	oi := &control.OutcomeIngest{DB: db}
+	mj := &skilljobs.Measure{Store: &control.ShippingStore{DB: db}, Facts: ss.SkillRunFacts,
+		Matched: (&control.Store{DB: db}).MatchedOutcomes, Settings: oi.Settings,
+		Ledger:   &ledger.Writer{DB: db},
+		LedgerOn: func(ctx context.Context, t string) bool { return features.Enabled(ctx, t, ledger.Feature) },
+		Log:      log}
+	go mj.Run(ctx, time.Hour)
 	log.Info("bindle-alerts starting", "interval", interval.String(), "email", d.SES != nil)
 	e.Run(ctx, interval)
 	log.Info("bindle-alerts stopped")

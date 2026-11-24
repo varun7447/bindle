@@ -37,6 +37,7 @@ func Summary(agent, day string, entries []Entry, check Result) string {
 	var total float64
 	drift := map[string]int{}
 	vault := map[string]int{}
+	shipped := map[string]int{}
 	for _, e := range entries {
 		if e.Kind == KindDrift {
 			drift[driftLabel(e.DriftKind())]++
@@ -44,6 +45,10 @@ func Summary(agent, day string, entries []Entry, check Result) string {
 		}
 		if e.Kind == KindVaultChange {
 			vault[e.vaultAction()]++
+			continue
+		}
+		if e.Kind == KindSkillChange {
+			shipped[e.vaultAction()]++
 			continue
 		}
 		if e.Kind != KindStep {
@@ -147,6 +152,13 @@ func Summary(agent, day string, entries []Entry, check Result) string {
 			n += c
 		}
 		fmt.Fprintf(&b, "**Knowledge vault.** %s: %s.\n\n", plural(n, "change"), topCounts(vault, 10))
+	}
+	if len(shipped) > 0 {
+		n := 0
+		for _, c := range shipped {
+			n += c
+		}
+		fmt.Fprintf(&b, "**Learned skills.** %s by Bindle: %s.\n\n", plural(n, "change"), topCounts(shipped, 10))
 	}
 
 	first, last := entries[0], entries[len(entries)-1]
