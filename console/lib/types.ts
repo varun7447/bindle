@@ -57,6 +57,8 @@ export interface StepSummary {
   finish_reason?: string;
   /** Security signals on the step (prompt_injection, secret_exposed, possible_exfiltration). */
   security_flags?: string[];
+  /** Learned skills loaded in the step ("<path>@<release>"). */
+  skills_used?: string[];
   /** Why each flag was raised: "flag:reason". */
   security_reasons?: string[];
   /** Redaction labels found in the step (EMAIL, CARD, ...): labels only. */

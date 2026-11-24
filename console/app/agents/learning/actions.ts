@@ -68,3 +68,41 @@ export async function saveNoteAction(form: FormData): Promise<void> {
   }
   back(agent, path, err, err ? undefined : 'saved');
 }
+
+function backToLearning(agent: string, msg?: string, ok?: string): never {
+  const q = new URLSearchParams({ agent });
+  if (msg) q.set('error', msg.slice(0, 300));
+  if (ok) q.set('done', ok);
+  redirect(`/agents/learning?${q.toString()}`);
+}
+
+/** Opt an agent in to (or out of) approved skills, and the kill switch for all of them. */
+export async function shipSettingsAction(form: FormData): Promise<void> {
+  await assertSameOrigin();
+  const agent = field(form, 'agent', 128);
+  const ship = field(form, 'ship', 5) === 'true';
+  const killAll = field(form, 'kill_all', 5) === 'true';
+  let err: string | undefined;
+  try {
+    await api.putShipSettings(agent, ship, killAll);
+  } catch (e) {
+    err = message(e);
+  }
+  backToLearning(agent, err, err ? undefined : 'shipping');
+}
+
+/** The kill switch for one skill (back on with killed=false). */
+export async function killSkillAction(form: FormData): Promise<void> {
+  await assertSameOrigin();
+  const agent = field(form, 'agent', 128);
+  const path = field(form, 'path', 200);
+  const killed = field(form, 'killed', 5) === 'true';
+  let err: string | undefined;
+  try {
+    await api.killSkill(agent, path, killed);
+  } catch (e) {
+    err = message(e);
+  }
+  if (field(form, 'from', 8) === 'note') back(agent, path, err, err ? undefined : killed ? 'kill' : 'unkill');
+  backToLearning(agent, err, err ? undefined : killed ? 'kill' : 'unkill');
+}

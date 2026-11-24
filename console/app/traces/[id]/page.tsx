@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { parseSkillRef } from '@/lib/shipping';
 import { TraceIcon } from '@/components/Icons';
 import { notFound } from 'next/navigation';
 import { SecurityBadge, SecurityNotice } from '@/components/Security';
@@ -333,6 +334,20 @@ function StepPanel({ step, summary }: { step: StepDetail; summary?: StepSummary 
 
       <SecurityNotice flags={step.security_flags} reasons={step.security_reasons} />
       <DriftNotice drift={step.passport_drift} />
+      {step.skills_used?.length ? (
+        <div className="notice" role="note">
+          <span aria-hidden="true">◆</span>
+          <div>
+            <strong>Learned skills loaded in this step:</strong>{' '}
+            {step.skills_used
+              .map(parseSkillRef)
+              .filter((p) => p !== null)
+              .map((p) => `${p!.name} (release ${p!.release})`)
+              .join(', ')}
+            . Bindle measures each release against runs without it.
+          </div>
+        </div>
+      ) : null}
 
       {step.redacted_kinds.length > 0 ? (
         <div className="notice" role="note">

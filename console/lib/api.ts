@@ -22,6 +22,7 @@ import type { Session, SessionDetail } from './sessions';
 import type { SearchHit } from './search';
 import type { TraceLink } from './links';
 import type { LessonsResponse, Reviewers, VaultNote, VaultResponse } from './learning';
+import type { Proof, Release, Rollback, ShipSettings } from './shipping';
 import type {
   APIKey,
   AlertsResponse,
@@ -258,4 +259,11 @@ export const api = {
   vaultReview: (agent: string, path: string, sha256: string) => post<{ path: string }>('/api/vault/note/review', { agent, path, sha256 }),
   securityReviewers: () => get<Reviewers>('/api/security-reviewers'),
   addSecurityReviewer: (email: string) => post<{ user_id: string }>('/api/security-reviewers', { email }),
+  // Learning loop, phase 2: proofs, shipped releases, opt-in and kill switches.
+  skillProofs: (agent: string, path: string) => get<{ proofs: Proof[] }>('/api/skills/proofs', { agent, path }),
+  skillReleases: (agent: string, path?: string) =>
+    get<{ releases: Release[]; settings: ShipSettings }>('/api/skills/releases', path ? { agent, path } : { agent }),
+  skillRollbacks: (days = 7) => get<{ rollbacks: Rollback[] }>('/api/skills/rollbacks', { days: String(days) }),
+  putShipSettings: (agent: string, ship: boolean, killAll: boolean) => put<ShipSettings>('/api/skills/settings', { agent, ship, kill_all: killAll }),
+  killSkill: (agent: string, path: string, killed: boolean) => post<ShipSettings>('/api/skills/kill', { agent, path, killed }),
 };

@@ -5,6 +5,7 @@ import { formatCost, formatDuration, formatPercent } from './format';
 import { likelyCause } from './blame';
 import { securityLines } from './security';
 import { driftLines } from './passports';
+import { skillsLine } from './shipping';
 import { stepKind } from './steps';
 import type { Run, StepSummary } from './types';
 
@@ -98,6 +99,8 @@ export function buildStory(run: Run, steps: StepSummary[]): RunStory {
   lines.push(...securityLines(steps));
   // Passport drift: observed against the agent's passport, never blocked.
   lines.push(...driftLines(steps));
+  const skillLine = skillsLine(steps);
+  if (skillLine) lines.push(skillLine);
 
   // 3. Possible loops: the same tool called many times.
   const tools = new Map<string, StepSummary[]>();

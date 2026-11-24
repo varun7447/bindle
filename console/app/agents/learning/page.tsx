@@ -7,6 +7,8 @@ import { requireSession } from '@/lib/auth';
 import { formatCount, formatRelative } from '@/lib/format';
 import { one } from '@/lib/ids';
 import { STATUS_LABEL, causeLabel, isFlagged, learningOn, learningSentence, noteHref, vaultGraph } from '@/lib/learning';
+import { measurementLine, releaseState, shippingSentence } from '@/lib/shipping';
+import { killSkillAction, shipSettingsAction } from './actions';
 import { AgentTabs } from '../AgentTabs';
 import { VaultGraph } from './VaultGraph';
 
@@ -25,11 +27,18 @@ export default async function LearningPage({ searchParams }: { searchParams: Pro
   const requested = one(sp.agent);
   const agent = requested || agents[0];
   const choices = agent && !agents.includes(agent) ? [agent, ...agents] : agents;
-  const vault = agent ? await settle(api.vault(agent)) : undefined;
+  const [vault, shipping] = agent ? await Promise.all([settle(api.vault(agent)), settle(api.skillReleases(agent))]) : [undefined, undefined];
   const lessons = all.ok && agent ? all.data.lessons.filter((l) => l.agent === agent) : [];
   const notes = vault?.ok ? vault.data.notes : [];
   const graph = vault?.ok ? vaultGraph(vault.data.notes, vault.data.links) : null;
   const now = Date.now();
+  const error = one(sp.error);
+  const done = one(sp.done);
+  const DONE: Record<string, string> = {
+    shipping: 'Saved. Agents pick up the change within a minute.',
+    kill: 'Switched off. Agents drop the skill within a minute.',
+    unkill: 'Switched back on.',
+  };
 
   return (
     <>
@@ -135,6 +144,98 @@ export default async function LearningPage({ searchParams }: { searchParams: Pro
               </div>
             )}
           </section>
+
+          {error ? (
+            <div className="banner banner-critical" role="alert" style={{ marginBottom: 16 }}>
+              <div className="banner-title">{error}</div>
+            </div>
+          ) : done && DONE[done] ? (
+            <div className="banner banner-good" role="status" style={{ marginBottom: 16 }}>
+              <div className="banner-title">{DONE[done]}</div>
+            </div>
+          ) : null}
+          {shipping?.ok ? (
+            <section className="panel panel-flush" aria-labelledby="ship-h" style={{ marginBottom: 16 }}>
+              <div className="section-title">
+                <h2 id="ship-h" className="h-icon">
+                  <LayersIcon />
+                  Shipping{' '}
+                  <Help>
+                    Approved skills reach this agent only after it opts in. The SDKs fetch them in the background and load them with
+                    bindle.skills.relevant() and bindle.skills.load(). Bindle measures each release hourly against runs without it and rolls a
+                    clearly worse one back. Kill switches take effect within one SDK config poll (about a minute).
+                  </Help>
+                </h2>
+                <form action={shipSettingsAction} style={{ display: 'flex', gap: 8 }}>
+                  <input type="hidden" name="agent" value={agent} />
+                  <input type="hidden" name="ship" value={String(!shipping.data.settings.ship)} />
+                  <input type="hidden" name="kill_all" value={String(shipping.data.settings.kill_all)} />
+                  <button type="submit" className={shipping.data.settings.ship ? 'btn btn-sm' : 'btn btn-sm btn-primary'}>
+                    {shipping.data.settings.ship ? 'Stop shipping to this agent' : 'Opt in: ship approved skills'}
+                  </button>
+                </form>
+              </div>
+              <div style={{ padding: '0 18px 12px' }}>
+                <p style={{ margin: '4px 0 8px' }}>{shippingSentence(agent, shipping.data.settings, shipping.data.releases)}</p>
+                {shipping.data.settings.ship ? (
+                  <form action={shipSettingsAction}>
+                    <input type="hidden" name="agent" value={agent} />
+                    <input type="hidden" name="ship" value="true" />
+                    <input type="hidden" name="kill_all" value={String(!shipping.data.settings.kill_all)} />
+                    <button type="submit" className="btn btn-sm">
+                      {shipping.data.settings.kill_all ? 'Turn learned skills back on' : 'Kill switch: stop every learned skill'}
+                    </button>
+                  </form>
+                ) : null}
+              </div>
+              {shipping.data.releases.length === 0 ? (
+                <div className="empty">No approved skills yet. A skill ships once it is proven and its owner approves it.</div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style={{ paddingLeft: 18 }}>Skill</th>
+                        <th className="num">Release</th>
+                        <th>State</th>
+                        <th>Measured</th>
+                        <th style={{ paddingRight: 18 }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {shipping.data.releases.map((r) => {
+                        const killed = shipping.data.settings.killed.includes(r.path);
+                        return (
+                          <tr key={`${r.path}@${r.release}`}>
+                            <td style={{ paddingLeft: 18 }}>
+                              <Link href={noteHref(agent, r.path)} className="mono">
+                                {r.path}
+                              </Link>
+                            </td>
+                            <td className="num">{r.release}</td>
+                            <td>{releaseState(r, shipping.data.settings.killed)}</td>
+                            <td className="sub">{r.state === 'active' ? measurementLine(r.measurement) : ''}</td>
+                            <td style={{ paddingRight: 18 }}>
+                              {r.serving ? (
+                                <form action={killSkillAction}>
+                                  <input type="hidden" name="agent" value={agent} />
+                                  <input type="hidden" name="path" value={r.path} />
+                                  <input type="hidden" name="killed" value={String(!killed)} />
+                                  <button type="submit" className="btn btn-sm">
+                                    {killed ? 'Switch back on' : 'Switch off'}
+                                  </button>
+                                </form>
+                              ) : null}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          ) : null}
 
           <section className="panel panel-flush" aria-labelledby="vault-h" style={{ marginBottom: 16 }}>
             <div className="section-title">

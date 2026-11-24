@@ -139,13 +139,15 @@ export function nextStep(n: VaultNote, owner: string, hasPassport: boolean): str
   if (n.kind !== 'skill') return '';
   switch (n.status) {
     case 'draft':
-      return 'Prove it by replaying the lesson’s failures (bindle skills prove, coming next); a passing proof marks it proven.';
+      return 'Prove it by replaying the lesson’s failures in your environment (bindle skills prove); a passing proof marks it proven.';
     case 'proven':
       if (!hasPassport) return 'The agent needs a passport before skills can be approved.';
       if (isFlagged(n) && n.reviewed_sha256 !== n.sha256) return 'A security reviewer must clear the flagged scan first.';
       return `Waiting for ${owner || 'the agent’s owner'} to approve.`;
     case 'approved':
-      return 'Approved. Shipping to agents comes in the next phase.';
+      return 'Approved: it ships to this agent once the agent opts in to learned skills (Learning → Shipping).';
+    case 'live':
+      return 'Live: agents are loading it. Bindle measures each release hourly and rolls a worse one back.';
     case 'retired':
       return 'Retired. Restore it to start again as a draft.';
     default:

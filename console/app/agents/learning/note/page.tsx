@@ -8,7 +8,8 @@ import { formatRelative } from '@/lib/format';
 import { one } from '@/lib/ids';
 import { STATUS_LABEL, checkOf, isFlagged, learningOn, nextStep, scanReason, targetHref } from '@/lib/learning';
 import type { Scan, VaultNote } from '@/lib/learning';
-import { reviewAction, saveNoteAction, skillAction } from '../actions';
+import { measurementLine, proofLine, releaseState } from '@/lib/shipping';
+import { killSkillAction, reviewAction, saveNoteAction, skillAction } from '../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +19,8 @@ const DONE: Record<string, string> = {
   restore: 'Restored as a draft.',
   review: 'Scan cleared for this text.',
   saved: 'Saved as a new version.',
+  kill: 'Switched off. Agents drop the skill within a minute.',
+  unkill: 'Switched back on.',
 };
 
 export default async function NotePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -31,7 +34,13 @@ export default async function NotePage({ searchParams }: { searchParams: Promise
   const isNew = !res.ok && res.error instanceof ApiError && res.error.status === 404;
   if (!res.ok && !isNew) return <ApiErrorPanel error={res.error} />;
   const note: VaultNote | null = res.ok ? res.data : null;
-  const [vault, reviewers] = await Promise.all([settle(api.vault(agent)), settle(api.securityReviewers())]);
+  const isSkill = note?.kind === 'skill';
+  const [vault, reviewers, proofs, shipped] = await Promise.all([
+    settle(api.vault(agent)),
+    settle(api.securityReviewers()),
+    isSkill ? settle(api.skillProofs(agent, path)) : Promise.resolve(undefined),
+    isSkill ? settle(api.skillReleases(agent, path)) : Promise.resolve(undefined),
+  ]);
   const owner = vault.ok ? vault.data.owner : '';
   const hasPassport = vault.ok ? vault.data.passport : false;
   const scan = note ? (note.scan as Scan) : undefined;
@@ -139,6 +148,83 @@ export default async function NotePage({ searchParams }: { searchParams: Promise
               </form>
             )}
           </div>
+        </section>
+      ) : null}
+
+      {proofs?.ok && note ? (
+        <section className="panel" style={{ marginBottom: 16 }} aria-labelledby="proof-h">
+          <h2 id="proof-h" style={{ marginTop: 0 }}>
+            Proof{' '}
+            <Help>
+              Replay of the lesson&apos;s recorded failures with this skill, run in your environment with bindle skills prove. A skill is proven when it
+              fixes enough of them (the workspace threshold) with no eval regressions. Approval needs a passing proof for this exact text.
+            </Help>
+          </h2>
+          {proofs.data.proofs.length === 0 ? (
+            <div className="empty">
+              Not proven yet. Run: <code>bindle skills prove {path.replace(/\/SKILL\.md$/, '')} --agent-name {agent} --agent module:function</code>
+            </div>
+          ) : (
+            <ul className="story-lines">
+              {proofs.data.proofs.slice(0, 5).map((p) => (
+                <li key={p.id} className={p.passed ? 't-good' : 't-warning'}>
+                  <span className="dot" aria-hidden="true">
+                    {p.passed ? '✓' : '!'}
+                  </span>
+                  {proofLine(p)} {p.sha256 === note.sha256 ? '' : '(an earlier text)'} <span className="sub">{formatRelative(p.uploaded_at, now)}</span>
+                  {p.report.gaps.length > 0 && p.sha256 === note.sha256 ? (
+                    <ul className="sub" style={{ margin: '4px 0 0 18px' }}>
+                      {p.report.gaps.slice(0, 5).map((g) => (
+                        <li key={g}>{g}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
+      {shipped?.ok && shipped.data.releases.length > 0 ? (
+        <section className="panel panel-flush" style={{ marginBottom: 16 }} aria-labelledby="releases-h">
+          <div className="section-title">
+            <h2 id="releases-h">
+              Releases{' '}
+              <Help>Each approval ships the approved text as the next release. Agents get the newest active one; a rolled-back release isn&apos;t served.</Help>
+            </h2>
+            {shipped.data.releases.some((r) => r.serving) ? (
+              <form action={killSkillAction}>
+                <input type="hidden" name="agent" value={agent} />
+                <input type="hidden" name="path" value={path} />
+                <input type="hidden" name="from" value="note" />
+                <input type="hidden" name="killed" value={String(!shipped.data.settings.killed.includes(path))} />
+                <button type="submit" className="btn btn-sm">
+                  {shipped.data.settings.killed.includes(path) ? 'Switch back on' : 'Kill switch: stop this skill'}
+                </button>
+              </form>
+            ) : null}
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style={{ paddingLeft: 18 }}>Release</th>
+                <th>State</th>
+                <th>Measured</th>
+                <th style={{ paddingRight: 18 }}>Released</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shipped.data.releases.map((r) => (
+                <tr key={r.release}>
+                  <td style={{ paddingLeft: 18 }}>{r.release}</td>
+                  <td>{releaseState(r, shipped.data.settings.killed)}</td>
+                  <td className="sub">{r.state === 'active' ? measurementLine(r.measurement) : ''}</td>
+                  <td style={{ paddingRight: 18 }}>{formatRelative(r.released_at, now)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </section>
       ) : null}
 
