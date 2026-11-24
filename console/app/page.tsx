@@ -10,6 +10,7 @@ import { WINDOWS, asWindow, one } from '@/lib/ids';
 import { agentLabel, attentionItems, delta, headline } from '@/lib/insights';
 import { securityItems } from '@/lib/security';
 import { driftItems } from '@/lib/passports';
+import { lessonItems } from '@/lib/learning';
 import type { Insights } from '@/lib/types';
 
 const WINDOW_LABEL = { '24h': 'Last 24 hours', '7d': 'Last 7 days', '30d': 'Last 30 days' } as const;
@@ -21,7 +22,7 @@ const EMPTY_INSIGHTS: Insights = { agents: [], issues: [], previous: { runs: 0, 
 export default async function HomePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requireSession('/');
   const window = asWindow(one((await searchParams).window));
-  const [ov, ins, loops, econ, sec, drift] = await Promise.all([
+  const [ov, ins, loops, econ, sec, drift, lessons] = await Promise.all([
     settle(api.overview(window)),
     settle(api.insights(window)),
     settle(api.alerts('1h')),
@@ -29,6 +30,8 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
     settle(api.security(window)),
     // 404 unless the workspace has the passports feature.
     settle(api.passportDrift(window)),
+    // 404 unless the workspace has the learning_loop feature.
+    settle(api.lessons()),
   ]);
   const now = Date.now();
 
@@ -44,6 +47,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   const insights = ins.ok ? ins.data : EMPTY_INSIGHTS;
   const security = sec.ok ? securityItems(sec.data.signals, sec.data.explanations) : [];
   if (drift.ok) security.push(...driftItems(drift.data));
+  if (lessons.ok) security.push(...lessonItems(lessons.data.lessons));
   const items = attentionItems(o, insights, loops.ok ? loops.data.alerts : [], window, econ.ok ? econ.data.agents : [], security);
   const head = headline(o, insights, items, WINDOW_LABEL[window]);
   const prev = insights.previous;

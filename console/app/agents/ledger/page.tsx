@@ -59,7 +59,7 @@ export default async function LedgerPage({ searchParams }: { searchParams: Promi
         </div>
       </div>
 
-      <AgentTabs agent={agent} current="ledger" />
+      <AgentTabs agent={agent} current="ledger" learning={features.data.features.includes('learning_loop')} />
 
       {choices.length > 0 ? (
         <nav className="chips" aria-label="Agent" style={{ marginBottom: 16 }}>

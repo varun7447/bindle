@@ -21,6 +21,7 @@ import { type Economics, type ProblemSource, type SuggestionsResponse, problemPa
 import type { Session, SessionDetail } from './sessions';
 import type { SearchHit } from './search';
 import type { TraceLink } from './links';
+import type { LessonsResponse, Reviewers, VaultNote, VaultResponse } from './learning';
 import type {
   APIKey,
   AlertsResponse,
@@ -246,4 +247,15 @@ export const api = {
   testAlertChannel: async (id: string) =>
     post<{ ok: boolean; error?: string }>(`/api/alert-channels/${checked(id, CHANNEL_ID, 'channel')}/test`, {}),
   alertEvents: () => get<{ events: AlertEvent[] }>('/api/alert-events'),
+  // Learning loop (404 unless the workspace has the learning_loop feature).
+  lessons: (agent?: string) => get<LessonsResponse>('/api/lessons', agent !== undefined ? { agent } : {}),
+  vault: (agent: string) => get<VaultResponse>('/api/vault', { agent }),
+  vaultNote: (agent: string, path: string) => get<VaultNote>('/api/vault/note', { agent, path }),
+  saveVaultNote: (agent: string, path: string, content: string, base: string) =>
+    put<VaultNote>('/api/vault/note', { agent, path, content, base_sha256: base }),
+  vaultAction: (agent: string, path: string, action: 'approve' | 'retire' | 'restore', sha256: string) =>
+    post<{ path: string; status: string; version: number }>('/api/vault/note/action', { agent, path, action, sha256 }),
+  vaultReview: (agent: string, path: string, sha256: string) => post<{ path: string }>('/api/vault/note/review', { agent, path, sha256 }),
+  securityReviewers: () => get<Reviewers>('/api/security-reviewers'),
+  addSecurityReviewer: (email: string) => post<{ user_id: string }>('/api/security-reviewers', { email }),
 };

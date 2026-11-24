@@ -38,6 +38,7 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
     settle(api.features()),
   ]);
   const ledgerOn = features.ok && features.data.features.includes('ledger');
+  const learningFlag = features.ok && features.data.features.includes('learning_loop');
   const passportsOn = features.ok && features.data.features.includes('passports');
   const gradingFlag = features.ok && gradingOn(features.data.features);
   const agents = ins.ok ? ins.data.agents : [];
@@ -102,7 +103,7 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
         </div>
       </div>
 
-      {ledgerOn ? <AgentTabs agent={agent} current="overview" /> : null}
+      {ledgerOn || learningFlag ? <AgentTabs agent={agent} current="overview" ledger={ledgerOn} learning={learningFlag} /> : null}
 
       {!ins.ok ? <ApiErrorPanel error={ins.error} /> : null}
 
