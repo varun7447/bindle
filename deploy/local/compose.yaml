@@ -136,6 +136,8 @@ services:
       BINDLE_COGNITO_ISSUER: ${BINDLE_COGNITO_ISSUER:-}
       BINDLE_COGNITO_CLIENT_ID: ${BINDLE_COGNITO_CLIENT_ID:-}
       BINDLE_API_DEV_AUTH_BYPASS_TENANT: ${BINDLE_API_DEV_AUTH_BYPASS_TENANT:-}
+      # Optional: an email for the dev-bypass user, to try owner-only actions locally.
+      BINDLE_API_DEV_AUTH_BYPASS_EMAIL: ${BINDLE_API_DEV_AUTH_BYPASS_EMAIL:-}
       BINDLE_API_DEV_AUTH_BYPASS_IN_CONTAINER: "1"
       BINDLE_CONSOLE_URL: http://localhost:3000
     volumes:

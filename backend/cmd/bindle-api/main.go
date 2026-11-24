@@ -17,6 +17,7 @@
 //	BINDLE_COGNITO_ISSUER                    https://cognito-idp.<region>.amazonaws.com/<user pool id>
 //	BINDLE_COGNITO_CLIENT_ID                 the console's app client ID
 //	BINDLE_API_DEV_AUTH_BYPASS_TENANT        local dev only: map every request to this tenant
+//	BINDLE_API_DEV_AUTH_BYPASS_EMAIL         local dev only: email of the bypass user (owner checks)
 //	BINDLE_API_DEV_AUTH_BYPASS_IN_CONTAINER  set to 1 to allow the bypass on a container's
 //	                                         wildcard bind (publish the port to 127.0.0.1 only)
 //
