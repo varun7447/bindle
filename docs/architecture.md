@@ -97,6 +97,43 @@ Alerts go to Slack incoming webhooks, HTTPS webhooks or email (Amazon SES) and c
 - **No requests to internal addresses:** customer URLs are checked when saved and again at connect time (private, loopback, link-local, carrier-grade NAT and metadata addresses are refused) and redirects aren't followed.
 - **Least privilege:** the alerts role can read rules and channels, add events and record delivery, nothing else.
 
+## Feature flags and management keys
+
+- **Feature flags** (`control.tenant_features`) gate the governance features per workspace: `ledger`, `passports`, `outcome_grading`, `learning_loop`. Only the operator changes them, with `bindle-admin features enable|disable|list` (schema-owner connection); no application role can write the table. Services read flags through a 30-second cache. With a flag off, the feature's API routes answer 404, its console pages are hidden and its pipeline work is skipped.
+- **Management keys** (`bd_mgmt_…`) are for CLIs and CI, with scopes (`passport:write`, `vault:sync`, `skills:write`). Owners create them in Settings → Keys; they are stored hashed, like ingest keys. They go to ingest (the public edge) because the API is private. Ingest keys can't use management endpoints, so an agent can't rewrite its own passport.
+
+## Ledger
+
+- One SHA-256 hash chain per tenant and agent: each entry's hash covers the previous hash and a versioned canonical encoding of the entry. Entries are built from already-redacted step fields only (the normalized error pattern, never raw messages or content).
+- PostgreSQL, partitioned by the UTC day an entry is appended. Triggers refuse `UPDATE`, `DELETE` and `TRUNCATE` for every role; writers append only through locked-down functions that serialize on the chain head, so retried batches don't double-write and concurrent writers can't fork the chain.
+- Written by a sink that wraps the OpenSearch writer (ingest locally, the processor on AWS), after the batch is stored; a ledger failure fails the batch, which is then retried.
+- Retention (`BINDLE_LEDGER_RETENTION_DAYS`, default 400) records each finished day's final hash before dropping whole days, so verification still works from the retained boundary.
+
+## Passports and drift
+
+- Passports (`bindle.passport/v1`, JSON) are versioned append-only per agent. Data classes are the redaction labels found in a step (labels only, never values).
+- Drift is observe-only. Ingest checks tools, data classes, blocked egress and release actions per step; the alerts worker checks per-tool rates and budgets (unknown prices never count). Drift is stored on the step, written to the ledger and can fire `passport_drift` alerts.
+- The Dogwood export uses only verified AgentCore Policy syntax: a `permit` per allowed tool, a `count … formerly within` temporal `forbid` per rate limit (AWS notes the caller can reset counts by starting a new session, so it shapes behaviour rather than enforcing security), and a `forbid` on release tools. Budgets stay with Bindle; data-class rules are emitted as a marked placeholder.
+
+## Outcome grading
+
+- `bindle.correlate(key, value)` sends a digest of the value; ingest stores `key:` plus a tenant-bound SHA-256, so raw identifiers never reach storage and tenants can never match each other's runs.
+- Late events (`POST /v1/outcome-events` with an ingest key, or a signed webhook: HMAC-SHA256 over `t.body`, five-minute window, idempotent by content) are stored, and the alerts worker matches them to runs from the last 30 days, retrying with backoff for a configurable window (default 24 hours, at most 7 days) before marking them unmatched. Nothing is dropped silently.
+- Reversal outcomes are applied when grading is queried, so changing the list re-grades past runs.
+
+## Learning loop
+
+- **Lessons:** failed steps with the same agent, step, tool and error pattern in at least N runs over 7 days (N is a workspace setting, default 5), recomputed hourly by the alerts worker with their evidence runs.
+- **Drafting** runs in the customer's environment: the CLI downloads a lesson pack of already-redacted data with a management key and calls the customer's own function, as `bindle eval --judge` does. Bindle never holds model keys.
+- **Checks** on every push and edit: Agent Skills frontmatter validation, redaction, the security detectors (a flagged skill needs a security reviewer) and the passport check.
+- **Vault:** versioned notes (append-only history) with `[[links]]` and backlinks; every change is written to the ledger. Status moves draft → proven → approved → live (or retired); proving needs a passing replay report for that exact text, and only the agent's passport owner can approve.
+- **Proving** (`bindle skills prove`) replays a lesson's failing runs in the customer's environment with recorded tool answers and runs the agent's eval dataset; it passes when it fixes at least X% of the failures (default 80) with no eval regressions.
+- **Shipping:** only to agents that opted in. The SDKs fetch skills in the background (two-second limit, disk cache, silent on failure) and record a `bindle.skill.used` event when a skill is loaded. Hourly measurement compares runs with and without each release; a clearly worse result (at least 20 runs each side, and a success drop of 10 points or more, or the lesson's failure recurring 5 points more often) rolls back to the previous release. Kill switches reach the SDK through its polled config.
+
+## Secrets
+
+Secrets stored in the control plane (alert channel targets such as Slack webhook URLs, webhook signing secrets, outcome-endpoint signing secrets) are encrypted: with AWS KMS on AWS (a customer-managed key with rotation, each ciphertext bound to its tenant, purpose and row through the encryption context), and with AES-256-GCM using `BINDLE_SECRETS_KEY` in the local stack. With no key configured, creating a secret-bearing resource fails rather than storing plaintext. The API can only encrypt; the alerts worker and ingest decrypt, each for its own purposes, and channel test deliveries run in the alerts worker. `bindle-admin secrets encrypt` encrypts rows from before encryption.
+
 ## Framework support
 
 Spans are normalized from OpenInference, the OpenTelemetry GenAI conventions and Bindle's own attributes. Checked end to end with stub models (see `examples/frameworks/`): LangChain/LangGraph, Strands Agents, Google ADK and Microsoft Agent Framework. Microsoft Foundry Agent Service is supported from its source but not yet run against a real Foundry project.
