@@ -162,3 +162,37 @@ export function deliverySummary(delivery: Record<string, string>): { ok: boolean
   const sent = all.filter((s) => s === 'sent').length;
   return { ok: sent === all.length, text: sent === all.length ? `Sent (${sent})` : `Sent to ${sent} of ${all.length}` };
 }
+
+/** A test delivery's state; the alerts worker sends it within seconds. */
+export interface ChannelTest {
+  id: string;
+  status: 'pending' | 'running' | 'ok' | 'failed';
+  error?: string;
+}
+
+export type TestResult = { ok: true } | { ok: false; error: string } | { ok: false; pending: true };
+
+/**
+ * Polls a requested test delivery until it finishes or the time runs out.
+ * The console's server action waits here so the UI shows the result as
+ * before, without the API ever holding a channel's secrets.
+ */
+export async function waitForTest(
+  poll: () => Promise<ChannelTest>,
+  opts: { intervalMs?: number; timeoutMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number } = {},
+): Promise<TestResult> {
+  const interval = opts.intervalMs ?? 500;
+  const timeout = opts.timeoutMs ?? 15_000;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const now = opts.now ?? (() => Date.now());
+  const deadline = now() + timeout;
+  for (;;) {
+    const t = await poll();
+    if (t.status === 'ok') return { ok: true };
+    if (t.status === 'failed') return { ok: false, error: t.error || 'the test failed' };
+    if (now() + interval > deadline) return { ok: false, pending: true };
+    await sleep(interval);
+  }
+}
+
+export const TEST_STILL_SENDING = 'The test is still being sent; check the channel in a moment.';

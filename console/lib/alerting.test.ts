@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deliverySummary, describeRule, parseRule, thresholdInput } from './alerting';
+import { deliverySummary, describeRule, parseRule, thresholdInput, waitForTest, type ChannelTest } from './alerting';
 
 describe('parseRule', () => {
   it('converts failure-rate percent to a fraction', () => {
@@ -50,5 +50,37 @@ describe('quality and digest rules', () => {
     expect(parseRule('weekly_digest', '1', '1440', '')).toEqual({ threshold: 1, window_minutes: 1440, min_runs: 0 });
     expect(describeRule({ kind: 'cost_regression', threshold: 0.25, window_minutes: 1440, min_runs: 0 })).toContain('25%+ more per run');
     expect(describeRule({ kind: 'weekly_digest', threshold: 1, window_minutes: 1440, min_runs: 0 })).toBe('Every Monday at 09:00 UTC');
+  });
+});
+
+describe('waitForTest', () => {
+  function clock() {
+    let t = 0;
+    return { now: () => t, sleep: async (ms: number) => void (t += ms) };
+  }
+  const seq = (...states: ChannelTest[]) => {
+    let i = 0;
+    return async () => states[Math.min(i++, states.length - 1)]!;
+  };
+  const t = (status: ChannelTest['status'], error?: string): ChannelTest => ({ id: 'ct_00000000000000000001', status, error });
+
+  it('returns ok once the worker has sent it', async () => {
+    const c = clock();
+    expect(await waitForTest(seq(t('pending'), t('running'), t('ok')), c)).toEqual({ ok: true });
+    expect(c.now()).toBe(1000);
+  });
+
+  it('returns the safe error when the delivery failed', async () => {
+    expect(await waitForTest(seq(t('failed', 'the receiver answered HTTP 500')), clock())).toEqual({ ok: false, error: 'the receiver answered HTTP 500' });
+    expect(await waitForTest(seq(t('failed')), clock())).toEqual({ ok: false, error: 'the test failed' });
+  });
+
+  it('gives up after the timeout and reports it as still sending', async () => {
+    const c = clock();
+    let polls = 0;
+    const res = await waitForTest(async () => (polls++, t('pending')), { ...c, timeoutMs: 15_000, intervalMs: 500 });
+    expect(res).toEqual({ ok: false, pending: true });
+    expect(c.now()).toBeLessThanOrEqual(15_000);
+    expect(polls).toBe(31);
   });
 });

@@ -8,6 +8,7 @@
 // token is sent and the API's dev bypass, if enabled, applies.
 
 import { sessionToken } from './auth';
+import type { ChannelTest } from './alerting';
 import type { SecurityResponse } from './security';
 import type { AgentPassportResponse, DriftResponse, MgmtKey, PassportVersion } from './passports';
 import type { TopicsResponse } from './topics';
@@ -120,6 +121,7 @@ const RULE_ID = /^ar_[0-9a-f]{20}$/;
 const SCORER_ID = /^sc_[0-9a-f]{20}$/;
 const DATASET_ID = /^ds_[0-9a-f]{20}$/;
 const CHANNEL_ID = /^ch_[0-9a-f]{20}$/;
+const CHANNEL_TEST_ID = /^ct_[0-9a-f]{20}$/;
 
 const OUTCOME_ENDPOINT_ID = /^oep_[0-9a-f]{16}$/;
 
@@ -245,8 +247,11 @@ export const api = {
   setAlertChannelEnabled: async (id: string, enabled: boolean) =>
     put<void>(`/api/alert-channels/${checked(id, CHANNEL_ID, 'channel')}/state`, { enabled }),
   deleteAlertChannel: async (id: string) => del(`/api/alert-channels/${checked(id, CHANNEL_ID, 'channel')}`),
-  testAlertChannel: async (id: string) =>
-    post<{ ok: boolean; error?: string }>(`/api/alert-channels/${checked(id, CHANNEL_ID, 'channel')}/test`, {}),
+  // Test deliveries run in the alerts worker: request one, then poll it.
+  requestChannelTest: async (id: string) =>
+    post<ChannelTest>(`/api/alert-channels/${checked(id, CHANNEL_ID, 'channel')}/test`, {}),
+  channelTest: async (id: string, testId: string) =>
+    get<ChannelTest>(`/api/alert-channels/${checked(id, CHANNEL_ID, 'channel')}/tests/${checked(testId, CHANNEL_TEST_ID, 'test')}`),
   alertEvents: () => get<{ events: AlertEvent[] }>('/api/alert-events'),
   // Learning loop (404 unless the workspace has the learning_loop feature).
   lessons: (agent?: string) => get<LessonsResponse>('/api/lessons', agent !== undefined ? { agent } : {}),
