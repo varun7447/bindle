@@ -37,9 +37,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bindle-ai/bindle/backend/internal/alerts"
 	"github.com/bindle-ai/bindle/backend/internal/api"
-	"github.com/bindle-ai/bindle/backend/internal/awsv4"
 	"github.com/bindle-ai/bindle/backend/internal/control"
 	"github.com/bindle-ai/bindle/backend/internal/cost"
 	"github.com/bindle-ai/bindle/backend/internal/ledger"
@@ -74,7 +72,9 @@ func run(log *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		store = &control.Store{DB: controlDB, Secrets: secrets}
+		// The API only encrypts (new channels and endpoints). Test deliveries
+		// run in the alerts worker, so the API never decrypts a secret.
+		store = &control.Store{DB: controlDB, Secrets: secretbox.EncryptOnly{Box: secrets}}
 		dir = store
 	}
 	sessions, err := session.FromEnv(os.Getenv, addr, dir)
@@ -99,13 +99,6 @@ func run(log *slog.Logger) error {
 	blobs, err := payload.FromURL(os.Getenv("BINDLE_PAYLOAD_STORE"), os.Getenv)
 	if err != nil {
 		return err
-	}
-
-	// Test sends from the console go through the same SSRF-guarded client
-	// as real alerts.
-	deliverer := &alerts.Deliverer{HTTP: alerts.SafeClient(), ConsoleURL: os.Getenv("BINDLE_CONSOLE_URL")}
-	if from := os.Getenv("BINDLE_ALERTS_EMAIL_FROM"); from != "" && os.Getenv("AWS_REGION") != "" {
-		deliverer.SES = &alerts.SES{Region: os.Getenv("AWS_REGION"), From: from, Creds: &awsv4.CredentialChain{Getenv: os.Getenv}}
 	}
 
 	rps := envInt("BINDLE_API_RATE_LIMIT_RPS", 20)
@@ -137,7 +130,6 @@ func run(log *slog.Logger) error {
 		AWSPrices: &api.AWSPriceList{},
 		// Step replay calls providers at fixed hosts with the caller's key.
 		Replay:         &replay.Runner{Providers: map[string]replay.Provider{"anthropic": &replay.Anthropic{}, "openai": &replay.OpenAI{}}},
-		Deliver:        deliverer,
 		Limiter:        ratelimit.New(float64(rps), float64(rps*2)),
 		Log:            log,
 		LoopMinRepeats: envInt("BINDLE_API_LOOP_MIN_REPEATS", 5),

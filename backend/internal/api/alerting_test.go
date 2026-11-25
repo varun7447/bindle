@@ -15,6 +15,8 @@ import (
 type fakeAlerting struct {
 	tenants  []string
 	channels map[string]alerts.Channel
+	tests    map[string]control.ChannelTest // by test ID
+	testOf   map[string]string              // test ID -> "tenant/channel"
 }
 
 func (f *fakeAlerting) saw(t string) { f.tenants = append(f.tenants, t) }
@@ -43,13 +45,30 @@ func (f *fakeAlerting) ListAlertChannels(_ context.Context, t string) ([]alerts.
 	}
 	return out, nil
 }
-func (f *fakeAlerting) GetAlertChannel(_ context.Context, t, id string) (alerts.Channel, error) {
+
+// The API must never ask for a decrypted channel: test deliveries run in
+// the alerts worker. A fake that can't return one proves it doesn't.
+func (f *fakeAlerting) RequestChannelTest(_ context.Context, t, _, channelID string) (control.ChannelTest, error) {
 	f.saw(t)
-	c, ok := f.channels[id]
+	c, ok := f.channels[channelID]
 	if !ok || c.TenantID != t {
-		return alerts.Channel{}, control.ErrNotFound
+		return control.ChannelTest{}, control.ErrNotFound
 	}
-	return c, nil
+	if f.tests == nil {
+		f.tests, f.testOf = map[string]control.ChannelTest{}, map[string]string{}
+	}
+	id := "ct_00000000000000000001"
+	f.tests[id] = control.ChannelTest{ID: id, Status: "pending"}
+	f.testOf[id] = t + "/" + channelID
+	return f.tests[id], nil
+}
+func (f *fakeAlerting) GetChannelTest(_ context.Context, t, channelID, testID string) (control.ChannelTest, error) {
+	f.saw(t)
+	ct, ok := f.tests[testID]
+	if !ok || f.testOf[testID] != t+"/"+channelID {
+		return control.ChannelTest{}, control.ErrNotFound
+	}
+	return ct, nil
 }
 func (f *fakeAlerting) CreateAlertChannel(_ context.Context, t, _ string, c alerts.Channel) (alerts.Channel, string, error) {
 	f.saw(t)
@@ -73,8 +92,8 @@ func (f *fakeAlerting) ListAlertEvents(_ context.Context, t string, _ int) ([]al
 	return nil, nil
 }
 
-func alertingServer(f *fakeAlerting, d *alerts.Deliverer) http.Handler {
-	return (&Server{Store: &fakeStore{}, Alerting: f, Deliver: d,
+func alertingServer(f *fakeAlerting) http.Handler {
+	return (&Server{Store: &fakeStore{}, Alerting: f,
 		Sessions: tokenResolver{"tok-a": "tenant-a", "member-tok": "tenant-a", "tok-b": "tenant-b"},
 		Log:      slog.New(slog.NewTextHandler(io.Discard, nil))}).Handler()
 }
@@ -83,7 +102,7 @@ const chID = "ch_00000000000000000001"
 
 func TestAlertingEndpoints(t *testing.T) {
 	f := &fakeAlerting{channels: map[string]alerts.Channel{}}
-	h := alertingServer(f, &alerts.Deliverer{})
+	h := alertingServer(f)
 	if w, body := send(t, h, "GET", "/api/alert-rules", "member-tok", ""); w.Code != 200 || len(body["rules"].([]any)) != 2 {
 		t.Fatalf("list rules %d %v", w.Code, body)
 	}
@@ -139,14 +158,37 @@ func TestAlertingEndpoints(t *testing.T) {
 	}
 }
 
-func TestAlertingTestSendReportsSafeError(t *testing.T) {
+func TestAlertingTestSendIsQueued(t *testing.T) {
 	f := &fakeAlerting{channels: map[string]alerts.Channel{
 		chID: {ID: chID, TenantID: "tenant-a", Kind: "email", Name: "e", Target: "ops@example.com"},
 	}}
-	h := alertingServer(f, &alerts.Deliverer{})
+	h := alertingServer(f)
+	if w, _ := send(t, h, "POST", "/api/alert-channels/"+chID+"/test", "member-tok", ""); w.Code != 403 {
+		t.Fatalf("member queued a test: %d", w.Code)
+	}
 	w, body := send(t, h, "POST", "/api/alert-channels/"+chID+"/test", "tok-a", "")
-	if w.Code != 200 || body["ok"] != false || body["error"] != "email delivery is not configured on this deployment" {
+	if w.Code != 202 || body["status"] != "pending" {
 		t.Fatalf("%d %v", w.Code, body)
+	}
+	id, _ := body["id"].(string)
+	if w, body := send(t, h, "GET", "/api/alert-channels/"+chID+"/tests/"+id, "tok-a", ""); w.Code != 200 || body["status"] != "pending" {
+		t.Fatalf("poll %d %v", w.Code, body)
+	}
+	// The worker records the outcome; the API reports it, safe message only.
+	f.tests[id] = control.ChannelTest{ID: id, Status: "failed", Error: "email delivery is not configured on this deployment"}
+	if w, body := send(t, h, "GET", "/api/alert-channels/"+chID+"/tests/"+id, "member-tok", ""); w.Code != 200 || body["status"] != "failed" ||
+		body["error"] != "email delivery is not configured on this deployment" {
+		t.Fatalf("result %d %v", w.Code, body)
+	}
+	// Another tenant can't read it; unknown channels and malformed IDs fail.
+	if w, _ := send(t, h, "GET", "/api/alert-channels/"+chID+"/tests/"+id, "tok-b", ""); w.Code != 404 {
+		t.Fatalf("cross-tenant poll %d", w.Code)
+	}
+	if w, _ := send(t, h, "POST", "/api/alert-channels/ch_00000000000000000009/test", "tok-a", ""); w.Code != 404 {
+		t.Fatalf("unknown channel %d", w.Code)
+	}
+	if w, _ := send(t, h, "GET", "/api/alert-channels/"+chID+"/tests/nope", "tok-a", ""); w.Code != 400 {
+		t.Fatalf("bad test id %d", w.Code)
 	}
 }
 

@@ -100,6 +100,10 @@ func run(log *slog.Logger) error {
 		}
 	}
 	go maintainLedger(ctx, db, retention, log)
+	// "Send test" from the console: the API records the request and this
+	// worker, the only service that may decrypt channel secrets, sends it.
+	tests := &alerts.TestRunner{Store: cs, Deliver: d, Log: log}
+	go tests.Run(ctx, 2*time.Second)
 	// Outcome events reported after a run: link them to runs by correlation.
 	matcher := &outcomes.Matcher{Store: &control.OutcomeMatchStore{DB: db}, Find: ss, Log: log}
 	go matcher.Run(ctx, 15*time.Second)

@@ -20,7 +20,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bindle-ai/bindle/backend/internal/alerts"
 	"github.com/bindle-ai/bindle/backend/internal/control"
 	"github.com/bindle-ai/bindle/backend/internal/cost"
 	"github.com/bindle-ai/bindle/backend/internal/query"
@@ -78,7 +77,6 @@ type Server struct {
 	AWSPrices *AWSPriceList
 	// ReplayLimiter caps replays per tenant; nil uses 10 a minute.
 	ReplayLimiter *ratelimit.Limiter
-	Deliver       *alerts.Deliverer // test sends; nil disables them
 	Sessions      session.Resolver
 	Limiter       *ratelimit.Limiter // per-tenant requests/sec; nil disables
 	Log           *slog.Logger
@@ -159,6 +157,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("PUT /api/alert-channels/{id}/state", s.setAlertChannelState)
 	api.HandleFunc("DELETE /api/alert-channels/{id}", s.deleteAlertChannel)
 	api.HandleFunc("POST /api/alert-channels/{id}/test", s.testAlertChannel)
+	api.HandleFunc("GET /api/alert-channels/{id}/tests/{test}", s.getChannelTest)
 	api.HandleFunc("GET /api/alert-events", s.listAlertEvents)
 	api.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such endpoint")
