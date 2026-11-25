@@ -46,7 +46,7 @@ don't widen the bind.
 | Env var | Default | Meaning |
 |---|---|---|
 | `BINDLE_API_URL` | `http://127.0.0.1:8080` | bindle-api base URL (server-side only) |
-| `BINDLE_PUBLIC_INGEST_URL` | `https://ingest.bindle.ai` | Ingest endpoint shown in the Connect snippets |
+| `BINDLE_PUBLIC_INGEST_URL` | none (snippets show a placeholder) | Ingest endpoint shown in the Connect snippets |
 | `BINDLE_COGNITO_DOMAIN` | (none) | Cognito hosted UI, e.g. `https://<prefix>.auth.<region>.amazoncognito.com` |
 | `BINDLE_COGNITO_CLIENT_ID` / `BINDLE_COGNITO_CLIENT_SECRET` | (none) | The console's app client (the secret is optional) |
 | `BINDLE_CONSOLE_URL` | (none) | This console's public URL (https), used for the OAuth redirect |

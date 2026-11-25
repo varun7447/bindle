@@ -10,10 +10,10 @@ pip install 'bindle-sdk[all]'     # plus auto-instrumentation for common framewo
 ```python
 import bindle
 
-bindle.init(api_key="bd_live_...", agent="support-triage", version="v12")
+bindle.init(api_key="bd_live_...", endpoint="https://ingest.example.com", agent="support-triage", version="v12")
 ```
 
-That's it. Installed frameworks are detected and instrumented automatically. Frameworks that already emit OpenTelemetry (Strands, Google ADK, Microsoft Agent Framework) are picked up through the global tracer provider; the console's Connect page shows the switches some of them need to include prompts. Microsoft Foundry Agent Service needs `AIAgentsInstrumentor().instrument()` after `bindle.init()`. Prefer `BINDLE_API_KEY` in the environment over a key in code.
+That's it. Installed frameworks are detected and instrumented automatically. Frameworks that already emit OpenTelemetry (Strands, Google ADK, Microsoft Agent Framework) are picked up through the global tracer provider; the console's Connect page shows the switches some of them need to include prompts. Microsoft Foundry Agent Service needs `AIAgentsInstrumentor().instrument()` after `bindle.init()`. Prefer `BINDLE_API_KEY` and `BINDLE_ENDPOINT` in the environment over values in code. The endpoint is your own Bindle ingest URL; there is no default.
 
 ## Set up in one command
 
@@ -22,7 +22,7 @@ bindle init      # detect the framework, save the key to .env, send a test trace
 bindle check     # verify the key and endpoint (sends nothing)
 ```
 
-`bindle init` asks for the key with hidden input (or takes `--key` / `BINDLE_API_KEY`), writes `.env` readable only by you, and adds `.env` to `.gitignore` in git repositories. It never prints the full key.
+`bindle init` asks for the ingest URL (or takes `--endpoint` / `BINDLE_ENDPOINT`) and the key with hidden input (or takes `--key` / `BINDLE_API_KEY`), writes both to `.env` readable only by you, and adds `.env` to `.gitignore` in git repositories. It never prints the full key.
 
 For coding agents, `bindle mcp` runs an MCP server on stdio with setup-guide, framework-detection, connection-check and test-trace tools. The key is read from the environment and never returned to the model:
 
@@ -57,7 +57,7 @@ Every option can be passed to `init()` or set as an environment variable. No con
 | Env var | Default | Meaning |
 |---|---|---|
 | `BINDLE_API_KEY` | (none) | Ingest key. Without it the SDK is a no-op. |
-| `BINDLE_ENDPOINT` | `https://ingest.bindle.ai` | Ingest URL |
+| `BINDLE_ENDPOINT` | (none) | Your Bindle ingest URL (shown on the console's Connect page). Without it the SDK is a no-op, like a missing key. |
 | `BINDLE_AGENT` / `BINDLE_AGENT_VERSION` | (none) | Agent name and version |
 | `BINDLE_ENVIRONMENT` | (none) | e.g. `prod`, `staging` |
 | `BINDLE_SAMPLE_RATE` | `1.0` | Head sampling, 0–1 |

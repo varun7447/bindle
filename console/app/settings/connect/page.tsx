@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { FRAMEWORKS, envBlock, frameworkById } from '@/lib/snippets';
+import { ENDPOINT_PLACEHOLDER, FRAMEWORKS, envBlock, frameworkById, ingestUrl } from '@/lib/snippets';
 import { one } from '@/lib/ids';
 import { requireSession } from '@/lib/auth';
 import { WaitForTrace } from './WaitForTrace';
@@ -11,7 +11,7 @@ export default async function ConnectPage({
 }) {
   await requireSession('/settings/connect');
   const fw = frameworkById(one((await searchParams).fw));
-  const endpoint = process.env.BINDLE_PUBLIC_INGEST_URL ?? 'https://ingest.bindle.ai';
+  const endpoint = ingestUrl(process.env.BINDLE_PUBLIC_INGEST_URL);
 
   return (
     <>
@@ -40,6 +40,12 @@ export default async function ConnectPage({
                 <Link href="/settings/keys">Create an ingest key</Link> and set it as <code>BINDLE_API_KEY</code>. Keep keys out of
                 source code. Locally, <code>deploy/local/.env</code> already has one.
               </div>
+              {endpoint === ENDPOINT_PLACEHOLDER ? (
+                <div className="sub">
+                  This console doesn&apos;t know its ingest URL (<code>BINDLE_PUBLIC_INGEST_URL</code> isn&apos;t set). Use the
+                  ingest address of your Bindle deployment. Without <code>BINDLE_ENDPOINT</code> the SDK sends nothing.
+                </div>
+              ) : null}
             </li>
             <li>
               <h2>{fw.id === 'otel' ? 'Point your exporter at Bindle' : 'Initialize'}</h2>

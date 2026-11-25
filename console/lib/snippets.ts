@@ -136,6 +136,15 @@ export OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer $BINDLE_API_KEY"`,
   },
 ];
 
+/** Shown when the console doesn't know its own ingest URL. */
+export const ENDPOINT_PLACEHOLDER = '<your Bindle ingest URL>';
+
+/** The ingest URL to show in snippets: the configured one, or a placeholder (never a guessed default). */
+export function ingestUrl(configured: string | undefined): string {
+  const v = (configured ?? '').trim().replace(/\/+$/, '');
+  return v || ENDPOINT_PLACEHOLDER;
+}
+
 export function envBlock(endpoint: string): string {
   return `export BINDLE_API_KEY=<your ingest key>
 export BINDLE_ENDPOINT=${endpoint}`;

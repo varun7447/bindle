@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-DEFAULT_ENDPOINT = "https://ingest.bindle.ai"
 USER_AGENT = "bindle-init/0.1"
 
 
@@ -159,7 +158,7 @@ def console_url(endpoint: str) -> str:
         return "http://localhost:3000"
     if host.startswith("ingest."):
         return "https://app." + host[len("ingest."):]
-    return "https://app.bindle.ai"
+    return ""  # unknown: set BINDLE_CONSOLE_URL to get links
 
 
 def read_env_file(path: Path) -> Dict[str, str]:
@@ -304,22 +303,23 @@ def send_test_trace(endpoint: str, key: str, agent: str = "bindle-init", now_ns:
     except (urllib.error.URLError, OSError, TimeoutError) as e:
         return Result(False, f"can't reach {endpoint}: {getattr(e, 'reason', e)}")
     if status == 200:
-        link = f"{console_url(endpoint)}/traces/{trace_id}"
+        base = console_url(endpoint)
+        if not base:
+            return Result(True, f"test trace sent (trace ID {trace_id})", {"trace_id": trace_id})
+        link = f"{base}/traces/{trace_id}"
         return Result(True, f"test trace sent: {link}", {"trace_id": trace_id, "url": link})
     if status in (401, 403):
         return Result(False, f"the key {mask_key(key)} was rejected")
     return Result(False, f"ingest answered HTTP {status}")
 
 
-def setup_guide(f: Framework, endpoint: str = DEFAULT_ENDPOINT) -> str:
-    env = "export BINDLE_API_KEY=<your ingest key>"
-    if endpoint != DEFAULT_ENDPOINT:
-        env += f"\nexport BINDLE_ENDPOINT={endpoint}"
+def setup_guide(f: Framework, endpoint: str = "") -> str:
+    env = "export BINDLE_API_KEY=<your ingest key>\nexport BINDLE_ENDPOINT=" + (endpoint or "<your Bindle ingest URL>")
     return (
-        f"# {f.label}\n\n1. Install:\n\n    {f.install}\n\n2. Set the key (or put it in .env):\n\n"
+        f"# {f.label}\n\n1. Install:\n\n    {f.install}\n\n2. Set the key and endpoint (or put them in .env):\n\n"
         + "\n".join("    " + ln for ln in env.splitlines())
         + "\n\n3. Add to your agent's entry point:\n\n"
         + "\n".join("    " + ln if ln else "" for ln in f.code.splitlines())
         + "\n\nServerless: call bindle.flush() before your handler returns. "
-        "Without a key the SDK does nothing, so this is safe to commit.\n"
+        "Without a key or endpoint the SDK does nothing, so this is safe to commit.\n"
     )

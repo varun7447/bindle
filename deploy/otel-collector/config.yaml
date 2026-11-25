@@ -2,8 +2,8 @@
 # tenants that must filter trace data inside their own network before it
 # leaves. Optional: Bindle never needs a collector or host agent.
 #
-#   BINDLE_API_KEY=bd_live_... docker run --rm \
-#     -e BINDLE_API_KEY -p 127.0.0.1:4318:4318 \
+#   BINDLE_API_KEY=bd_live_... BINDLE_ENDPOINT=https://ingest.example.com docker run --rm \
+#     -e BINDLE_API_KEY -e BINDLE_ENDPOINT -p 127.0.0.1:4318:4318 \
 #     -v "$PWD/deploy/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro" \
 #     otel/opentelemetry-collector-contrib
 #
@@ -72,7 +72,7 @@ processors:
 
 exporters:
   otlphttp/bindle:
-    endpoint: ${env:BINDLE_ENDPOINT:-https://ingest.bindle.ai}
+    endpoint: ${env:BINDLE_ENDPOINT}   # required: your Bindle ingest URL
     headers:
       authorization: "Bearer ${env:BINDLE_API_KEY}"
     compression: gzip

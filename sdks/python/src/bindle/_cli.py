@@ -21,13 +21,18 @@ from . import _onboard as ob
 def _resolve(args: argparse.Namespace, root: Path) -> tuple:
     env_file = ob.read_env_file(root / ".env")
     key = args.key or os.environ.get("BINDLE_API_KEY") or env_file.get("BINDLE_API_KEY") or ""
-    endpoint = args.endpoint or os.environ.get("BINDLE_ENDPOINT") or env_file.get("BINDLE_ENDPOINT") or ob.DEFAULT_ENDPOINT
-    return key.strip(), endpoint
+    endpoint = args.endpoint or os.environ.get("BINDLE_ENDPOINT") or env_file.get("BINDLE_ENDPOINT") or ""
+    return key.strip(), endpoint.strip()
 
 
 def cmd_init(args: argparse.Namespace) -> int:
     root = Path(args.dir).resolve()
     key, endpoint = _resolve(args, root)
+    if not endpoint:
+        if not sys.stdin.isatty():
+            print("✕ No endpoint. Pass --endpoint, set BINDLE_ENDPOINT, or run interactively.", file=sys.stderr)
+            return 2
+        endpoint = input("  Bindle ingest URL (for example https://ingest.example.com): ").strip()
     try:
         endpoint = ob.check_endpoint(endpoint)
     except ValueError as e:
@@ -40,7 +45,9 @@ def cmd_init(args: argparse.Namespace) -> int:
         if not sys.stdin.isatty():
             print("✕ No ingest key. Pass --key, set BINDLE_API_KEY, or run interactively.", file=sys.stderr)
             return 2
-        print(f"  Create a key on {ob.console_url(endpoint)}/keys, then paste it here (input is hidden).")
+        console = ob.console_url(endpoint)
+        where = f"{console}/keys" if console else "the Ingest keys page of your Bindle console"
+        print(f"  Create a key on {where}, then paste it here (input is hidden).")
         key = getpass.getpass("  Ingest key: ").strip()
 
     res = ob.check_connection(endpoint, key)
@@ -51,9 +58,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         print("  Note: content capture is off for this workspace (SDK settings), so prompts and outputs won't be stored.")
 
     if not args.no_env:
-        values = {"BINDLE_API_KEY": key}
-        if endpoint != ob.DEFAULT_ENDPOINT:
-            values["BINDLE_ENDPOINT"] = endpoint
+        values = {"BINDLE_API_KEY": key, "BINDLE_ENDPOINT": endpoint}
         written, kept = ob.write_env(root, values, force=args.force)
         if written:
             print(f"✓ Saved {', '.join(written)} to {root / '.env'} (readable only by you)")
@@ -75,6 +80,9 @@ def cmd_check(args: argparse.Namespace) -> int:
     key, endpoint = _resolve(args, Path(args.dir).resolve())
     if not key:
         print("✕ No ingest key. Pass --key or set BINDLE_API_KEY.", file=sys.stderr)
+        return 2
+    if not endpoint:
+        print("✕ No endpoint. Pass --endpoint or set BINDLE_ENDPOINT.", file=sys.stderr)
         return 2
     res = ob.check_connection(endpoint, key)
     print(("✓ " if res.ok else "✕ ") + res.message)
@@ -102,7 +110,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     def common(sp: argparse.ArgumentParser) -> None:
         sp.add_argument("--key", help="ingest key (default: BINDLE_API_KEY or .env)")
-        sp.add_argument("--endpoint", help=f"ingest endpoint (default: BINDLE_ENDPOINT or {ob.DEFAULT_ENDPOINT})")
+        sp.add_argument("--endpoint", help="ingest endpoint (default: BINDLE_ENDPOINT or .env)")
         sp.add_argument("--dir", default=".", help="project directory (default: current)")
 
     sp = sub.add_parser("init", help="connect this project to Bindle")

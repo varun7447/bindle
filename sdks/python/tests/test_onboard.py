@@ -63,12 +63,13 @@ def test_detect_framework(tmp_path):
 
 
 def test_endpoint_rules():
-    assert ob.check_endpoint("https://ingest.bindle.ai/") == "https://ingest.bindle.ai"
+    assert ob.check_endpoint("https://ingest.example.com/") == "https://ingest.example.com"
     assert ob.check_endpoint("http://localhost:4318") == "http://localhost:4318"
     for bad in ("http://ingest.example.com", "ftp://x", "https://u:p@x.com", "nope"):
         with pytest.raises(ValueError):
             ob.check_endpoint(bad)
-    assert ob.console_url("https://ingest.bindle.ai") == "https://app.bindle.ai"
+    assert ob.console_url("https://ingest.example.com") == "https://app.example.com"
+    assert ob.console_url("https://bindle-ingest.internal.example") == ""
     assert ob.console_url("http://127.0.0.1:4318") == "http://localhost:3000"
     assert ob.mask_key(KEY) == KEY[:12] + "…"
 
@@ -153,3 +154,25 @@ def test_detect_new_frameworks(tmp_path):
         (tmp_path / "requirements.txt").write_text(deps)
         assert ob.detect_framework(tmp_path).id == want, deps
     assert "AIAgentsInstrumentor().instrument()" in ob.setup_guide(ob.framework_by_id("foundry-agents"))
+
+
+def test_cli_requires_endpoint(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv("BINDLE_ENDPOINT", raising=False)
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))  # not a terminal: no prompt
+    assert _cli.main(["init", "--key", KEY, "--dir", str(tmp_path), "--no-test"]) == 2
+    assert "No endpoint" in capsys.readouterr().err
+    assert _cli.main(["check", "--key", KEY, "--dir", str(tmp_path)]) == 2
+    assert not (tmp_path / ".env").exists()
+
+
+def test_mcp_without_endpoint(tmp_path):
+    server = _mcp.Server(root=tmp_path, environ={"BINDLE_API_KEY": KEY})
+    res = server.call_tool("bindle_check_connection", {})
+    assert res["isError"] is True and "BINDLE_ENDPOINT is not set" in res["content"][0]["text"]
+    guide = server.call_tool("bindle_setup_guide", {"framework": "crewai"})["content"][0]["text"]
+    assert "BINDLE_ENDPOINT=<your Bindle ingest URL>" in guide
+
+
+def test_setup_guide_names_the_endpoint():
+    fw = ob.framework_by_id("python")
+    assert "export BINDLE_ENDPOINT=https://ingest.example.com" in ob.setup_guide(fw, "https://ingest.example.com")

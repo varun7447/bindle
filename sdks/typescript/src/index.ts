@@ -35,14 +35,13 @@ export { type LinkKind, parseToken } from './links.js';
 export { Cassette, RecordedToolError, UnrecordedCallError, type CassetteOptions, type CassetteReport, type RecordedCall } from './cassette.js';
 
 export const VERSION = '0.1.0';
-export const DEFAULT_ENDPOINT = 'https://ingest.bindle.ai';
 const TRACER = 'bindle';
 const MAX_CAPTURE = 16 * 1024;
 
 export interface InitOptions {
   /** Ingest key (bd_live_...). Default: BINDLE_API_KEY. */
   apiKey?: string;
-  /** Default: BINDLE_ENDPOINT or https://ingest.bindle.ai */
+  /** Your Bindle ingest URL. Default: BINDLE_ENDPOINT. There is no built-in default: without one the SDK is a no-op. */
   endpoint?: string;
   agent?: string;
   version?: string;
@@ -87,7 +86,7 @@ function envNum(v: string | undefined, def: number): number {
 export function resolveOptions(o: InitOptions = {}, env: NodeJS.ProcessEnv = process.env): Resolved {
   return {
     apiKey: (o.apiKey ?? env.BINDLE_API_KEY ?? '').trim(),
-    endpoint: (o.endpoint ?? env.BINDLE_ENDPOINT ?? DEFAULT_ENDPOINT).replace(/\/+$/, ''),
+    endpoint: (o.endpoint ?? env.BINDLE_ENDPOINT ?? '').trim().replace(/\/+$/, ''),
     agent: o.agent ?? env.BINDLE_AGENT,
     version: o.version ?? env.BINDLE_AGENT_VERSION,
     environment: o.environment ?? env.BINDLE_ENVIRONMENT,
@@ -193,6 +192,28 @@ function startRemote(cfg: Resolved): void {
   state.poller.start();
 }
 
+const warned = new Set<string>();
+
+/** Configuration warnings are printed once per process, not on every call. */
+function warnOnce(what: string, message: string): void {
+  if (warned.has(what)) return;
+  warned.add(what);
+  console.warn(message);
+}
+
+/** A key and an endpoint are both required; without either the SDK is a no-op. */
+function configured(cfg: Resolved): boolean {
+  if (!cfg.apiKey) {
+    warnOnce('key', 'bindle: no API key (set BINDLE_API_KEY); tracing is disabled');
+    return false;
+  }
+  if (!cfg.endpoint) {
+    warnOnce('endpoint', 'bindle: no endpoint (set BINDLE_ENDPOINT to your Bindle ingest URL); tracing is disabled');
+    return false;
+  }
+  return true;
+}
+
 /**
  * Start sending traces to Bindle. Returns true if tracing is active.
  * Console settings (sampling, content capture, redaction patterns) are
@@ -200,10 +221,7 @@ function startRemote(cfg: Resolved): void {
  */
 export function init(options: InitOptions = {}, internal: { exporter?: () => import('@opentelemetry/sdk-trace').SpanExporter } = {}): boolean {
   const cfg = resolveOptions(options);
-  if (!cfg.apiKey) {
-    console.warn('bindle: no API key (set BINDLE_API_KEY); tracing is disabled');
-    return false;
-  }
+  if (!configured(cfg)) return false;
   if (state.provider) return true;
   try {
     if (!/^https:\/\//.test(cfg.endpoint) && !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(cfg.endpoint)) {
@@ -256,10 +274,7 @@ export function init(options: InitOptions = {}, internal: { exporter?: () => imp
  */
 export function spanProcessor(options: InitOptions = {}): SpanProcessor | undefined {
   const cfg = resolveOptions(options);
-  if (!cfg.apiKey) {
-    console.warn('bindle: no API key (set BINDLE_API_KEY); tracing is disabled');
-    return undefined;
-  }
+  if (!configured(cfg)) return undefined;
   state.cfg ??= cfg;
   const exporter = buildExporter(cfg);
   state.exporter ??= exporter;

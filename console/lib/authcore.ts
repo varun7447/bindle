@@ -8,7 +8,7 @@ export interface AuthConfig {
   domain: string; // https://<prefix>.auth.<region>.amazoncognito.com
   clientId: string;
   clientSecret?: string;
-  consoleUrl: string; // public base URL of this console, e.g. https://app.bindle.ai
+  consoleUrl: string; // public base URL of this console, e.g. https://bindle.example.com
   sessionKey: Buffer; // 32 bytes, AES-256-GCM
 }
 

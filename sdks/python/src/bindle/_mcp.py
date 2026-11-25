@@ -81,8 +81,8 @@ class Server:
     def _creds(self):
         env_file = ob.read_env_file(self.root / ".env")
         key = self.environ.get("BINDLE_API_KEY") or env_file.get("BINDLE_API_KEY") or ""
-        endpoint = self.environ.get("BINDLE_ENDPOINT") or env_file.get("BINDLE_ENDPOINT") or ob.DEFAULT_ENDPOINT
-        return key.strip(), endpoint
+        endpoint = self.environ.get("BINDLE_ENDPOINT") or env_file.get("BINDLE_ENDPOINT") or ""
+        return key.strip(), endpoint.strip()
 
     def _skills(self, args: Dict[str, Any]):
         from ._learned import SkillStore
@@ -125,6 +125,9 @@ class Server:
             if not key:
                 return text("BINDLE_API_KEY is not set. Ask the user to create an ingest key in the Bindle console "
                             "(Ingest keys page) and run `bindle init`, or set BINDLE_API_KEY. Never ask them to paste it into chat.", True)
+            if not endpoint:
+                return text("BINDLE_ENDPOINT is not set. Ask the user for their Bindle ingest URL (shown on the console's "
+                            "Connect page) and run `bindle init`, or set BINDLE_ENDPOINT.", True)
             res = ob.check_connection(endpoint, key) if name == "bindle_check_connection" else ob.send_test_trace(endpoint, key)
             return text(res.message, not res.ok)
         raise KeyError(name)
