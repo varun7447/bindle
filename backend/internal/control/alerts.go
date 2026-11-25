@@ -188,7 +188,8 @@ func (s *Store) DeliverableChannels(ctx context.Context, tenant string) ([]alert
 	return out, nil
 }
 
-// GetAlertChannel returns one channel, decrypted (for a test delivery).
+// GetAlertChannel returns one channel, decrypted. The alerts worker uses it
+// for test deliveries; the API never calls it.
 func (s *Store) GetAlertChannel(ctx context.Context, tenant, id string) (out alerts.Channel, err error) {
 	var r channelRow
 	err = s.inTenant(ctx, tenant, func(tx *sql.Tx) error {
@@ -407,4 +408,86 @@ func (a *AlertStore) RecordBudgetExceeded(ctx context.Context, tenant, agent str
 		return err
 	})
 	return created, err
+}
+
+// ---- test deliveries --------------------------------------------------------
+//
+// "Send test" in the console: the API records a request (it never decrypts
+// channel targets or secrets), and the alerts worker delivers it.
+
+// ChannelTest is a test delivery's state as the console sees it.
+type ChannelTest struct {
+	ID     string `json:"id"`
+	Status string `json:"status"` // pending, running, ok or failed
+	Error  string `json:"error,omitempty"`
+}
+
+// RequestChannelTest records a test delivery for one of the tenant's
+// channels. ErrNotFound if the channel isn't the tenant's.
+func (s *Store) RequestChannelTest(ctx context.Context, tenant, userID, channelID string) (ChannelTest, error) {
+	id, err := newID("ct_")
+	if err != nil {
+		return ChannelTest{}, err
+	}
+	err = s.inTenant(ctx, tenant, func(tx *sql.Tx) error {
+		var one int
+		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM control.alert_channels WHERE id = $1`, channelID).Scan(&one); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO control.alert_channel_tests (tenant_id, id, channel_id, requested_by) VALUES ($1, $2, $3, NULLIF($4, ''))`,
+			tenant, id, channelID, userID)
+		return err
+	})
+	if err != nil {
+		return ChannelTest{}, err
+	}
+	return ChannelTest{ID: id, Status: "pending"}, nil
+}
+
+// GetChannelTest returns one test delivery of a channel. ErrNotFound if it
+// isn't the tenant's.
+func (s *Store) GetChannelTest(ctx context.Context, tenant, channelID, testID string) (out ChannelTest, err error) {
+	err = s.inTenant(ctx, tenant, func(tx *sql.Tx) error {
+		var msg sql.NullString
+		err := tx.QueryRowContext(ctx, `SELECT id, status, error FROM control.alert_channel_tests WHERE id = $1 AND channel_id = $2`, testID, channelID).
+			Scan(&out.ID, &out.Status, &msg)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		out.Error = msg.String
+		return err
+	})
+	return out, err
+}
+
+// ClaimChannelTests implements alerts.TestStore.
+func (a *AlertStore) ClaimChannelTests(ctx context.Context, max int) ([]alerts.ChannelTestJob, error) {
+	rows, err := a.DB.QueryContext(ctx, `SELECT tenant_id, id, channel_id FROM control.claim_channel_tests($1)`, max)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []alerts.ChannelTestJob
+	for rows.Next() {
+		var j alerts.ChannelTestJob
+		if err := rows.Scan(&j.TenantID, &j.ID, &j.ChannelID); err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
+}
+
+// TestChannel implements alerts.TestStore: the channel, decrypted.
+func (a *AlertStore) TestChannel(ctx context.Context, tenant, channelID string) (alerts.Channel, error) {
+	return a.store().GetAlertChannel(ctx, tenant, channelID)
+}
+
+// FinishChannelTest implements alerts.TestStore.
+func (a *AlertStore) FinishChannelTest(ctx context.Context, tenant, id string, ok bool, message string) error {
+	_, err := a.DB.ExecContext(ctx, `SELECT control.finish_channel_test($1, $2, $3, $4)`, tenant, id, ok, message)
+	return err
 }

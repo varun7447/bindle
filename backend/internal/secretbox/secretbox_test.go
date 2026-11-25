@@ -193,3 +193,26 @@ func TestKMSProvider(t *testing.T) {
 		t.Fatal("accepted a local ciphertext")
 	}
 }
+
+func TestEncryptOnlyNeverDecrypts(t *testing.T) {
+	l, err := NewLocal(testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	ec := Context("t1", PurposeAlertSecret, "ch_1")
+	box := EncryptOnly{Box: l}
+	ct, err := box.Encrypt(ctx, []byte("whsec_x"), ec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := box.Decrypt(ctx, ct, ec); !errors.Is(err, ErrDecryptNotAllowed) {
+		t.Fatalf("decrypt: %v", err)
+	}
+	if pt, err := l.Decrypt(ctx, ct, ec); err != nil || string(pt) != "whsec_x" {
+		t.Fatalf("the full box should still decrypt: %q %v", pt, err)
+	}
+	if _, err := (EncryptOnly{}).Encrypt(ctx, []byte("x"), ec); !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("no box: %v", err)
+	}
+}

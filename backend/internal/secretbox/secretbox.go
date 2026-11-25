@@ -102,6 +102,24 @@ func (Disabled) Decrypt(context.Context, []byte, map[string]string) ([]byte, err
 	return nil, ErrNotConfigured
 }
 
+// EncryptOnly wraps a Box for a service that may only encrypt (the API):
+// Decrypt always fails, even if the key would allow it.
+type EncryptOnly struct{ Box Box }
+
+// ErrDecryptNotAllowed is returned by EncryptOnly.Decrypt.
+var ErrDecryptNotAllowed = errors.New("secretbox: this service may not decrypt")
+
+func (e EncryptOnly) Encrypt(ctx context.Context, plaintext []byte, encCtx map[string]string) ([]byte, error) {
+	if e.Box == nil {
+		return nil, ErrNotConfigured
+	}
+	return e.Box.Encrypt(ctx, plaintext, encCtx)
+}
+
+func (EncryptOnly) Decrypt(context.Context, []byte, map[string]string) ([]byte, error) {
+	return nil, ErrDecryptNotAllowed
+}
+
 // ---- local (AES-256-GCM) ---------------------------------------------------------
 
 // Local encrypts with a key held by the process (development only).
