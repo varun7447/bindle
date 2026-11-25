@@ -59,7 +59,7 @@ func TestCleanName(t *testing.T) {
 func TestIntegrationControlPlane(t *testing.T) {
 	ctx := context.Background()
 	owner, apiDB, ingestDB := newTestDB(t)
-	store := &Store{DB: apiDB}
+	store := &Store{DB: apiDB, Secrets: testSecrets}
 
 	// First sign-in creates the user and, concurrently, exactly one tenant.
 	alice, err := store.EnsureUser(ctx, "sub-alice", "alice@example.com")
@@ -343,7 +343,7 @@ func TestIntegrationLeases(t *testing.T) {
 func TestIntegrationSDKConfig(t *testing.T) {
 	ctx := context.Background()
 	_, apiDB, ingestDB := newTestDB(t)
-	store := &Store{DB: apiDB}
+	store := &Store{DB: apiDB, Secrets: testSecrets}
 	alice, _ := store.EnsureUser(ctx, "sub-a", "")
 	ma, _ := store.Provision(ctx, alice, "A")
 	bob, _ := store.EnsureUser(ctx, "sub-b", "")
@@ -450,7 +450,7 @@ func TestIntegrationLimitsAndBudgets(t *testing.T) {
 	ctx := context.Background()
 	_, apiDB, ingestDB := newTestDB(t)
 	alertsDB := open(t, lastAlertsDSN)
-	store := &Store{DB: apiDB}
+	store := &Store{DB: apiDB, Secrets: testSecrets}
 	alice, _ := store.EnsureUser(ctx, "sub-a", "")
 	ma, _ := store.Provision(ctx, alice, "A")
 	bob, _ := store.EnsureUser(ctx, "sub-b", "")
@@ -478,7 +478,7 @@ func TestIntegrationLimitsAndBudgets(t *testing.T) {
 	}
 
 	// Budget state: alerts role finds the tenant and records once.
-	as := &AlertStore{DB: alertsDB}
+	as := &AlertStore{DB: alertsDB, Secrets: testSecrets}
 	bts, err := as.BudgetTenants(ctx)
 	if err != nil || len(bts) != 1 || bts[0].Tenant != ma.TenantID || len(bts[0].Limits) != 2 {
 		t.Fatalf("budget tenants: %+v %v", bts, err)
@@ -528,7 +528,7 @@ func TestIntegrationLimitsAndBudgets(t *testing.T) {
 func TestIntegrationRunStops(t *testing.T) {
 	ctx := context.Background()
 	_, apiDB, ingestDB := newTestDB(t)
-	store := &Store{DB: apiDB}
+	store := &Store{DB: apiDB, Secrets: testSecrets}
 	alice, _ := store.EnsureUser(ctx, "sub-a", "")
 	ma, _ := store.Provision(ctx, alice, "A")
 	bob, _ := store.EnsureUser(ctx, "sub-b", "")
@@ -570,7 +570,7 @@ func TestIntegrationRunStops(t *testing.T) {
 func TestIntegrationEvals(t *testing.T) {
 	ctx := context.Background()
 	_, apiDB, _ := newTestDB(t)
-	store := &Store{DB: apiDB}
+	store := &Store{DB: apiDB, Secrets: testSecrets}
 	alice, _ := store.EnsureUser(ctx, "sub-a", "")
 	ma, _ := store.Provision(ctx, alice, "A")
 	bob, _ := store.EnsureUser(ctx, "sub-b", "")

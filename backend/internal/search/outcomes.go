@@ -199,6 +199,12 @@ func (s *Store) Economics(ctx context.Context, tenant string, from, to time.Time
 	if err != nil {
 		return nil, err
 	}
+	return s.economicsFrom(ctx, tenant, from, to, totals, outcomes)
+}
+
+// economicsFrom combines the traces totals with per-run outcome results.
+func (s *Store) economicsFrom(ctx context.Context, tenant string, from, to time.Time, totals econAgg, outcomes map[string]passFail) ([]query.Economics, error) {
+	scoreRange := rangeNs("start_ns", from, to.Add(scoreLag))
 	disliked, err := s.scoreResults(ctx, tenant, []map[string]any{term("score_source", "user"), term("score_pass", "fail"), scoreRange})
 	if err != nil {
 		return nil, err

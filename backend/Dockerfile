@@ -11,10 +11,10 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download && go mod verify
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    mkdir -p /out/data/payloads && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ ./cmd/bindle-ingest ./cmd/bindle-api ./cmd/bindle-migrate ./cmd/bindle-processor ./cmd/bindle-alerts
+    mkdir -p /out/data/payloads && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ ./cmd/bindle-ingest ./cmd/bindle-api ./cmd/bindle-migrate ./cmd/bindle-processor ./cmd/bindle-alerts ./cmd/bindle-admin
 
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /out/bindle-ingest /out/bindle-api /out/bindle-migrate /out/bindle-processor /out/bindle-alerts /
+COPY --from=build /out/bindle-ingest /out/bindle-api /out/bindle-migrate /out/bindle-processor /out/bindle-alerts /out/bindle-admin /
 # Local payload store (file:///data/payloads); owned by the runtime user so a
 # fresh Docker volume mounted here is writable. Unused when payloads go to S3.
 COPY --from=build --chown=65532:65532 /out/data /data

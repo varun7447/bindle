@@ -47,6 +47,13 @@ Five places to look (**Home**, **Runs**, **Agents**, **Evals**, **Alerts**) and 
 
 **Replay with recorded tools**: **Download for replay** on a run's page saves its input and every tool call (arguments, result, or the error) as a cassette file. `bindle.Cassette` (Python) or `Cassette` (TypeScript) re-runs your agent on that input with each tool answered from the recording, so a prompt, model or code change can be tried on a real failure without touching live systems, and `cassette.report()` shows where the new run took a different path ([`examples/sdk/replay_with_cassette.py`](examples/sdk/replay_with_cassette.py)).
 
+**Governance features** are turned on per workspace by the operator (`bindle-admin features enable --tenant <id> <feature>`); each is off until then:
+
+- **Ledger** (`ledger`): a tamper-evident record of what each agent saw, decided, called and cost. Every step becomes a redacted entry in a per-agent SHA-256 hash chain that the database refuses to edit or delete. The agent's **Ledger** tab opens with "Ledger intact for the last 30 days: 1,204 entries" (or the first broken entry), and each day has a plain-English summary to download as audit evidence.
+- **Passports** (`passports`): a JSON manifest per agent declaring its owner, allowed tools, data classes it may handle or must never send out, budgets, per-tool rate limits and release rights. Push it from CI with a management key (`bindle passport push passport.json`). Bindle reports **drift** without blocking anything: a tool outside the passport, a disallowed data class, blocked data sent to an outbound tool, a rate or budget overrun, or a release action without release rights. Each drift shows on Home and on the step, goes to the ledger and can trigger a `passport_drift` alert. `bindle passport export --format dogwood` compiles a passport into AWS Dogwood (Cedar-compatible) policies for AgentCore Policy (experimental).
+- **Outcome grading** (`outcome_grading`): "was the agent actually right?". An agent records a correlation key during a run (`bindle.correlate("ticket_id", "T-123")`, stored only as a hash), and your business system reports what happened later (`POST /v1/outcome-events`, or a signed webhook). Outcomes you mark as reversals (`ticket_reopened`, `refund_reversed`) count a run as wrong even when every step and eval passed. The Agents page shows the outcome-graded success rate per version and the runs that passed evals but were reversed, one click from an eval dataset.
+- **Learning loop** (`learning_loop`): repeated failures become **lessons**; `bindle skills draft` turns a lesson into a skill in the open [Agent Skills](https://agentskills.io) format, using your own model in your own environment (Bindle never holds model keys). Every skill is scanned for injected instructions and secrets and checked against the agent's passport, versioned in a per-agent **vault** (with links, backlinks and `bindle vault pull`/`push` to review skills in pull requests), and must be **proven** by replaying the real failures with recorded tools (`bindle skills prove`) before its owner can approve it. Agents that opt in load approved skills through the SDKs or `bindle mcp`, fetched in the background so a Bindle outage never affects them; a skill that makes results worse is rolled back automatically, and kill switches stop one skill or all of an agent's.
+
 **Step inputs and outputs** show as a conversation (system, user, assistant and tool messages, tool calls with their arguments) for every supported framework, with the raw text one click away. Sensitive values are redacted before storage. When content is missing, the console says why: content capture is off for the workspace, off in the agent's code, or the framework doesn't send it by default (with the exact setting to turn on).
 
 ![Bindle console: a step as a conversation](docs/images/console-conversation.png)
@@ -59,7 +66,7 @@ Design rationale, colors and accessibility checks: [`docs/design/console.md`](do
 
 | Path | What it is |
 |---|---|
-| [`backend/`](backend/) | Go services: `bindle-ingest`, `bindle-api`, `bindle-processor`, `bindle-alerts`, `bindle-migrate` |
+| [`backend/`](backend/) | Go services: `bindle-ingest`, `bindle-api`, `bindle-processor`, `bindle-alerts`, `bindle-migrate`, and the operator tool `bindle-admin` (feature flags, secret re-encryption) |
 | [`console/`](console/) | Next.js console |
 | [`brand/`](brand/) | Brand guide ([`BRAND.md`](brand/BRAND.md): colors, step-type palette, type, logo rules, voice), design tokens (`tokens.css`, `tokens.json`) and logo files |
 | [`site/`](site/) | Product website: plain HTML, one stylesheet on the brand tokens, no build step ([preview and deploy](site/README.md)) |
@@ -89,6 +96,14 @@ Then point any agent at it:
 set -a; . deploy/local/.env; set +a      # BINDLE_API_KEY and BINDLE_ENDPOINT
 pip install -e sdks/python
 python examples/sdk/quickstart.py
+```
+
+To try the governance features locally, turn them on for the dev workspace:
+
+```bash
+for f in ledger passports outcome_grading learning_loop; do
+  docker compose -f deploy/local/compose.yaml run --rm --entrypoint /bindle-admin setup features enable --tenant dev-tenant $f
+done
 ```
 
 `make help` lists every target. Details: [`deploy/local/`](deploy/local/).

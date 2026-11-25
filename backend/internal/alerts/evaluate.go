@@ -20,6 +20,12 @@ type Evaluator struct {
 	MaxPerRule int // new events per rule per evaluation; default 20
 	// Budgets, if set, checks daily budgets on every evaluation too.
 	Budgets *Budgets
+	// Passports gives tenants' passports for passport_drift rules (rate
+	// limits and budgets); nil makes those rules fail.
+	Passports PassportSource
+	// Drift, if set, writes rate-limit and budget drift to agents' ledgers
+	// on every evaluation.
+	Drift *DriftJournal
 }
 
 // Run evaluates every interval until ctx ends.
@@ -48,6 +54,11 @@ func (e *Evaluator) RunOnce(ctx context.Context) error {
 	for _, t := range tenants {
 		if err := e.evaluateTenant(ctx, t); err != nil {
 			e.Log.Error("tenant alert evaluation failed", "tenant", t, "err", err)
+		}
+	}
+	if e.Drift != nil {
+		if err := e.Drift.RunOnce(ctx); err != nil {
+			e.Log.Error("passport drift journal failed", "err", err)
 		}
 	}
 	if e.Budgets != nil {
@@ -177,6 +188,8 @@ func (e *Evaluator) detect(ctx context.Context, tenant string, r Rule) ([]Event,
 		return out, nil
 	case KindNegativeFeedback, KindCostRegression, KindNewError, KindWeeklyDigest, KindSecuritySignal:
 		return e.detectMore(ctx, tenant, r, now, from, limit, ev)
+	case KindPassportDrift:
+		return e.detectDrift(ctx, tenant, r, now, from, limit, ev)
 	}
 	return nil, fmt.Errorf("unknown rule kind %q", r.Kind)
 }

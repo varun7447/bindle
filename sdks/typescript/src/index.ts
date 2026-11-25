@@ -23,7 +23,11 @@ import { Poller, type RemoteSettings } from './remote.js';
 import { DynamicRatioSampler } from './sampling.js';
 
 import { Guard, LimitExceededError, type LimitsStatus, RunCounter } from './limits.js';
+import { attribute as correlationAttribute, MAX_KEYS as MAX_CORRELATION_KEYS, RunKeys } from './correlate.js';
 import { extractMeta, injectMeta, LINK_KINDS, type LinkKind, makeToken, parseToken } from './links.js';
+import * as skills from './skills.js';
+export { skills };
+export type { Skill } from './skills.js';
 export { Redactor } from './redact.js';
 export { LimitExceededError, type LimitReason, type LimitsStatus } from './limits.js';
 export { sampled } from './sampling.js';
@@ -164,6 +168,24 @@ function applyRemote(s: RemoteSettings): void {
   debug(`bindle: remote config v${s.version} applied`);
 }
 
+/**
+ * Fetches the learned skills shipped to this agent in the background
+ * (bindle.skills). Off with BINDLE_SKILLS=off, and without an agent name.
+ */
+function startSkills(cfg: Resolved): void {
+  if (!cfg.agent || /^(off|0|false|no)$/i.test((process.env.BINDLE_SKILLS ?? '').trim())) return;
+  try {
+    const store = new skills.SkillStore({
+      endpoint: cfg.endpoint, apiKey: cfg.apiKey, agent: cfg.agent, version: cfg.version ?? '',
+      killed: () => state.remote?.killedSkills ?? [], userAgent: `bindle-sdk-typescript/${VERSION}`,
+    });
+    skills.setStore(store);
+    store.start();
+  } catch {
+    // never break the host app
+  }
+}
+
 function startRemote(cfg: Resolved): void {
   if (!cfg.remoteConfig) return;
   state.poller = new Poller(`${cfg.endpoint}/v1/config`, cfg.apiKey, applyRemote, `bindle-sdk-typescript/${VERSION}`, fetch, debug);
@@ -234,6 +256,7 @@ export function init(options: InitOptions = {}, internal: { exporter?: () => imp
     }
     Object.assign(state, { provider, sampler, exporter, guard: new Guard(cfg.agent ?? '', counter) });
     startRemote(cfg);
+    startSkills(cfg);
     process.once('beforeExit', () => void shutdown());
     debug(`bindle: initialized (endpoint=${cfg.endpoint})`);
     return true;
@@ -313,6 +336,7 @@ export async function flush(): Promise<boolean> {
 }
 
 export async function shutdown(): Promise<void> {
+  skills.setStore(undefined);
   state.poller?.stop();
   const provider = state.provider;
   Object.assign(state, { poller: undefined, provider: undefined, sampler: undefined, exporter: undefined, remote: undefined, cfg: undefined, capture: true, guard: undefined });
@@ -498,6 +522,37 @@ export function outcome(name: string, opts: { success?: boolean; value?: number;
   const success = opts.success ?? true;
   if (typeof success !== 'boolean') return false;
   return score(name, { value: opts.value, passed: success, comment: opts.comment, traceId: opts.traceId, source: 'outcome' });
+}
+
+const runKeys = new RunKeys();
+
+/**
+ * Tag the current run with a business identifier, so an event reported later
+ * without the run's trace ID still finds it: correlate('ticket_id', ticket.id);
+ * when the ticket is reopened, your helpdesk reports
+ * { correlation: { ticket_id: 'T-123' }, name: 'ticket_reopened', success: false }.
+ *
+ * key: lowercase letters, digits and _, starting with a letter, at most 32
+ * characters. value: at most 256 bytes (integers are used as text). A run
+ * keeps at most 8 keys. Only a digest of the key and value is sent; Bindle
+ * never stores the value. Returns true if recorded; never throws.
+ */
+export function correlate(key: string, value: string | number): boolean {
+  try {
+    const attr = correlationAttribute(key, value);
+    if (!attr) return false;
+    const span = trace.getSpan(context.active());
+    const sc = span?.spanContext();
+    if (!span || !sc || !trace.isSpanContextValid(sc) || !span.isRecording()) return false;
+    if (!runKeys.admit(sc.traceId, key)) {
+      debug(`bindle: correlate(${key}) ignored: a run keeps at most ${MAX_CORRELATION_KEYS} keys`);
+      return false;
+    }
+    span.setAttribute(attr[0], attr[1]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** The current run's trace ID, to hand to your UI for feedback later; undefined outside a run. */

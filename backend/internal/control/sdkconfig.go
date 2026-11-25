@@ -201,9 +201,9 @@ func (r *ConfigResolver) Policy(ctx context.Context, tenant string) (sdkconfig.P
 	_, err := r.group.do("cfg:"+tenant, func() (entry, error) {
 		c := sdkconfig.Default()
 		var patterns, limits, prices []byte
-		var over, stopped pq.StringArray
-		err := r.DB.QueryRowContext(ctx, `SELECT version, sample_rate, capture_content, redact_patterns, limits, over_budget, prices, updated_at, stopped_runs FROM control.sdk_config_for($1)`, tenant).
-			Scan(&c.Version, &c.SampleRate, &c.CaptureContent, &patterns, &limits, &over, &prices, &c.UpdatedAt, &stopped)
+		var over, stopped, killed pq.StringArray
+		err := r.DB.QueryRowContext(ctx, `SELECT version, sample_rate, capture_content, redact_patterns, limits, over_budget, prices, updated_at, stopped_runs, killed_skills FROM control.sdk_config_for($1)`, tenant).
+			Scan(&c.Version, &c.SampleRate, &c.CaptureContent, &patterns, &limits, &over, &prices, &c.UpdatedAt, &stopped, &killed)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 		case err != nil:
@@ -217,6 +217,7 @@ func (r *ConfigResolver) Policy(ctx context.Context, tenant string) (sdkconfig.P
 			}
 			c.OverBudget = append([]string{}, over...)
 			c.StoppedRuns = append([]string{}, stopped...)
+			c.KilledSkills = append([]string{}, killed...)
 			if c.Version == 0 {
 				c.UpdatedAt = time.Time{} // never saved: defaults
 			}

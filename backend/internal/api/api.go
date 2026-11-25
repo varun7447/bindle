@@ -20,14 +20,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bindle-ai/bindle/backend/internal/alerts"
 	"github.com/bindle-ai/bindle/backend/internal/control"
 	"github.com/bindle-ai/bindle/backend/internal/cost"
 	"github.com/bindle-ai/bindle/backend/internal/query"
 	"github.com/bindle-ai/bindle/backend/internal/ratelimit"
 	"github.com/bindle-ai/bindle/backend/internal/replay"
 	"github.com/bindle-ai/bindle/backend/internal/sdkconfig"
+	"github.com/bindle-ai/bindle/backend/internal/secretbox"
 	"github.com/bindle-ai/bindle/backend/internal/session"
+	"github.com/bindle-ai/bindle/backend/internal/vault"
 )
 
 // KeyStore manages a tenant's ingest keys. Implemented by *control.Store.
@@ -50,18 +51,32 @@ type ConfigStore interface {
 // Server holds the API's dependencies.
 type Server struct {
 	Store    query.Store
-	Keys     KeyStore       // nil disables the /api/keys endpoints (503)
-	Config   ConfigStore    // nil disables the /api/config endpoints (503)
-	Alerting AlertingStore  // nil disables the alert rule/channel endpoints (503)
-	Evals    EvalStore      // nil disables the checks and datasets endpoints (503)
-	Stops    RunStopStore   // nil disables stopping runs (503)
+	Keys     KeyStore      // nil disables the /api/keys endpoints (503)
+	Config   ConfigStore   // nil disables the /api/config endpoints (503)
+	Alerting AlertingStore // nil disables the alert rule/channel endpoints (503)
+	Evals    EvalStore     // nil disables the checks and datasets endpoints (503)
+	Stops    RunStopStore  // nil disables stopping runs (503)
+	// Features lists the workspace's operator-set feature flags; nil means
+	// every flagged feature is off.
+	Features FeatureLister
+	Ledger   LedgerReader // the ledger (feature "ledger"); nil hides it (404)
+	// Passports and management keys (feature "passports"); nil: 503.
+	Passports PassportStore
+	MgmtKeys  MgmtKeyStore
+	// Learning loop (feature "learning_loop"); nil hides it (404).
+	// LearningLedger writes vault changes to the ledger (nil: none).
+	Learning       LearningStore
+	LearningLedger vault.Appender
+	// Ship is the learning loop's phase 2: proofs, releases, shipping
+	// opt-in and kill switches (nil: 404).
+	Ship     ShipStore
+	Outcomes OutcomeAdmin   // outcome grading (feature "outcome_grading"); nil hides it (404)
 	Replay   *replay.Runner // nil disables step replay (503)
 	Prices   *cost.Table    // list prices, for replay cost
 	// AWSPrices serves Bedrock list prices; nil disables (503).
 	AWSPrices *AWSPriceList
 	// ReplayLimiter caps replays per tenant; nil uses 10 a minute.
 	ReplayLimiter *ratelimit.Limiter
-	Deliver       *alerts.Deliverer // test sends; nil disables them
 	Sessions      session.Resolver
 	Limiter       *ratelimit.Limiter // per-tenant requests/sec; nil disables
 	Log           *slog.Logger
@@ -111,11 +126,25 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/search", s.search)
 	api.HandleFunc("GET /api/sessions/{id}", s.getSession)
 	api.HandleFunc("GET /api/agents/versions", s.agentVersions)
+	api.HandleFunc("GET /api/features", s.features)
+	api.HandleFunc("GET /api/agents/ledger", s.ledgerList)
+	api.HandleFunc("GET /api/outcomes/settings", s.getOutcomeSettings)
+	api.HandleFunc("PUT /api/outcomes/settings", s.putOutcomeSettings)
+	api.HandleFunc("GET /api/outcomes/endpoints", s.listOutcomeEndpoints)
+	api.HandleFunc("POST /api/outcomes/endpoints", s.createOutcomeEndpoint)
+	api.HandleFunc("POST /api/outcomes/endpoints/{id}/revoke", s.revokeOutcomeEndpoint)
+	api.HandleFunc("GET /api/outcomes/events", s.listOutcomeEvents)
+	api.HandleFunc("GET /api/agents/grading", s.agentGrading)
+	api.HandleFunc("GET /api/agents/ledger/verify", s.ledgerVerify)
+	api.HandleFunc("GET /api/agents/ledger/summary", s.ledgerSummary)
 	api.HandleFunc("GET /api/agents/tool-usage", s.toolUsage)
 	api.HandleFunc("GET /api/economics", s.economics)
 	api.HandleFunc("GET /api/agents/topics", s.agentTopics)
 	api.HandleFunc("GET /api/security", s.securitySignals)
 	s.evalRoutes(api)
+	s.passportRoutes(api)
+	s.learningRoutes(api)
+	s.shipRoutes(api)
 	api.HandleFunc("POST /api/traces/{id}/steps/{step}/replay", s.replayStep)
 	api.HandleFunc("GET /api/traces/{id}/stop", s.getRunStop)
 	api.HandleFunc("POST /api/traces/{id}/stop", s.stopRun)
@@ -128,6 +157,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("PUT /api/alert-channels/{id}/state", s.setAlertChannelState)
 	api.HandleFunc("DELETE /api/alert-channels/{id}", s.deleteAlertChannel)
 	api.HandleFunc("POST /api/alert-channels/{id}/test", s.testAlertChannel)
+	api.HandleFunc("GET /api/alert-channels/{id}/tests/{test}", s.getChannelTest)
 	api.HandleFunc("GET /api/alert-events", s.listAlertEvents)
 	api.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such endpoint")
@@ -236,6 +266,12 @@ func badRequest(w http.ResponseWriter, msg string) {
 // storeError logs the real error and returns a generic 500: database
 // messages can contain SQL and internal names.
 func (s *Server) storeError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, secretbox.ErrNotConfigured) {
+		// Secrets are never stored in plaintext: without a key the resource
+		// isn't created.
+		writeError(w, http.StatusServiceUnavailable, "secrets_unavailable", "this deployment has no secrets key configured")
+		return
+	}
 	s.logger().Error("store", "path", r.URL.Path, "tenant", tenantFrom(r.Context()), "err", err)
 	writeError(w, http.StatusInternalServerError, "internal", "internal error")
 }

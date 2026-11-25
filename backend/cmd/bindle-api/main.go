@@ -11,9 +11,13 @@
 //	BINDLE_API_RATE_LIMIT_RPS                per-tenant requests/sec (default 20; 0 disables)
 //	BINDLE_API_LOOP_MIN_REPEATS              runaway-loop threshold (default 5)
 //	BINDLE_CONTROL_DB_URL                    control-plane PostgreSQL URL for the API role (or PGHOST, ... env vars)
+//	BINDLE_KMS_KEY_ID                        KMS key for secrets (alert targets, signing secrets); AWS_REGION required
+//	BINDLE_SECRETS_KEY                       local dev instead of KMS: 32-byte AES key, base64
+//	                                         (neither set: creating alert channels and outcome endpoints fails)
 //	BINDLE_COGNITO_ISSUER                    https://cognito-idp.<region>.amazonaws.com/<user pool id>
 //	BINDLE_COGNITO_CLIENT_ID                 the console's app client ID
 //	BINDLE_API_DEV_AUTH_BYPASS_TENANT        local dev only: map every request to this tenant
+//	BINDLE_API_DEV_AUTH_BYPASS_EMAIL         local dev only: email of the bypass user (owner checks)
 //	BINDLE_API_DEV_AUTH_BYPASS_IN_CONTAINER  set to 1 to allow the bypass on a container's
 //	                                         wildcard bind (publish the port to 127.0.0.1 only)
 //
@@ -23,6 +27,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -32,16 +37,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bindle-ai/bindle/backend/internal/alerts"
 	"github.com/bindle-ai/bindle/backend/internal/api"
-	"github.com/bindle-ai/bindle/backend/internal/awsv4"
 	"github.com/bindle-ai/bindle/backend/internal/control"
 	"github.com/bindle-ai/bindle/backend/internal/cost"
+	"github.com/bindle-ai/bindle/backend/internal/ledger"
 	"github.com/bindle-ai/bindle/backend/internal/payload"
 	"github.com/bindle-ai/bindle/backend/internal/ratelimit"
 	"github.com/bindle-ai/bindle/backend/internal/replay"
 	"github.com/bindle-ai/bindle/backend/internal/search"
+	"github.com/bindle-ai/bindle/backend/internal/secretbox"
 	"github.com/bindle-ai/bindle/backend/internal/session"
+	"github.com/bindle-ai/bindle/backend/internal/vault"
 )
 
 func main() {
@@ -62,7 +68,13 @@ func run(log *slog.Logger) error {
 	var dir session.Directory
 	if controlDB != nil {
 		defer controlDB.Close()
-		store = &control.Store{DB: controlDB}
+		secrets, err := secretbox.FromEnv(os.Getenv)
+		if err != nil {
+			return err
+		}
+		// The API only encrypts (new channels and endpoints). Test deliveries
+		// run in the alerts worker, so the API never decrypts a secret.
+		store = &control.Store{DB: controlDB, Secrets: secretbox.EncryptOnly{Box: secrets}}
 		dir = store
 	}
 	sessions, err := session.FromEnv(os.Getenv, addr, dir)
@@ -89,13 +101,6 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	// Test sends from the console go through the same SSRF-guarded client
-	// as real alerts.
-	deliverer := &alerts.Deliverer{HTTP: alerts.SafeClient(), ConsoleURL: os.Getenv("BINDLE_CONSOLE_URL")}
-	if from := os.Getenv("BINDLE_ALERTS_EMAIL_FROM"); from != "" && os.Getenv("AWS_REGION") != "" {
-		deliverer.SES = &alerts.SES{Region: os.Getenv("AWS_REGION"), From: from, Creds: &awsv4.CredentialChain{Getenv: os.Getenv}}
-	}
-
 	rps := envInt("BINDLE_API_RATE_LIMIT_RPS", 20)
 	// List prices, used to price step replays (as ingest prices steps).
 	prices, err := cost.Load(os.Getenv("BINDLE_PRICING_FILE"))
@@ -110,12 +115,21 @@ func run(log *slog.Logger) error {
 		Alerting: alertingStore(store),
 		Evals:    evalStore(store),
 		Stops:    stopStore(store),
-		Prices:   prices,
+		Features: featureLister(controlDB),
+		Ledger:   ledgerReader(controlDB),
+		// Passports are pushed through ingest (management keys); the API
+		// reads them and manages the keys.
+		Passports:      passportStore(store),
+		MgmtKeys:       mgmtKeyStore(store),
+		Outcomes:       outcomeAdmin(store),
+		Learning:       learningStore(store),
+		Ship:           shipStore(store),
+		LearningLedger: ledgerWriter(controlDB),
+		Prices:         prices,
 		// Public AWS price list (no credentials), for Settings → Model prices.
 		AWSPrices: &api.AWSPriceList{},
 		// Step replay calls providers at fixed hosts with the caller's key.
 		Replay:         &replay.Runner{Providers: map[string]replay.Provider{"anthropic": &replay.Anthropic{}, "openai": &replay.OpenAI{}}},
-		Deliver:        deliverer,
 		Limiter:        ratelimit.New(float64(rps), float64(rps*2)),
 		Log:            log,
 		LoopMinRepeats: envInt("BINDLE_API_LOOP_MIN_REPEATS", 5),
@@ -184,6 +198,63 @@ func alertingStore(s *control.Store) api.AlertingStore {
 func evalStore(s *control.Store) api.EvalStore {
 	if s == nil {
 		return nil // a nil *control.Store must not become a non-nil interface
+	}
+	return s
+}
+
+func featureLister(db *sql.DB) api.FeatureLister {
+	if db == nil {
+		return nil
+	}
+	return &control.FeatureResolver{DB: db}
+}
+
+func ledgerReader(db *sql.DB) api.LedgerReader {
+	if db == nil {
+		return nil
+	}
+	return &ledger.Reader{DB: db}
+}
+
+// ledgerWriter writes console vault changes to agents' ledgers.
+func ledgerWriter(db *sql.DB) vault.Appender {
+	if db == nil {
+		return nil
+	}
+	return &ledger.Writer{DB: db}
+}
+
+func passportStore(s *control.Store) api.PassportStore {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
+func mgmtKeyStore(s *control.Store) api.MgmtKeyStore {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
+func learningStore(s *control.Store) api.LearningStore {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
+func shipStore(s *control.Store) api.ShipStore {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
+func outcomeAdmin(s *control.Store) api.OutcomeAdmin {
+	if s == nil {
+		return nil
 	}
 	return s
 }

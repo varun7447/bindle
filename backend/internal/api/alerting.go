@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
-	"strings"
 
 	"github.com/bindle-ai/bindle/backend/internal/alerts"
 	"github.com/bindle-ai/bindle/backend/internal/control"
@@ -18,7 +17,10 @@ type AlertingStore interface {
 	CreateAlertRule(ctx context.Context, tenant, userID string, r alerts.Rule) (alerts.Rule, error)
 	UpdateAlertRule(ctx context.Context, tenant, id string, r alerts.Rule) (alerts.Rule, error)
 	ListAlertChannels(ctx context.Context, tenant string) ([]alerts.Channel, error)
-	GetAlertChannel(ctx context.Context, tenant, id string) (alerts.Channel, error)
+	// Test deliveries: the API records a request, the alerts worker sends it
+	// (the API never decrypts channel targets or secrets).
+	RequestChannelTest(ctx context.Context, tenant, userID, channelID string) (control.ChannelTest, error)
+	GetChannelTest(ctx context.Context, tenant, channelID, testID string) (control.ChannelTest, error)
 	CreateAlertChannel(ctx context.Context, tenant, userID string, c alerts.Channel) (alerts.Channel, string, error)
 	SetAlertChannelEnabled(ctx context.Context, tenant, id string, enabled bool) error
 	DeleteAlertChannel(ctx context.Context, tenant, id string) error
@@ -26,9 +28,9 @@ type AlertingStore interface {
 }
 
 var (
-	ruleIDRe     = regexp.MustCompile(`^ar_[0-9a-f]{20}$`)
-	channelIDRe  = regexp.MustCompile(`^ch_[0-9a-f]{20}$`)
-	httpStatusRe = regexp.MustCompile(`^HTTP \d{3}$`)
+	ruleIDRe      = regexp.MustCompile(`^ar_[0-9a-f]{20}$`)
+	channelIDRe   = regexp.MustCompile(`^ch_[0-9a-f]{20}$`)
+	channelTestRe = regexp.MustCompile(`^ct_[0-9a-f]{20}$`)
 )
 
 func (s *Server) alertingAllowed(w http.ResponseWriter, r *http.Request, change bool) bool {
@@ -223,48 +225,46 @@ func (s *Server) deleteAlertChannel(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// testAlertChannel sends a sample alert so users can check the wiring.
+// testAlertChannel records a test delivery; the alerts worker sends it
+// within seconds. Poll getChannelTest for the result.
 func (s *Server) testAlertChannel(w http.ResponseWriter, r *http.Request) {
 	if !s.alertingAllowed(w, r, true) {
-		return
-	}
-	if s.Deliver == nil {
-		writeError(w, http.StatusServiceUnavailable, "unavailable", "test delivery is not configured")
 		return
 	}
 	id, ok := s.channelID(w, r)
 	if !ok {
 		return
 	}
-	ch, err := s.Alerting.GetAlertChannel(r.Context(), tenantFrom(r.Context()), id)
+	p := principalFrom(r.Context())
+	t, err := s.Alerting.RequestChannelTest(r.Context(), p.TenantID, p.UserID, id)
 	if err != nil {
 		s.alertingError(w, r, err, "channel")
 		return
 	}
-	ev := alerts.Event{ID: "evt_test", Kind: "test", Summary: "Test alert from Bindle. If you can read this, the channel works.", FiredAt: s.now()}
-	if err := s.Deliver.Send(r.Context(), ch, ev, alerts.Rule{}); err != nil {
-		s.logger().Warn("test alert failed", "tenant", ch.TenantID, "channel", ch.ID, "err", err)
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": testFailure(err)})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	writeJSON(w, http.StatusAccepted, t)
 }
 
-// testFailure reduces a delivery error to a message that doesn't echo
-// internal details (resolved addresses, TLS internals).
-func testFailure(err error) string {
-	msg := err.Error()
-	switch {
-	case httpStatusRe.MatchString(msg):
-		return "the receiver answered " + msg
-	case strings.Contains(msg, "non-public address"):
-		return "the URL resolves to a private or local address"
-	case strings.Contains(msg, "redirects"):
-		return "the receiver answered with a redirect; use the final URL"
-	case strings.Contains(msg, "not configured"):
-		return "email delivery is not configured on this deployment"
+// getChannelTest returns a test delivery's status: pending, running, ok or
+// failed (with a message that is safe to show).
+func (s *Server) getChannelTest(w http.ResponseWriter, r *http.Request) {
+	if !s.alertingAllowed(w, r, false) {
+		return
 	}
-	return "the receiver could not be reached"
+	id, ok := s.channelID(w, r)
+	if !ok {
+		return
+	}
+	testID := r.PathValue("test")
+	if !channelTestRe.MatchString(testID) {
+		badRequest(w, "invalid test id")
+		return
+	}
+	t, err := s.Alerting.GetChannelTest(r.Context(), tenantFrom(r.Context()), id, testID)
+	if err != nil {
+		s.alertingError(w, r, err, "test")
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
 }
 
 func (s *Server) listAlertEvents(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,87 @@
+// Dogwood policies for agent "refund-agent", compiled by `bindle passport export` from bindle.passport/v1.
+// Owner: payments-team@example.com. Experimental: review before use, and start in LOG_ONLY mode.
+// Dogwood is default-deny and forbid wins: a call is allowed only if a permit applies and no forbid does.
+
+@id("bindle_allow_crm_find")
+permit (
+    principal,
+    action == AgentCore::Action::"OrdersAPI___crm_find",
+    resource == AgentCore::Gateway::"arn:aws:bedrock-agentcore:us-west-2:111122223333:gateway/refunds-gw-a1b2c3"
+);
+
+@id("bindle_allow_crm_update")
+permit (
+    principal,
+    action == AgentCore::Action::"OrdersAPI___crm_update",
+    resource == AgentCore::Gateway::"arn:aws:bedrock-agentcore:us-west-2:111122223333:gateway/refunds-gw-a1b2c3"
+);
+
+@id("bindle_allow_lookup_order")
+permit (
+    principal,
+    action == AgentCore::Action::"OrdersAPI___lookup_order",
+    resource == AgentCore::Gateway::"arn:aws:bedrock-agentcore:us-west-2:111122223333:gateway/refunds-gw-a1b2c3"
+);
+
+@id("bindle_allow_refund_payment")
+permit (
+    principal,
+    action == AgentCore::Action::"OrdersAPI___refund_payment",
+    resource == AgentCore::Gateway::"arn:aws:bedrock-agentcore:us-west-2:111122223333:gateway/refunds-gw-a1b2c3"
+);
+
+// At most 3 call(s) to refund_payment in any 5m of a policy session.
+// Not a security control: the caller supplies the session ID and can reset the count by starting a new
+// session. Use it to shape behaviour in a cooperative session (for example, to stop a looping agent).
+@id("bindle_rate_refund_payment")
+forbid (
+    principal,
+    action == AgentCore::Action::"OrdersAPI___refund_payment",
+    resource == AgentCore::Gateway::"arn:aws:bedrock-agentcore:us-west-2:111122223333:gateway/refunds-gw-a1b2c3"
+)
+when temporal {
+    exists (n: Long).
+        (count for (t: Timepoint).
+            where (formerly within 5m (AgentCore::Action::"OrdersAPI___refund_payment"::request{ eventResource: resource } && tp(t)))) == n
+        && n > 3
+};
+
+// SKIPPED: rate limit on pattern "crm_*": a combined count over several tools isn't exported.
+
+// At most 100 call(s) to lookup_order in any 2m of a policy session.
+// Not a security control: the caller supplies the session ID and can reset the count by starting a new
+// session. Use it to shape behaviour in a cooperative session (for example, to stop a looping agent).
+@id("bindle_rate_lookup_order")
+forbid (
+    principal,
+    action == AgentCore::Action::"OrdersAPI___lookup_order",
+    resource == AgentCore::Gateway::"arn:aws:bedrock-agentcore:us-west-2:111122223333:gateway/refunds-gw-a1b2c3"
+)
+when temporal {
+    exists (n: Long).
+        (count for (t: Timepoint).
+            where (formerly within 2m (AgentCore::Action::"OrdersAPI___lookup_order"::request{ eventResource: resource } && tp(t)))) == n
+        && n > 100
+};
+
+// The passport gives no release rights: deploy_prod is a release action.
+@id("bindle_no_release_deploy_prod")
+forbid (
+    principal,
+    action == AgentCore::Action::"OrdersAPI___deploy_prod",
+    resource == AgentCore::Gateway::"arn:aws:bedrock-agentcore:us-west-2:111122223333:gateway/refunds-gw-a1b2c3"
+);
+
+// The passport gives no release rights: git_push is a release action.
+@id("bindle_no_release_git_push")
+forbid (
+    principal,
+    action == AgentCore::Action::"OrdersAPI___git_push",
+    resource == AgentCore::Gateway::"arn:aws:bedrock-agentcore:us-west-2:111122223333:gateway/refunds-gw-a1b2c3"
+);
+
+// PLACEHOLDER (not exported): data_classes (allow / egress_block). Dogwood guardrail conditions
+// (`when guardrails { ... }`) may be able to express this, but their syntax wasn't verified, so Bindle
+// doesn't generate them. Bindle keeps reporting data-class drift either way.
+
+// Budgets (per run, per day) are not exported: they stay with Bindle's agent limits (check_limits()).

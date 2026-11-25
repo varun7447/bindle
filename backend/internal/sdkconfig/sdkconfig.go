@@ -42,6 +42,10 @@ type Config struct {
 	// StoppedRuns lists trace IDs stopped from the console in the last
 	// hour. Set by Bindle; read-only. bindle.check_limits() raises in them.
 	StoppedRuns []string `json:"stopped_runs"`
+	// KilledSkills are the learning loop's kill switches: "<agent>/<path>"
+	// for one skill, "<agent>/*" for every learned skill of an agent. Set by
+	// Bindle; read-only. The SDKs stop offering those skills.
+	KilledSkills []string `json:"killed_skills"`
 	// Prices are the workspace's model price overrides. Used by ingest;
 	// never sent to the SDK.
 	Prices    []PriceOverride `json:"-"`
@@ -50,7 +54,7 @@ type Config struct {
 
 // Default applies to tenants that never changed their settings.
 func Default() Config {
-	return Config{SampleRate: 1, CaptureContent: true, RedactPatterns: []Pattern{}, Limits: []Limit{}, OverBudget: []string{}, StoppedRuns: []string{}}
+	return Config{SampleRate: 1, CaptureContent: true, RedactPatterns: []Pattern{}, Limits: []Limit{}, OverBudget: []string{}, StoppedRuns: []string{}, KilledSkills: []string{}}
 }
 
 const (

@@ -29,6 +29,9 @@ add POSTGRES_PASSWORD "$(rand)"
 add BINDLE_CONTROL_API_PASSWORD "$(rand)"
 add BINDLE_CONTROL_INGEST_PASSWORD "$(rand)"
 add BINDLE_CONTROL_ALERTS_PASSWORD "$(rand)"
+# Encrypts secrets kept in PostgreSQL (alert webhook URLs and signing
+# secrets) with AES-256-GCM; on AWS a KMS key does this instead.
+add BINDLE_SECRETS_KEY "$(head -c 32 /dev/urandom | base64)"
 # Local-only: the query API on 127.0.0.1:8080 serves every request as this
 # tenant until real console auth exists. Remove the line to make it reject all.
 add BINDLE_API_DEV_AUTH_BYPASS_TENANT "dev-tenant"

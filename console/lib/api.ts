@@ -8,8 +8,11 @@
 // token is sent and the API's dev bypass, if enabled, applies.
 
 import { sessionToken } from './auth';
+import type { ChannelTest } from './alerting';
 import type { SecurityResponse } from './security';
+import type { AgentPassportResponse, DriftResponse, MgmtKey, PassportVersion } from './passports';
 import type { TopicsResponse } from './topics';
+import type { GradingResponse, OutcomeEndpoint, OutcomeEvent, OutcomeEventStatus, OutcomeSettings } from './grading';
 import type { AgentLimit, LimitsResponse } from './limits';
 import type { AWSPrice, ModelUsage, PriceOverride, PricesResponse } from './prices';
 import type { ToolHealth, VersionStats, VersionToolUsage } from './agents';
@@ -19,6 +22,8 @@ import { type Economics, type ProblemSource, type SuggestionsResponse, problemPa
 import type { Session, SessionDetail } from './sessions';
 import type { SearchHit } from './search';
 import type { TraceLink } from './links';
+import type { LessonsResponse, Reviewers, VaultNote, VaultResponse } from './learning';
+import type { Proof, Release, Rollback, ShipSettings } from './shipping';
 import type {
   APIKey,
   AlertsResponse,
@@ -33,6 +38,7 @@ import type {
 import { isStepId, isTraceId } from './ids';
 import type { SDKConfig } from './sdksettings';
 import type { AlertChannel, AlertEvent, AlertRule, ChannelKind, RuleKind } from './alerting';
+import type { LedgerEntry, LedgerResult } from './ledger';
 
 export class ApiError extends Error {
   constructor(
@@ -95,6 +101,7 @@ async function apiRequest<T>(method: string, url: string, body: object | undefin
 }
 
 const KEY_ID = /^key_[0-9a-f]{20}$/;
+const MGMT_KEY_ID = /^mkey_[0-9a-f]{20}$/;
 
 // Every call carries the current user's session token (if any).
 const get = async <T>(path: string, params: Params = {}) => apiGet<T>(path, params, fetch, await sessionToken());
@@ -114,6 +121,9 @@ const RULE_ID = /^ar_[0-9a-f]{20}$/;
 const SCORER_ID = /^sc_[0-9a-f]{20}$/;
 const DATASET_ID = /^ds_[0-9a-f]{20}$/;
 const CHANNEL_ID = /^ch_[0-9a-f]{20}$/;
+const CHANNEL_TEST_ID = /^ct_[0-9a-f]{20}$/;
+
+const OUTCOME_ENDPOINT_ID = /^oep_[0-9a-f]{16}$/;
 
 function checked(id: string, re: RegExp, what: string): string {
   if (!re.test(id)) throw new ApiError(400, 'bad_request', `Invalid ${what} ID`);
@@ -166,6 +176,21 @@ export const api = {
   models: (window: string) => get<{ window: string; models: ModelUsage[] }>('/api/models', { window }),
   tools: (window: string) => get<{ window: string; tools: ToolHealth[] }>('/api/tools', { window }),
   agentVersions: (agent: string, window: string) => get<{ window: string; agent: string; versions: VersionStats[] }>('/api/agents/versions', { agent, window }),
+  features: () => get<{ features: string[] }>('/api/features'),
+  // Passports and management keys (behind the passports flag).
+  mgmtKeys: () => get<{ keys: MgmtKey[]; scopes: string[] }>('/api/mgmt-keys'),
+  createMgmtKey: (name: string, scopes: string[]) => post<{ key: MgmtKey; secret: string }>('/api/mgmt-keys', { name, scopes }),
+  revokeMgmtKey: async (id: string) => post<void>(`/api/mgmt-keys/${checked(id, MGMT_KEY_ID, 'key')}/revoke`, {}),
+  passports: () => get<{ passports: PassportVersion[] }>('/api/passports'),
+  agentPassport: (agent: string) => get<AgentPassportResponse>('/api/agents/passport', { agent }),
+  passportDrift: (window: string) => get<DriftResponse>('/api/passport-drift', { window }),
+  ledger: (agent: string, days: number, beforeSeq?: number) =>
+    get<{ agent: string; from: string; to: string; entries: LedgerEntry[]; next_before_seq?: number }>('/api/agents/ledger', {
+      agent,
+      days: String(days),
+      ...(beforeSeq ? { before_seq: String(beforeSeq) } : {}),
+    }),
+  ledgerVerify: (agent: string, days: number) => get<{ agent: string; result: LedgerResult }>('/api/agents/ledger/verify', { agent, days: String(days) }),
   toolUsage: (agent: string, window: string) => get<{ window: string; agent: string; versions: VersionToolUsage[] }>('/api/agents/tool-usage', { agent, window }),
   agentTopics: (agent: string, window: string) => get<TopicsResponse>('/api/agents/topics', { agent, window }),
   security: (window: string) => get<SecurityResponse>('/api/security', { window }),
@@ -191,6 +216,14 @@ export const api = {
   datasetEvals: async (id: string) => get<{ evals: EvalRun[] }>(`/api/datasets/${checked(id, DATASET_ID, 'dataset')}/evals`),
   agentChecks: (agent: string, window: string) => get<AgentChecks>('/api/agents/checks', { agent, window }),
   economics: (window: string) => get<{ window: string; agents: Economics[] }>('/api/economics', { window }),
+  grading: (window: string, agent?: string) => get<GradingResponse>('/api/agents/grading', agent ? { window, agent } : { window }),
+  outcomeSettings: () => get<OutcomeSettings>('/api/outcomes/settings'),
+  putOutcomeSettings: (v: { reversal_outcomes: string[]; pending_hours: number }) => put<OutcomeSettings>('/api/outcomes/settings', v),
+  outcomeEndpoints: () => get<{ endpoints: OutcomeEndpoint[] }>('/api/outcomes/endpoints'),
+  createOutcomeEndpoint: (name: string) =>
+    post<{ endpoint: OutcomeEndpoint; secret: string; path: string; signature_header: string }>('/api/outcomes/endpoints', { name }),
+  revokeOutcomeEndpoint: (id: string) => post<{ revoked: boolean }>(`/api/outcomes/endpoints/${checked(id, OUTCOME_ENDPOINT_ID, 'endpoint')}/revoke`, {}),
+  outcomeEvents: (status?: OutcomeEventStatus) => get<{ events: OutcomeEvent[] }>('/api/outcomes/events', status ? { status, limit: '100' } : { limit: '100' }),
   problemSuggestions: (src: ProblemSource) => get<SuggestionsResponse>('/api/problems/suggestions', problemParams(src)),
   addProblemItems: async (id: string, src: ProblemSource) =>
     post<{ added: number; found: number; source: string }>(`/api/datasets/${checked(id, DATASET_ID, 'dataset')}/items/from-problems`, problemParams(src)),
@@ -214,7 +247,28 @@ export const api = {
   setAlertChannelEnabled: async (id: string, enabled: boolean) =>
     put<void>(`/api/alert-channels/${checked(id, CHANNEL_ID, 'channel')}/state`, { enabled }),
   deleteAlertChannel: async (id: string) => del(`/api/alert-channels/${checked(id, CHANNEL_ID, 'channel')}`),
-  testAlertChannel: async (id: string) =>
-    post<{ ok: boolean; error?: string }>(`/api/alert-channels/${checked(id, CHANNEL_ID, 'channel')}/test`, {}),
+  // Test deliveries run in the alerts worker: request one, then poll it.
+  requestChannelTest: async (id: string) =>
+    post<ChannelTest>(`/api/alert-channels/${checked(id, CHANNEL_ID, 'channel')}/test`, {}),
+  channelTest: async (id: string, testId: string) =>
+    get<ChannelTest>(`/api/alert-channels/${checked(id, CHANNEL_ID, 'channel')}/tests/${checked(testId, CHANNEL_TEST_ID, 'test')}`),
   alertEvents: () => get<{ events: AlertEvent[] }>('/api/alert-events'),
+  // Learning loop (404 unless the workspace has the learning_loop feature).
+  lessons: (agent?: string) => get<LessonsResponse>('/api/lessons', agent !== undefined ? { agent } : {}),
+  vault: (agent: string) => get<VaultResponse>('/api/vault', { agent }),
+  vaultNote: (agent: string, path: string) => get<VaultNote>('/api/vault/note', { agent, path }),
+  saveVaultNote: (agent: string, path: string, content: string, base: string) =>
+    put<VaultNote>('/api/vault/note', { agent, path, content, base_sha256: base }),
+  vaultAction: (agent: string, path: string, action: 'approve' | 'retire' | 'restore', sha256: string) =>
+    post<{ path: string; status: string; version: number }>('/api/vault/note/action', { agent, path, action, sha256 }),
+  vaultReview: (agent: string, path: string, sha256: string) => post<{ path: string }>('/api/vault/note/review', { agent, path, sha256 }),
+  securityReviewers: () => get<Reviewers>('/api/security-reviewers'),
+  addSecurityReviewer: (email: string) => post<{ user_id: string }>('/api/security-reviewers', { email }),
+  // Learning loop, phase 2: proofs, shipped releases, opt-in and kill switches.
+  skillProofs: (agent: string, path: string) => get<{ proofs: Proof[] }>('/api/skills/proofs', { agent, path }),
+  skillReleases: (agent: string, path?: string) =>
+    get<{ releases: Release[]; settings: ShipSettings }>('/api/skills/releases', path ? { agent, path } : { agent }),
+  skillRollbacks: (days = 7) => get<{ rollbacks: Rollback[] }>('/api/skills/rollbacks', { days: String(days) }),
+  putShipSettings: (agent: string, ship: boolean, killAll: boolean) => put<ShipSettings>('/api/skills/settings', { agent, ship, kill_all: killAll }),
+  killSkill: (agent: string, path: string, killed: boolean) => post<ShipSettings>('/api/skills/kill', { agent, path, killed }),
 };

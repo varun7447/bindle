@@ -27,18 +27,19 @@ from typing import Any, Callable, Iterator, List, Optional, Sequence, Union
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
-from . import _config, _instrument
+from . import _config, _correlate, _instrument
 from ._redact import Redactor
 
+from . import _learned as skills
 from ._cassette import Cassette, RecordedToolError, UnrecordedCall
 from ._limits import LimitExceeded
 from ._links import inject_mcp_meta, mcp_server_context
 
 __all__ = [
     "init", "flush", "shutdown", "step", "trace_step", "trace_tool",
-    "decision", "handoff", "score", "feedback", "outcome", "current_trace_id", "set_session", "check_limits", "limits_status",
+    "decision", "handoff", "score", "feedback", "outcome", "correlate", "current_trace_id", "set_session", "check_limits", "limits_status",
     "LimitExceeded", "Redactor", "context_token", "resume", "inject_mcp_meta", "mcp_server_context",
-    "Cassette", "UnrecordedCall", "RecordedToolError",
+    "Cassette", "UnrecordedCall", "RecordedToolError", "skills",
 ]
 __version__ = "0.1.0"
 
@@ -104,6 +105,7 @@ def init(
         _state["provider"], _state["config"], _state["capture"] = provider, cfg, cfg.capture_content
         if cfg.remote_config:
             _start_remote(cfg)
+        _start_skills(cfg)
     atexit.register(shutdown)
     return True
 
@@ -155,6 +157,27 @@ def _start_remote(cfg: _config.Config) -> None:
         _state["poller"] = poller
     except Exception as exc:  # noqa: BLE001
         log.debug("bindle: remote config disabled: %s", exc)
+
+
+def _killed_skills() -> tuple:
+    remote = _state["remote"]
+    return remote.killed_skills if remote is not None else ()
+
+
+def _start_skills(cfg: _config.Config) -> None:
+    """Fetches the learned skills shipped to this agent in the background
+    (bindle.skills). Off with BINDLE_SKILLS=off, and without an agent name."""
+    import os
+
+    if not cfg.agent or os.environ.get("BINDLE_SKILLS", "").strip().lower() in ("off", "0", "false", "no"):
+        return
+    try:
+        store = skills.SkillStore(cfg.endpoint, cfg.api_key, cfg.agent, cfg.version or "", killed=_killed_skills,
+                                  user_agent=f"bindle-sdk-python/{__version__}")
+        skills._set_store(store)
+        store.start()
+    except Exception as exc:  # noqa: BLE001
+        log.debug("bindle: skills disabled: %s", exc)
 
 
 def _setup(cfg: _config.Config):
@@ -232,6 +255,10 @@ def flush(timeout_millis: int = 5000) -> bool:
 
 
 def shutdown() -> None:
+    try:
+        skills._set_store(None)
+    except Exception:  # noqa: BLE001
+        pass
     poller = _state["poller"]
     if poller is not None:
         poller.stop()
@@ -501,6 +528,39 @@ def outcome(name: str, success: bool = True, value: Optional[float] = None, *,
     if not isinstance(success, bool):
         return False
     return score(name, value, passed=success, comment=comment, trace_id=trace_id, _source="outcome")
+
+
+_run_keys = _correlate.RunKeys()
+
+
+def correlate(key: str, value: Union[str, int]) -> bool:
+    """Tag the current run with a business identifier, so an event reported
+    later without the run's trace ID still finds it. For example
+    ``bindle.correlate("ticket_id", ticket.id)``; when the ticket is reopened,
+    your helpdesk reports ``{"correlation": {"ticket_id": "T-123"},
+    "name": "ticket_reopened", "success": false}`` to Bindle.
+
+    ``key``: lowercase letters, digits and ``_``, starting with a letter, at
+    most 32 characters. ``value``: at most 256 bytes. A run keeps at most 8
+    keys. Only a digest of the key and value is sent; Bindle never stores
+    the value. Returns True if recorded. Never raises.
+    """
+    try:
+        attr = _correlate.attribute(key, value)
+        if attr is None:
+            log.debug("bindle: correlate(%r) ignored: invalid key or value", key)
+            return False
+        span = trace.get_current_span()
+        ctx = span.get_span_context()
+        if not ctx.is_valid or not span.is_recording():
+            return False
+        if not _run_keys.admit(ctx.trace_id, key):
+            log.debug("bindle: correlate(%r) ignored: a run keeps at most %d keys", key, _correlate.MAX_KEYS)
+            return False
+        span.set_attribute(attr[0], attr[1])
+        return True
+    except Exception:  # noqa: BLE001 - never break the host app
+        return False
 
 
 def current_trace_id() -> Optional[str]:

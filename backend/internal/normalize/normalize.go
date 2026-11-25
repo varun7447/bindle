@@ -18,6 +18,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/bindle-ai/bindle/backend/internal/correlate"
 	"github.com/bindle-ai/bindle/backend/internal/cost"
 	"github.com/bindle-ai/bindle/backend/internal/model"
 	"github.com/bindle-ai/bindle/backend/internal/otlp"
@@ -168,6 +169,14 @@ func (n *Normalizer) Normalize(tenantID string, s model.Span) model.Step {
 	}
 
 	st.Attributes = flatten(a)
+	// Correlation values are hashed (bound to the tenant) and the attributes
+	// that carried them are never stored.
+	corr, drop := correlate.FromAttributes(tenantID, a)
+	st.Correlations = corr
+	for _, k := range drop {
+		delete(st.Attributes, k)
+	}
+	st.SkillsUsed = skillsUsed(s.Events)
 	for _, l := range s.Links {
 		st.Links = append(st.Links, l.TraceID+":"+l.SpanID)
 	}
@@ -597,6 +606,36 @@ func EvaluationSpans(s model.Span) []model.Span {
 			Name: "evaluation " + name, StartUnixNano: t, EndUnixNano: t, Attributes: attrs, ResourceAttrs: s.ResourceAttrs,
 			ScopeName: s.ScopeName, ScopeVersion: s.ScopeVersion,
 		})
+	}
+	return out
+}
+
+// SkillEvent is the span event the SDKs record when an agent loads a
+// learned skill (bindle.skills.load), with bindle.skill.path and
+// bindle.skill.release.
+const SkillEvent = "bindle.skill.used"
+
+var skillPathRe = regexp.MustCompile(`^skills/[a-z0-9]+(?:-[a-z0-9]+)*/SKILL\.md$`)
+
+// skillsUsed returns the learned skills loaded in a span as
+// "<path>@<release>", deduplicated, at most 20. Anything malformed is
+// ignored: the event comes from the customer's process.
+func skillsUsed(events []model.Event) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, e := range events {
+		if e.Name != SkillEvent || len(out) == 20 {
+			continue
+		}
+		p, rel := str(e.Attributes, "bindle.skill.path"), num(e.Attributes, "bindle.skill.release")
+		if !skillPathRe.MatchString(p) || rel < 1 || rel > 1_000_000 {
+			continue
+		}
+		ref := p + "@" + strconv.FormatInt(rel, 10)
+		if !seen[ref] {
+			seen[ref] = true
+			out = append(out, ref)
+		}
 	}
 	return out
 }

@@ -258,3 +258,28 @@ func TestCognitoResolver(t *testing.T) {
 		}
 	}
 }
+
+func TestDevBypassEmail(t *testing.T) {
+	env := map[string]string{EnvBypassTenant: "dev-tenant", EnvBypassEmail: "Owner@Example.com"}
+	r, err := FromEnv(func(k string) string { return env[k] }, "127.0.0.1:8080", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := r.Resolve(nil)
+	if err != nil || p.Email != "Owner@Example.com" || p.UserID != "" {
+		t.Fatalf("got %+v, %v", p, err)
+	}
+	env[EnvBypassEmail] = "not-an-email"
+	if _, err := FromEnv(func(k string) string { return env[k] }, "127.0.0.1:8080", nil); err == nil {
+		t.Fatal("accepted a malformed bypass email")
+	}
+	// Without the bypass the email setting does nothing: requests fail closed.
+	env = map[string]string{EnvBypassEmail: "owner@example.com"}
+	r, err = FromEnv(func(k string) string { return env[k] }, "127.0.0.1:8080", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Resolve(nil); err == nil {
+		t.Fatal("email without the bypass authenticated a request")
+	}
+}

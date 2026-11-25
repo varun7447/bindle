@@ -24,6 +24,7 @@ const (
 
 var problemKinds = map[string]bool{
 	query.SourceFailure: true, query.SourceNegativeFeedback: true, query.SourceFailedScore: true, query.SourceFailedRuns: true,
+	query.SourceReversed: true,
 }
 
 // problemBody is a problem-run source, from a query string or a JSON body.
@@ -52,7 +53,7 @@ func cleanFilter(v string) (string, bool) {
 // filter validates b into a ProblemFilter for the window ending at now.
 func (b problemBody) filter(now time.Time) (query.ProblemFilter, string) {
 	if !problemKinds[b.Kind] {
-		return query.ProblemFilter{}, "kind must be failure, negative_feedback, failed_score or failed_runs"
+		return query.ProblemFilter{}, "kind must be failure, negative_feedback, failed_score, failed_runs or reversed"
 	}
 	if b.Window == "" {
 		b.Window = "7d"
@@ -96,6 +97,8 @@ func problemLabel(f query.ProblemFilter) string {
 			return "failed score: " + f.Score
 		}
 		return "failed score"
+	case query.SourceReversed:
+		return reversedLabel
 	}
 	if f.Agent != "" {
 		return "failed runs of " + f.Agent
@@ -106,7 +109,17 @@ func problemLabel(f query.ProblemFilter) string {
 // problemRuns loads the problem runs for f, most recent first, filtered to
 // f.Agent (feedback and scores sent later carry no agent of their own).
 func (s *Server) problemRuns(ctx context.Context, tenant string, f query.ProblemFilter) ([]evals.Run, error) {
-	ids, err := s.Store.ProblemRuns(ctx, tenant, f)
+	var ids []string
+	var err error
+	if f.Kind == query.SourceReversed {
+		g, on := s.outcomesEnabledFor(ctx, tenant)
+		if !on {
+			return nil, errReversedOff
+		}
+		ids, err = s.reversedRuns(ctx, g, tenant, f)
+	} else {
+		ids, err = s.Store.ProblemRuns(ctx, tenant, f)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +169,7 @@ func (s *Server) suggestChecks(w http.ResponseWriter, r *http.Request) {
 	ctx, tenant := r.Context(), tenantFrom(r.Context())
 	runs, err := s.problemRuns(ctx, tenant, f)
 	if err != nil {
-		s.storeError(w, r, err)
+		s.problemError(w, r, err)
 		return
 	}
 	agent := f.Agent
@@ -242,7 +255,7 @@ func (s *Server) addProblemItems(w http.ResponseWriter, r *http.Request) {
 	ctx, tenant := r.Context(), tenantFrom(r.Context())
 	runs, err := s.problemRuns(ctx, tenant, f)
 	if err != nil {
-		s.storeError(w, r, err)
+		s.problemError(w, r, err)
 		return
 	}
 	added := 0
@@ -262,7 +275,13 @@ func (s *Server) economics(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	es, err := s.Store.Economics(r.Context(), tenantFrom(r.Context()), from, to)
+	var es []query.Economics
+	var err error
+	if g, on := s.outcomesEnabled(r); on {
+		es, err = s.economicsGraded(r.Context(), g, tenantFrom(r.Context()), from, to)
+	} else {
+		es, err = s.Store.Economics(r.Context(), tenantFrom(r.Context()), from, to)
+	}
 	if err != nil {
 		s.storeError(w, r, err)
 		return

@@ -1,0 +1,46 @@
+{
+  "version": "bindle.passport/v1",
+  "agent": "refund-agent",
+  "owner": "payments-team@example.com",
+  "tools": {
+    "allow": [
+      "lookup_order",
+      "crm_*",
+      "refund_payment"
+    ]
+  },
+  "data_classes": {
+    "allow": [
+      "EMAIL"
+    ],
+    "egress_block": [
+      "CARD"
+    ]
+  },
+  "budget": {
+    "per_run_usd": 0.5,
+    "per_day_usd": 200
+  },
+  "limits": [
+    {
+      "tool": "refund_payment",
+      "max": 3,
+      "window": "5m"
+    },
+    {
+      "tool": "crm_*",
+      "max": 10,
+      "window": "1h"
+    },
+    {
+      "tool": "lookup_order",
+      "max": 100,
+      "window": "120s"
+    }
+  ],
+  "release_rights": "none",
+  "release_tools": [
+    "deploy_*",
+    "git_push"
+  ]
+}

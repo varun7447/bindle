@@ -1,7 +1,9 @@
 import Link from 'next/link';
+import { parseSkillRef } from '@/lib/shipping';
 import { TraceIcon } from '@/components/Icons';
 import { notFound } from 'next/navigation';
 import { SecurityBadge, SecurityNotice } from '@/components/Security';
+import { DriftBadge, DriftNotice } from '@/components/Drift';
 import { ApiErrorPanel, KindChip, StatusBadge, settle } from '@/components/ui';
 import { ApiError, api } from '@/lib/api';
 import { formatCost, formatCount, formatDuration, formatTime } from '@/lib/format';
@@ -259,6 +261,7 @@ export default async function TracePage({
                     </span>
                     {r.step.attempt > 0 ? <span className="badge">retry {r.step.attempt}</span> : null}
                     <SecurityBadge flags={r.step.security_flags} />
+                    <DriftBadge drift={r.step.passport_drift} />
                     {failed ? (
                       <span className="wf-fail" aria-hidden="true">
                         ✕
@@ -319,6 +322,7 @@ function StepPanel({ step, summary }: { step: StepDetail; summary?: StepSummary 
           <StatusBadge status={step.status} />
           {step.attempt > 0 ? <span className="badge">retry {step.attempt}</span> : null}
           <SecurityBadge flags={step.security_flags} />
+          <DriftBadge drift={step.passport_drift} />
         </div>
         <h2 style={{ margin: 0, overflowWrap: 'anywhere' }}>{step.name}</h2>
         {step.type === 'llm_call' && step.input ? (
@@ -329,6 +333,21 @@ function StepPanel({ step, summary }: { step: StepDetail; summary?: StepSummary 
       </div>
 
       <SecurityNotice flags={step.security_flags} reasons={step.security_reasons} />
+      <DriftNotice drift={step.passport_drift} />
+      {step.skills_used?.length ? (
+        <div className="notice" role="note">
+          <span aria-hidden="true">◆</span>
+          <div>
+            <strong>Learned skills loaded in this step:</strong>{' '}
+            {step.skills_used
+              .map(parseSkillRef)
+              .filter((p) => p !== null)
+              .map((p) => `${p!.name} (release ${p!.release})`)
+              .join(', ')}
+            . Bindle measures each release against runs without it.
+          </div>
+        </div>
+      ) : null}
 
       {step.redacted_kinds.length > 0 ? (
         <div className="notice" role="note">

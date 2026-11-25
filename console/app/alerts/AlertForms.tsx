@@ -1,7 +1,7 @@
 'use client';
 
 import { useActionState, useState } from 'react';
-import { CHANNEL_KINDS, HAS_MIN, RULE_KINDS, WINDOWS, thresholdInput, type AlertRule, type ChannelKind, type RuleKind } from '@/lib/alerting';
+import { CHANNEL_KINDS, FEATURE_KINDS, HAS_MIN, RULE_KINDS, WINDOWS, thresholdInput, type AlertRule, type ChannelKind, type RuleKind } from '@/lib/alerting';
 import { channelAction, createChannelAction, createRuleAction, updateRuleAction, type AlertActionState } from './actions';
 
 const idle: AlertActionState = { kind: 'idle' };
@@ -63,7 +63,8 @@ function WindowSelect({ value }: { value: number }) {
   );
 }
 
-export function NewRuleForm() {
+export function NewRuleForm({ features = [] }: { features?: string[] }) {
+  const kinds = RULE_KINDS.filter((k) => !FEATURE_KINDS[k.kind] || features.includes(FEATURE_KINDS[k.kind]!));
   const [state, action, pending] = useActionState(createRuleAction, idle);
   const [kind, setKind] = useState<RuleKind>('run_cost');
   const meta = RULE_KINDS.find((k) => k.kind === kind)!;
@@ -71,7 +72,7 @@ export function NewRuleForm() {
     <div className="stack">
       <form action={action} className="filters" style={{ marginBottom: 0 }}>
         <select name="kind" value={kind} onChange={(e) => setKind(e.target.value as RuleKind)} aria-label="Alert on">
-          {RULE_KINDS.map((k) => (
+          {kinds.map((k) => (
             <option key={k.kind} value={k.kind}>
               {k.label}
             </option>

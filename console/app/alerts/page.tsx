@@ -11,11 +11,12 @@ export const dynamic = 'force-dynamic';
 
 export default async function AlertsPage() {
   await requireSession('/alerts');
-  const [me, rules, channels, events] = await Promise.all([
+  const [me, rules, channels, events, features] = await Promise.all([
     settle(api.me()),
     settle(api.alertRules()),
     settle(api.alertChannels()),
     settle(api.alertEvents()),
+    settle(api.features()),
   ]);
   const canEdit = me.ok && me.data.can_manage_keys;
   const now = Date.now();
@@ -59,7 +60,7 @@ export default async function AlertsPage() {
                   <div className="sub">{describeRule(r)}</div>
                 </div>
               ))}
-              {canEdit ? <NewRuleForm /> : null}
+              {canEdit ? <NewRuleForm features={features.ok ? features.data.features : []} /> : null}
             </div>
           </section>
 

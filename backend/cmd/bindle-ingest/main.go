@@ -37,14 +37,17 @@ import (
 	"github.com/bindle-ai/bindle/backend/internal/control"
 	"github.com/bindle-ai/bindle/backend/internal/cost"
 	"github.com/bindle-ai/bindle/backend/internal/ingest"
+	"github.com/bindle-ai/bindle/backend/internal/ledger"
 	"github.com/bindle-ai/bindle/backend/internal/normalize"
 	"github.com/bindle-ai/bindle/backend/internal/payload"
 	"github.com/bindle-ai/bindle/backend/internal/pipeline"
 	"github.com/bindle-ai/bindle/backend/internal/ratelimit"
 	"github.com/bindle-ai/bindle/backend/internal/redact"
 	"github.com/bindle-ai/bindle/backend/internal/search"
+	"github.com/bindle-ai/bindle/backend/internal/secretbox"
 	"github.com/bindle-ai/bindle/backend/internal/sink"
 	"github.com/bindle-ai/bindle/backend/internal/stream"
+	"github.com/bindle-ai/bindle/backend/internal/vault"
 )
 
 func main() {
@@ -61,6 +64,7 @@ func run(log *slog.Logger) error {
 
 	var keys auth.Resolver
 	var policies ingest.PolicySource // remote SDK config, from the control plane
+	var features *control.FeatureResolver
 	controlDB, err := control.OpenFromEnv("BINDLE_CONTROL_DB_URL")
 	if err != nil {
 		return err
@@ -74,6 +78,7 @@ func run(log *slog.Logger) error {
 		go r.RunUsageFlusher(ctx, time.Minute)
 		keys = r
 		policies = &control.ConfigResolver{DB: controlDB, Log: log}
+		features = &control.FeatureResolver{DB: controlDB, Log: log}
 	default:
 		k, err := auth.ParseEnv(static)
 		if err != nil {
@@ -112,6 +117,9 @@ func run(log *slog.Logger) error {
 		}
 		go w.Maintain(ctx, time.Hour)
 		out = w
+		if controlDB != nil { // workspaces with the ledger feature also get ledger entries
+			out = &ledger.Sink{Inner: w, Ledger: &ledger.Writer{DB: controlDB}, Features: features, Log: log}
+		}
 	case "stdout":
 		out = &sink.Stdout{}
 	case "stream":
@@ -154,6 +162,9 @@ func run(log *slog.Logger) error {
 		MaxBodyBytes: int64(envFloat("BINDLE_MAX_BODY_BYTES", 8<<20)),
 		Log:          log,
 	}
+	if controlDB != nil { // workspaces with the passports feature get drift detection
+		h.Passports = &control.PassportResolver{DB: controlDB, Features: features, Log: log}
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/v1/traces", h)
@@ -162,6 +173,34 @@ func run(log *slog.Logger) error {
 	logs.Logs = true
 	mux.Handle("/v1/logs", &logs)
 	mux.Handle("/v1/config", &ingest.ConfigHandler{Keys: keys, Policies: policies, Limiter: limiter, Log: log})
+	if controlDB != nil {
+		// Passport pushes from the CLI or CI, with a management key.
+		ph := &ingest.PassportHandler{Keys: &control.MgmtKeyResolver{DB: controlDB}, Store: &control.PassportWriter{DB: controlDB},
+			Features: features, Policies: policies, Limiter: ratelimit.New(1, 10), Log: log}
+		mux.Handle("/v1/passports", ph)
+		mux.Handle("/v1/passports/validate", ph)
+		// Business events reported after a run (feature outcome_grading).
+		secrets, err := secretbox.FromEnv(os.Getenv)
+		if err != nil {
+			return err
+		}
+		oh := &ingest.OutcomeHandler{Keys: keys, Store: &control.OutcomeIngest{DB: controlDB, Secrets: secrets},
+			Features: features, Limiter: ratelimit.New(20, 100), Log: log}
+		mux.Handle("/v1/outcome-events", oh)
+		mux.Handle("/v1/outcome-events/", oh)
+		// Learning loop (feature learning_loop): lessons, lesson packs,
+		// skill drafts and vault sync for the CLI, with a management key.
+		li := &control.LearningIngest{DB: controlDB}
+		lh := &ingest.LearningHandler{Keys: &control.MgmtKeyResolver{DB: controlDB}, IngestKeys: keys, Store: li, Ship: li, Features: features,
+			Limiter: ratelimit.New(2, 20), Log: log, Saver: &vault.Saver{
+				Store: li, Passport: li.Passport, Tools: li.AgentTools, Labels: ingest.CustomLabels(policies),
+				Ledger:   &ledger.Writer{DB: controlDB},
+				LedgerOn: func(ctx context.Context, t string) bool { return features.Enabled(ctx, t, ledger.Feature) },
+			}}
+		for _, p := range []string{"/v1/lessons", "/v1/lessons/", "/v1/skills", "/v1/skills/proof", "/v1/vault"} {
+			mux.Handle(p, lh)
+		}
+	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 
 	srv := &http.Server{

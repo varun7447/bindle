@@ -43,7 +43,7 @@ describe('redaction', () => {
 describe('remote settings', () => {
   it('parses and validates', () => {
     const s = parseSettings(JSON.stringify({ version: 3, sample_rate: 0.5, capture_content: false, redact_patterns: [{ name: 'ORDER', pattern: 'ord_\\d+' }, { name: 'bad name', pattern: 'x' }], poll_interval_seconds: 5 }));
-    expect(s).toEqual({ version: 3, sampleRate: 0.5, captureContent: false, redactPatterns: { ORDER: 'ord_\\d+' }, pollIntervalSeconds: 30, limits: [], overBudget: [], stoppedRuns: [] });
+    expect(s).toEqual({ version: 3, sampleRate: 0.5, captureContent: false, redactPatterns: { ORDER: 'ord_\\d+' }, pollIntervalSeconds: 30, limits: [], overBudget: [], stoppedRuns: [], killedSkills: [] });
     for (const bad of ['nope', '{"sample_rate":2,"capture_content":true}', '{"sample_rate":1}']) expect(parseSettings(bad)).toBeUndefined();
   });
   it('polls with the key, honors 304 and backs off on errors', async () => {

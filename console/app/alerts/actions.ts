@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { ApiError, api } from '@/lib/api';
 import { assertSameOrigin } from '@/lib/auth';
-import { isChannelKind, isRuleKind, parseRule, type RuleKind } from '@/lib/alerting';
+import { TEST_STILL_SENDING, isChannelKind, isRuleKind, parseRule, waitForTest, type RuleKind } from '@/lib/alerting';
 
 export type AlertActionState =
   | { kind: 'idle' }
@@ -72,8 +72,11 @@ export async function channelAction(_: AlertActionState, form: FormData): Promis
     const id = String(form.get('id') ?? '');
     switch (form.get('op')) {
       case 'test': {
-        const res = await api.testAlertChannel(id);
-        return res.ok ? { kind: 'done', message: 'Test alert sent.' } : { kind: 'error', message: `Test failed: ${res.error ?? 'unknown error'}.` };
+        const req = await api.requestChannelTest(id);
+        const res = await waitForTest(() => api.channelTest(id, req.id));
+        if (res.ok) return { kind: 'done', message: 'Test alert sent.' };
+        if ('pending' in res) return { kind: 'done', message: TEST_STILL_SENDING };
+        return { kind: 'error', message: `Test failed: ${res.error}.` };
       }
       case 'pause':
         await api.setAlertChannelEnabled(id, false);

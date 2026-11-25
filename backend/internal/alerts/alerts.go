@@ -125,6 +125,10 @@ func ValidateRule(r Rule) error {
 		if r.Threshold < 1 || r.Threshold > 100000 || r.Threshold != float64(int(r.Threshold)) {
 			return invalid("security-signal threshold must be a whole number of flagged steps, at least 1")
 		}
+	case KindPassportDrift:
+		if r.Threshold < 1 || r.Threshold > 100000 || r.Threshold != float64(int(r.Threshold)) {
+			return invalid("passport-drift threshold must be a whole number of drifting steps, at least 1")
+		}
 	case KindWeeklyDigest:
 		if r.Threshold != 1 || r.WindowMinutes != 1440 {
 			return invalid("the weekly digest has no threshold or window to set")

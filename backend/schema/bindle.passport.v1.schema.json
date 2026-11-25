@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bindle.passport.v1.schema.json",
+  "title": "Bindle agent passport (bindle.passport/v1)",
+  "description": "What one agent may do. Bindle reports drift from it; nothing is blocked. Bindle's validator is authoritative: it also checks data-class labels against the workspace's redaction patterns.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "agent", "owner"],
+  "$defs": {
+    "pattern": {"type": "string", "pattern": "^[A-Za-z0-9_.:/@*-]{1,128}$", "description": "A tool name; * matches any run of characters."},
+    "label": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,31}$", "description": "A redaction label: EMAIL, CARD, SSN, PHONE, SECRET, PRIVATE_KEY or a workspace pattern name."}
+  },
+  "properties": {
+    "version": {"const": "bindle.passport/v1"},
+    "agent": {"type": "string", "minLength": 1, "maxLength": 128},
+    "owner": {"type": "string", "minLength": 1, "maxLength": 256},
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": {"enum": ["iam_role", "oauth_client", "service"]},
+        "id": {"type": "string", "minLength": 1, "maxLength": 256}
+      }
+    },
+    "autonomy_tier": {"type": "integer", "minimum": 0, "maximum": 3},
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allow"],
+      "properties": {"allow": {"type": "array", "maxItems": 200, "items": {"$ref": "#/$defs/pattern"}}}
+    },
+    "data_classes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow": {"type": ["array", "null"], "maxItems": 200, "items": {"$ref": "#/$defs/label"}},
+        "egress_block": {"type": "array", "maxItems": 200, "items": {"$ref": "#/$defs/label"}}
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "per_run_usd": {"type": "number", "minimum": 0, "maximum": 1000000},
+        "per_day_usd": {"type": "number", "minimum": 0, "maximum": 1000000}
+      }
+    },
+    "limits": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tool", "max", "window"],
+        "properties": {
+          "tool": {"$ref": "#/$defs/pattern"},
+          "max": {"type": "integer", "minimum": 1, "maximum": 1000000},
+          "window": {"type": "string", "pattern": "^[1-9][0-9]{0,4}(s|m|h)$", "description": "Sliding window, at most 24h."}
+        }
+      }
+    },
+    "release_rights": {"enum": ["none", "request", "full"]},
+    "release_tools": {"type": "array", "maxItems": 200, "items": {"$ref": "#/$defs/pattern"}}
+  }
+}
